@@ -184,6 +184,15 @@ config CORESIGHT_CPU_DEBUG_DEFAULT_ON
 
 	  Say N if unsure.
 
+config CORESIGHT_REMOTE_ETM
+	tristate "Remote processor ETM trace support"
+	select QCOM_QMI_HELPERS
+	help
+	  Enables support for ETM trace collection on remote processor using
+	  CoreSight framework. Enabling this will allow turning on ETM
+	  tracing on remote processor via sysfs by configuring the required
+	  CoreSight components.
+
 config CORESIGHT_CTI
 	tristate "CoreSight Cross Trigger Interface (CTI) driver"
 	depends on ARM || ARM64
