@@ -11,6 +11,7 @@
 
 #include <linux/types.h>
 
+struct cma;
 struct dma_heap;
 
 /**
@@ -76,5 +77,14 @@ void dma_heap_put(struct dma_heap *heap);
 struct dma_buf *dma_heap_buffer_alloc(struct dma_heap *heap, size_t len,
 				      unsigned int fd_flags,
 				      unsigned int heap_flags);
+
+#ifdef CONFIG_DMABUF_HEAPS_CMA
+int cma_heap_add(struct cma *cma, void *data);
+#else
+static inline int cma_heap_add(struct cma *cma, void *data)
+{
+	return -EINVAL;
+}
+#endif /* CONFIG_DMABUF_HEAPS_CMA */
 
 #endif /* _DMA_HEAPS_H */
