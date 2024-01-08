@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2020 Linaro Ltd.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef __PINCTRL_LPASS_LPI_H__
 #define __PINCTRL_LPASS_LPI_H__
@@ -89,5 +90,7 @@ struct lpi_pinctrl_variant_data {
 
 int lpi_pinctrl_probe(struct platform_device *pdev);
 void lpi_pinctrl_remove(struct platform_device *pdev);
+int lpi_pinctrl_runtime_suspend(struct device *dev);
+int lpi_pinctrl_runtime_resume(struct device *dev);
 
 #endif /*__PINCTRL_LPASS_LPI_H__*/

@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2020 Linaro Ltd.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/bitfield.h>
@@ -10,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/seq_file.h>
 
 #include <linux/pinctrl/pinconf-generic.h>
@@ -24,6 +26,8 @@
 #define GPIO_FUNC		0
 #define MAX_LPI_NUM_CLKS	2
 
+static struct device *lpi_dev;
+
 struct lpi_pinctrl {
 	struct device *dev;
 	struct pinctrl_dev *ctrl;
@@ -34,6 +38,8 @@ struct lpi_pinctrl {
 	struct clk_bulk_data clks[MAX_LPI_NUM_CLKS];
 	/* Protects from concurrent register updates */
 	struct mutex lock;
+	/* Protects from concurrent clock updates */
+	struct mutex lpi_lock;
 	DECLARE_BITMAP(ever_gpio, MAX_NR_GPIO);
 	const struct lpi_pinctrl_variant_data *data;
 };
@@ -41,14 +47,26 @@ struct lpi_pinctrl {
 static int lpi_gpio_read(struct lpi_pinctrl *state, unsigned int pin,
 			 unsigned int addr)
 {
-	return ioread32(state->tlmm_base + LPI_TLMM_REG_OFFSET * pin + addr);
+	int ret = 0;
+
+	pm_runtime_get_sync(lpi_dev);
+
+	ret = ioread32(state->tlmm_base + LPI_TLMM_REG_OFFSET * pin + addr);
+
+	pm_runtime_mark_last_busy(lpi_dev);
+	pm_runtime_put_autosuspend(lpi_dev);
+	return ret;
 }
 
 static int lpi_gpio_write(struct lpi_pinctrl *state, unsigned int pin,
 			  unsigned int addr, unsigned int val)
 {
+	pm_runtime_get_sync(lpi_dev);
+
 	iowrite32(val, state->tlmm_base + LPI_TLMM_REG_OFFSET * pin + addr);
 
+	pm_runtime_mark_last_busy(lpi_dev);
+	pm_runtime_put_autosuspend(lpi_dev);
 	return 0;
 }
 
@@ -448,6 +466,7 @@ int lpi_pinctrl_probe(struct platform_device *pdev)
 
 	pctrl->data = data;
 	pctrl->dev = &pdev->dev;
+	lpi_dev = &pdev->dev;
 
 	pctrl->clks[0].id = "core";
 	pctrl->clks[1].id = "audio";
@@ -487,6 +506,7 @@ int lpi_pinctrl_probe(struct platform_device *pdev)
 	pctrl->chip.can_sleep = false;
 
 	mutex_init(&pctrl->lock);
+	mutex_init(&pctrl->lpi_lock);
 
 	pctrl->ctrl = devm_pinctrl_register(dev, &pctrl->desc, pctrl);
 	if (IS_ERR(pctrl->ctrl)) {
@@ -505,10 +525,16 @@ int lpi_pinctrl_probe(struct platform_device *pdev)
 		goto err_pinctrl;
 	}
 
+	pm_runtime_set_autosuspend_delay(dev, 100);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+
 	return 0;
 
 err_pinctrl:
 	mutex_destroy(&pctrl->lock);
+	mutex_destroy(&pctrl->lpi_lock);
 	clk_bulk_disable_unprepare(MAX_LPI_NUM_CLKS, pctrl->clks);
 
 	return ret;
@@ -521,12 +547,38 @@ void lpi_pinctrl_remove(struct platform_device *pdev)
 	int i;
 
 	mutex_destroy(&pctrl->lock);
+	mutex_destroy(&pctrl->lpi_lock);
 	clk_bulk_disable_unprepare(MAX_LPI_NUM_CLKS, pctrl->clks);
 
 	for (i = 0; i < pctrl->data->npins; i++)
 		pinctrl_generic_remove_group(pctrl->ctrl, i);
 }
 EXPORT_SYMBOL_GPL(lpi_pinctrl_remove);
+
+int lpi_pinctrl_runtime_suspend(struct device *dev)
+{
+	struct lpi_pinctrl *pctrl = dev_get_drvdata(dev);
+
+	mutex_lock(&pctrl->lpi_lock);
+	clk_bulk_disable_unprepare(MAX_LPI_NUM_CLKS, pctrl->clks);
+	mutex_unlock(&pctrl->lpi_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(lpi_pinctrl_runtime_suspend);
+
+int lpi_pinctrl_runtime_resume(struct device *dev)
+{
+	int ret;
+	struct lpi_pinctrl *pctrl = dev_get_drvdata(dev);
+
+	mutex_lock(&pctrl->lpi_lock);
+	ret = clk_bulk_prepare_enable(MAX_LPI_NUM_CLKS, pctrl->clks);
+	mutex_unlock(&pctrl->lpi_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(lpi_pinctrl_runtime_resume);
 
 MODULE_DESCRIPTION("QTI LPI GPIO pin control driver");
 MODULE_LICENSE("GPL");
