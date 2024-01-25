@@ -41,9 +41,15 @@ static irqreturn_t etr_handler(int irq, void *data)
 {
 	struct byte_cntr *byte_cntr_data = data;
 
-	atomic_inc(&byte_cntr_data->irq_cnt);
+	struct tmc_drvdata *tmcdrvdata = byte_cntr_data->tmcdrvdata;
 
-	wake_up(&byte_cntr_data->wq);
+	if (tmcdrvdata->out_mode == TMC_ETR_OUT_MODE_USB) {
+		atomic_inc(&byte_cntr_data->irq_cnt);
+		wake_up(&byte_cntr_data->usb_wait_wq);
+	} else if (tmcdrvdata->out_mode == TMC_ETR_OUT_MODE_MEM) {
+		atomic_inc(&byte_cntr_data->irq_cnt);
+		wake_up(&byte_cntr_data->wq);
+	}
 
 	return IRQ_HANDLED;
 }
