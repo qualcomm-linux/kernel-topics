@@ -18,7 +18,7 @@
 
 #define CSR_BYTECNTVAL		(0x06C)
 
-static void tmc_etr_read_bytes(struct byte_cntr *byte_cntr_data, loff_t *ppos,
+static void tmc_etr_read_bytes(struct byte_cntr *byte_cntr_data, long offset,
 			       size_t bytes, size_t *len, char **bufp)
 {
 	struct tmc_drvdata *tmcdrvdata = byte_cntr_data->tmcdrvdata;
@@ -27,12 +27,12 @@ static void tmc_etr_read_bytes(struct byte_cntr *byte_cntr_data, loff_t *ppos,
 
 	if (*len >= bytes)
 		*len = bytes;
-	else if (((uint32_t)*ppos % bytes) + *len > bytes)
-		*len = bytes - ((uint32_t)*ppos % bytes);
+	else if (((uint32_t)offset % bytes) + *len > bytes)
+		*len = bytes - ((uint32_t)offset % bytes);
 
-	actual = tmc_etr_buf_get_data(etr_buf, *ppos, *len, bufp);
+	actual = tmc_etr_buf_get_data(etr_buf, offset, *len, bufp);
 	*len = actual;
-	if (actual == bytes || (actual + (uint32_t)*ppos) % bytes == 0)
+	if (actual == bytes || (actual + (uint32_t)offset) % bytes == 0)
 		atomic_dec(&byte_cntr_data->irq_cnt);
 }
 
@@ -40,35 +40,60 @@ static void tmc_etr_read_bytes(struct byte_cntr *byte_cntr_data, loff_t *ppos,
 static irqreturn_t etr_handler(int irq, void *data)
 {
 	struct byte_cntr *byte_cntr_data = data;
+	struct tmc_drvdata *tmcdrvdata = byte_cntr_data->tmcdrvdata;
 
-	atomic_inc(&byte_cntr_data->irq_cnt);
+	if (tmcdrvdata->out_mode == TMC_ETR_OUT_MODE_USB) {
+		atomic_inc(&byte_cntr_data->irq_cnt);
+		wake_up(&byte_cntr_data->usb_wait_wq);
+	} else if (tmcdrvdata->out_mode == TMC_ETR_OUT_MODE_MEM) {
+		atomic_inc(&byte_cntr_data->irq_cnt);
+		wake_up(&byte_cntr_data->wq);
+	}
 
-	wake_up(&byte_cntr_data->wq);
+	byte_cntr_data->total_irq++;
 
 	return IRQ_HANDLED;
 }
 
-static void tmc_etr_flush_bytes(struct byte_cntr *byte_cntr_data, loff_t *ppos,
-			size_t bytes, size_t *len)
+
+static long tmc_etr_flush_remaining_bytes(struct tmc_drvdata *tmcdrvdata, long offset,
+			size_t len, char **bufpp)
 {
-	uint32_t rwp = 0;
-	struct tmc_drvdata *tmcdrvdata = byte_cntr_data->tmcdrvdata;
-	dma_addr_t paddr = tmcdrvdata->sysfs_buf->hwaddr;
+	long req_size, actual = 0;
+	struct etr_buf *etr_buf;
+	struct device *dev;
+	struct byte_cntr *byte_cntr_data;
 
-	rwp = readl_relaxed(tmcdrvdata->base + TMC_RWP);
+	if (!tmcdrvdata)
+		return -EINVAL;
 
-	if (rwp >= (paddr + *ppos)) {
-		if (bytes > (rwp - paddr - *ppos))
-			*len = rwp - paddr - *ppos;
-	}
+	byte_cntr_data = tmcdrvdata->byte_cntr;
+	if (!byte_cntr_data)
+		return -EINVAL;
+
+	etr_buf = tmcdrvdata->sysfs_buf;
+	dev = &tmcdrvdata->csdev->dev;
+
+	req_size = ((byte_cntr_data->rwp_offset < offset) ? tmcdrvdata->size : 0) +
+		byte_cntr_data->rwp_offset - offset;
+
+	if (req_size > len)
+		req_size = len;
+
+	if (req_size > 0)
+		actual = tmc_etr_buf_get_data(etr_buf, offset, req_size, bufpp);
+
+	return actual;
 }
+
 
 static ssize_t tmc_etr_byte_cntr_read(struct file *fp, char __user *data,
 			       size_t len, loff_t *ppos)
 {
 	struct byte_cntr *byte_cntr_data = fp->private_data;
 	struct tmc_drvdata *tmcdrvdata = byte_cntr_data->tmcdrvdata;
-	char *bufp;
+	char *bufp = NULL;
+	long actual;
 	int ret = 0;
 
 	if (!data)
@@ -76,8 +101,15 @@ static ssize_t tmc_etr_byte_cntr_read(struct file *fp, char __user *data,
 
 	mutex_lock(&byte_cntr_data->byte_cntr_lock);
 	if (!byte_cntr_data->read_active) {
-		ret = -EINVAL;
-		goto err0;
+		actual = tmc_etr_flush_remaining_bytes(tmcdrvdata,
+				byte_cntr_data->offset, len, &bufp);
+		if (actual > 0) {
+			len = actual;
+			goto copy;
+		} else {
+			ret = -EINVAL;
+			goto err0;
+		}
 	}
 
 	if (byte_cntr_data->enable) {
@@ -89,30 +121,34 @@ static ssize_t tmc_etr_byte_cntr_read(struct file *fp, char __user *data,
 				return -ERESTARTSYS;
 			mutex_lock(&byte_cntr_data->byte_cntr_lock);
 			if (!byte_cntr_data->read_active) {
-				ret = -EINVAL;
-				goto err0;
+				actual = tmc_etr_flush_remaining_bytes(tmcdrvdata,
+						byte_cntr_data->offset, len, &bufp);
+				if (actual > 0) {
+					len = actual;
+					goto copy;
+				} else {
+					ret = -EINVAL;
+					goto err0;
+				}
 			}
-
 		}
 
-		tmc_etr_read_bytes(byte_cntr_data, ppos,
+		tmc_etr_read_bytes(byte_cntr_data, byte_cntr_data->offset,
 				   byte_cntr_data->block_size, &len, &bufp);
 
 	} else {
-		if (!atomic_read(&byte_cntr_data->irq_cnt)) {
-			tmc_etr_flush_bytes(byte_cntr_data, ppos, byte_cntr_data->block_size,
-						  &len);
-			if (!len) {
-				ret = -EINVAL;
-				goto err0;
-			}
+		actual = tmc_etr_flush_remaining_bytes(tmcdrvdata,
+				byte_cntr_data->offset, len, &bufp);
+		if (actual > 0) {
+			len = actual;
+			goto copy;
 		} else {
-			tmc_etr_read_bytes(byte_cntr_data, ppos,
-						   byte_cntr_data->block_size,
-						   &len, &bufp);
+			ret = -EINVAL;
+			goto err0;
 		}
 	}
 
+copy:
 	if (copy_to_user(data, bufp, len)) {
 		mutex_unlock(&byte_cntr_data->byte_cntr_lock);
 		dev_dbg(&tmcdrvdata->csdev->dev,
@@ -120,10 +156,12 @@ static ssize_t tmc_etr_byte_cntr_read(struct file *fp, char __user *data,
 		return -EFAULT;
 	}
 
-	if (*ppos + len >= tmcdrvdata->size)
-		*ppos = 0;
+	byte_cntr_data->total_size += len;
+
+	if (byte_cntr_data->offset + len >= tmcdrvdata->size)
+		byte_cntr_data->offset = 0;
 	else
-		*ppos += len;
+		byte_cntr_data->offset += len;
 
 	goto out;
 
@@ -160,6 +198,8 @@ void tmc_etr_byte_cntr_stop(struct byte_cntr *byte_cntr_data)
 		return;
 
 	mutex_lock(&byte_cntr_data->byte_cntr_lock);
+	byte_cntr_data->rwp_offset =
+		tmc_get_rwp_offset(byte_cntr_data->tmcdrvdata);
 	byte_cntr_data->enable = false;
 	byte_cntr_data->read_active = false;
 	atomic_set(&byte_cntr_data->irq_cnt, 0);
@@ -174,13 +214,22 @@ EXPORT_SYMBOL_GPL(tmc_etr_byte_cntr_stop);
 static int tmc_etr_byte_cntr_release(struct inode *in, struct file *fp)
 {
 	struct byte_cntr *byte_cntr_data = fp->private_data;
+	struct device *dev = &byte_cntr_data->tmcdrvdata->csdev->dev;
 
 	mutex_lock(&byte_cntr_data->byte_cntr_lock);
 	byte_cntr_data->read_active = false;
 
 	atomic_set(&byte_cntr_data->irq_cnt, 0);
-	coresight_csr_set_byte_cntr(byte_cntr_data->csr,
+
+	if (byte_cntr_data->enable)
+		coresight_csr_set_byte_cntr(byte_cntr_data->csr,
 				byte_cntr_data->irqctrl_offset, 0);
+
+	disable_irq_wake(byte_cntr_data->byte_cntr_irq);
+
+	dev_dbg(dev, "send data total size: %lld bytes, irq_cnt: %lld, offset: %lld rwp_offset: %lld\n",
+		byte_cntr_data->total_size, byte_cntr_data->total_irq,
+		byte_cntr_data->offset,	byte_cntr_data->rwp_offset);
 	mutex_unlock(&byte_cntr_data->byte_cntr_lock);
 
 	return 0;
@@ -190,14 +239,21 @@ static int tmc_etr_byte_cntr_open(struct inode *in, struct file *fp)
 {
 	struct byte_cntr *byte_cntr_data =
 			container_of(in->i_cdev, struct byte_cntr, dev);
+	struct tmc_drvdata *tmcdrvdata = byte_cntr_data->tmcdrvdata;
 
 	mutex_lock(&byte_cntr_data->byte_cntr_lock);
+
+	if (byte_cntr_data->read_active) {
+		mutex_unlock(&byte_cntr_data->byte_cntr_lock);
+		return -EBUSY;
+	}
 
 	if (!byte_cntr_data->block_size) {
 		mutex_unlock(&byte_cntr_data->byte_cntr_lock);
 		return -EINVAL;
 	}
 
+	enable_irq_wake(byte_cntr_data->byte_cntr_irq);
 	/* IRQ is a '8- byte' counter and to observe interrupt at
 	 * 'block_size' bytes of data
 	 */
@@ -209,6 +265,9 @@ static int tmc_etr_byte_cntr_open(struct inode *in, struct file *fp)
 	nonseekable_open(in, fp);
 	byte_cntr_data->enable = true;
 	byte_cntr_data->read_active = true;
+	byte_cntr_data->total_size = 0;
+	byte_cntr_data->offset = tmc_get_rwp_offset(tmcdrvdata);
+	byte_cntr_data->total_irq = 0;
 	mutex_unlock(&byte_cntr_data->byte_cntr_lock);
 	return 0;
 }
