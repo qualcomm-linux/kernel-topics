@@ -13,6 +13,7 @@
 #include <linux/mutex.h>
 #include <linux/refcount.h>
 #include <linux/crc32.h>
+#include "coresight-byte-cntr.h"
 
 #define TMC_RSZ			0x004
 #define TMC_STS			0x00c
@@ -268,6 +269,9 @@ struct tmc_drvdata {
 	struct idr		idr;
 	struct mutex		idr_mutex;
 	struct etr_buf		*sysfs_buf;
+	struct byte_cntr	*byte_cntr;
+	struct coresight_csr	*csr;
+	const char		*csr_name;
 	struct etr_buf		*perf_buf;
 	struct tmc_resrv_buf	resrv_buf;
 	struct tmc_resrv_buf	crash_mdata;
@@ -330,10 +334,15 @@ extern const struct coresight_ops tmc_etf_cs_ops;
 
 ssize_t tmc_etb_get_sysfs_trace(struct tmc_drvdata *drvdata,
 				loff_t pos, size_t len, char **bufpp);
+ssize_t tmc_etr_buf_get_data(struct etr_buf *etr_buf,
+				u64 offset, size_t len, char **bufpp);
 /* ETR functions */
 int tmc_read_prepare_etr(struct tmc_drvdata *drvdata);
 int tmc_read_unprepare_etr(struct tmc_drvdata *drvdata);
 void tmc_etr_disable_hw(struct tmc_drvdata *drvdata);
+struct byte_cntr *byte_cntr_init(struct device *adev,
+					struct tmc_drvdata *drvdata);
+void byte_cntr_remove(struct byte_cntr *byte_cntr);
 extern const struct coresight_ops tmc_etr_cs_ops;
 ssize_t tmc_etr_get_sysfs_trace(struct tmc_drvdata *drvdata,
 				loff_t pos, size_t len, char **bufpp);

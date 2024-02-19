@@ -1000,7 +1000,7 @@ static void tmc_free_etr_buf(struct etr_buf *etr_buf)
  * Returns: The size of the linear data available @pos, with *bufpp
  * updated to point to the buffer.
  */
-static ssize_t tmc_etr_buf_get_data(struct etr_buf *etr_buf,
+ssize_t tmc_etr_buf_get_data(struct etr_buf *etr_buf,
 				    u64 offset, size_t len, char **bufpp)
 {
 	/* Adjust the length to limit this transaction to end of buffer */
@@ -1320,8 +1320,10 @@ static int tmc_enable_etr_sink_sysfs(struct coresight_device *csdev)
 out:
 	raw_spin_unlock_irqrestore(&drvdata->spinlock, flags);
 
-	if (!ret)
+	if (!ret) {
+		tmc_etr_byte_cntr_start(drvdata->byte_cntr);
 		dev_dbg(&csdev->dev, "TMC-ETR enabled\n");
+	}
 
 	return ret;
 }
@@ -1811,6 +1813,7 @@ static int tmc_disable_etr_sink(struct coresight_device *csdev)
 	drvdata->perf_buf = NULL;
 
 	raw_spin_unlock_irqrestore(&drvdata->spinlock, flags);
+	tmc_etr_byte_cntr_stop(drvdata->byte_cntr);
 
 	dev_dbg(&csdev->dev, "TMC-ETR disabled\n");
 	return 0;
@@ -1913,6 +1916,11 @@ int tmc_read_prepare_etr(struct tmc_drvdata *drvdata)
 	raw_spin_lock_irqsave(&drvdata->spinlock, flags);
 	if (drvdata->reading) {
 		ret = -EBUSY;
+		goto out;
+	}
+
+	if (drvdata->byte_cntr && drvdata->byte_cntr->enable) {
+		ret = -EINVAL;
 		goto out;
 	}
 
@@ -2058,9 +2066,50 @@ static ssize_t buf_mode_preferred_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(buf_mode_preferred);
 
+static ssize_t block_size_show(struct device *dev,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	struct tmc_drvdata *drvdata = dev_get_drvdata(dev->parent);
+	uint32_t val = 0;
+
+	if (drvdata->byte_cntr)
+		val = drvdata->byte_cntr->block_size;
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
+}
+
+static ssize_t block_size_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf,
+				size_t size)
+{
+	struct tmc_drvdata *drvdata = dev_get_drvdata(dev->parent);
+	unsigned long val;
+
+	if (kstrtoul(buf, 0, &val))
+		return -EINVAL;
+
+	if (!drvdata->byte_cntr)
+		return -EINVAL;
+
+	if (val && val < 4096) {
+		pr_err("Assign minimum block size of 4096 bytes\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&drvdata->byte_cntr->byte_cntr_lock);
+	drvdata->byte_cntr->block_size = val;
+	mutex_unlock(&drvdata->byte_cntr->byte_cntr_lock);
+
+	return size;
+}
+static DEVICE_ATTR_RW(block_size);
+
 static struct attribute *coresight_etr_attrs[] = {
 	&dev_attr_buf_modes_available.attr,
 	&dev_attr_buf_mode_preferred.attr,
+	&dev_attr_block_size.attr,
 	NULL,
 };
 
