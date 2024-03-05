@@ -56,3 +56,4 @@ obj-$(CONFIG_CORESIGHT_DUMMY) += coresight-dummy.o
 obj-$(CONFIG_CORESIGHT_CTCU) += coresight-ctcu.o
 coresight-ctcu-y := coresight-ctcu-core.o
 obj-$(CONFIG_CORESIGHT_CSR) += coresight-csr.o
+obj-$(CONFIG_CORESIGHT_TGU) += coresight-tgu.o
