@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CORESIGHT_COMMON_H
@@ -27,6 +27,7 @@ extern int coresight_csr_hwctrl_set(struct coresight_csr *csr, uint64_t addr,
 extern void coresight_csr_set_byte_cntr(struct coresight_csr *csr, int irqctrl_offset,
 				 uint32_t count);
 extern struct coresight_csr *coresight_csr_get(const char *name);
+extern int coresight_csr_set_etr_atid(struct coresight_device *csdev, int atid, bool enable);
 #if IS_ENABLED(CONFIG_OF)
 extern int of_get_coresight_csr_name(struct device_node *node,
 				const char **csr_name);
@@ -47,6 +48,7 @@ static inline void coresight_csr_set_byte_cntr(struct coresight_csr *csr, int ir
 					   uint32_t count) {}
 static inline struct coresight_csr *coresight_csr_get(const char *name)
 					{ return NULL; }
+static inline int coresight_csr_set_etr_atid(struct coresight_device *csdev, int atid, bool enable)
 				{return -EINVAL; }
 static inline int of_get_coresight_csr_name(struct device_node *node,
 		const char **csr_name){ return -EINVAL; }

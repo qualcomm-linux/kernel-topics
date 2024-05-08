@@ -363,6 +363,94 @@ void coresight_csr_set_byte_cntr(struct coresight_csr *csr, int irqctrl_offset, 
 }
 EXPORT_SYMBOL_GPL(coresight_csr_set_byte_cntr);
 
+static int __coresight_csr_set_etr_atid(struct coresight_csr *csr,
+			uint32_t atid_offset, uint32_t atid,
+			bool enable)
+{
+	struct csr_drvdata *drvdata;
+	unsigned long flags;
+	uint32_t reg_offset;
+	int bit;
+	uint32_t val;
+
+	if (csr == NULL)
+		return -EINVAL;
+
+	drvdata = to_csr_drvdata(csr);
+	if (IS_ERR_OR_NULL(drvdata))
+		return -EINVAL;
+
+	if (atid < 0 || atid_offset <= 0)
+		return -EINVAL;
+
+	spin_lock_irqsave(&drvdata->spin_lock, flags);
+	CSR_UNLOCK(drvdata);
+
+	reg_offset = CSR_ATID_REG_OFFSET(atid, atid_offset);
+	bit = CSR_ATID_REG_BIT(atid);
+	if (reg_offset - atid_offset > CSR_ATID_REG_SIZE
+		|| bit >= CSR_MAX_ATID) {
+		CSR_LOCK(drvdata);
+		spin_unlock_irqrestore(&drvdata->spin_lock, flags);
+		return -EINVAL;
+	}
+
+	val = csr_readl(drvdata, reg_offset);
+	if (enable)
+		val = val | BIT(bit);
+	else
+		val = val & ~BIT(bit);
+	csr_writel(drvdata, val, reg_offset);
+
+	CSR_LOCK(drvdata);
+	spin_unlock_irqrestore(&drvdata->spin_lock, flags);
+	return 0;
+}
+
+/*
+ * of_coresight_get_csr_atid_offset: Get the csr atid register offset of a sink device.
+ *
+ * Returns the csr atid offset. If the result is less than zero, it means
+ * failure.
+ */
+static int of_coresight_get_csr_atid_offset(struct coresight_device *csdev,
+				u32 *atid_offset)
+{
+	return of_property_read_u32(csdev->dev.parent->of_node,
+					"csr-atid-offset", atid_offset);
+}
+
+int coresight_csr_set_etr_atid(struct coresight_device *csdev, int atid, bool enable)
+{
+	struct list_head *path = NULL;
+	struct coresight_device *sink_csdev;
+	int atid_offset;
+	struct coresight_csr *csr;
+	const char *csr_name;
+
+
+	path = coresight_get_path(csdev);
+
+	if (!path)
+		return -EINVAL;
+
+	sink_csdev = coresight_get_sink(path);
+
+	if (!sink_csdev)
+		return -EINVAL;
+	/* if no csr for this sink, indicates this sink is not etr.*/
+	if (of_get_coresight_csr_name(sink_csdev->dev.parent->of_node, &csr_name))
+		return 0;
+
+	csr = coresight_csr_get(csr_name);
+
+	if (of_coresight_get_csr_atid_offset(sink_csdev, &atid_offset))
+		return -EINVAL;
+
+	return __coresight_csr_set_etr_atid(csr, atid_offset, atid, enable);
+}
+EXPORT_SYMBOL_GPL(coresight_csr_set_etr_atid);
+
 struct coresight_csr *coresight_csr_get(const char *name)
 {
 	struct coresight_csr *csr;
