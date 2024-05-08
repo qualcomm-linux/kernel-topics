@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/kernel.h>
@@ -18,6 +18,7 @@
 #include <linux/coresight.h>
 #include "coresight-qmi.h"
 #include "coresight-priv.h"
+#include "coresight-common.h"
 
 #define REMOTE_ETM_TRACE_ID_START	192
 
@@ -37,6 +38,8 @@ struct remote_etm_drvdata {
 	bool security;
 	struct sockaddr_qrtr s_addr;
 	struct list_head link;
+	uint32_t			*traceids;
+	uint32_t			num_trcid;
 };
 
 static int service_remote_etm_new_server(struct qmi_handle *qmi,
@@ -82,9 +85,11 @@ static int remote_etm_enable(struct coresight_device *csdev,
 	struct coresight_set_etm_req_msg_v01 req;
 	struct coresight_set_etm_resp_msg_v01 resp = { { 0, 0 } };
 	struct qmi_txn txn;
-	int ret;
+	int i, ret;
 
 	mutex_lock(&drvdata->mutex);
+	for (i = 0; i < drvdata->num_trcid; i++)
+		coresight_csr_set_etr_atid(csdev, drvdata->traceids[i], true);
 
 	if (!drvdata->service_connected) {
 		dev_err(drvdata->dev, "QMI service not connected!\n");
@@ -144,6 +149,9 @@ static int remote_etm_enable(struct coresight_device *csdev,
 				drvdata->inst_id);
 	return 0;
 err:
+	for (i = 0; i < drvdata->num_trcid; i++)
+		coresight_csr_set_etr_atid(csdev, drvdata->traceids[i], false);
+
 	mutex_unlock(&drvdata->mutex);
 	return ret;
 }
@@ -156,7 +164,7 @@ static void remote_etm_disable(struct coresight_device *csdev,
 	struct coresight_set_etm_req_msg_v01 req;
 	struct coresight_set_etm_resp_msg_v01 resp = { { 0, 0 } };
 	struct qmi_txn txn;
-	int ret;
+	int i, ret;
 
 	mutex_lock(&drvdata->mutex);
 	if (!drvdata->service_connected) {
@@ -202,6 +210,9 @@ static void remote_etm_disable(struct coresight_device *csdev,
 		goto err;
 	}
 
+	for (i = 0; i < drvdata->num_trcid; i++)
+		coresight_csr_set_etr_atid(csdev, drvdata->traceids[i], false);
+
 	drvdata->enable = false;
 	dev_info(drvdata->dev, "Remote ETM tracing disabled for instance %d\n",
 				drvdata->inst_id);
@@ -217,6 +228,41 @@ static const struct coresight_ops_source remote_etm_source_ops = {
 static const struct coresight_ops remote_cs_ops = {
 	.source_ops	= &remote_etm_source_ops,
 };
+
+static int remote_etm_get_traceid(struct remote_etm_drvdata *drvdata)
+{
+	int ret, i;
+	struct device *dev = drvdata->dev;
+	uint32_t *atid;
+
+	ret = of_property_count_u32_elems(dev->of_node, "atid");
+	if (ret < 0) {
+		ret = of_property_read_u32(dev->of_node, "qcom,atid-num",
+				&drvdata->num_trcid);
+		if (ret)
+			return -EINVAL;
+	} else
+		drvdata->num_trcid = ret;
+
+	atid = devm_kcalloc(dev, drvdata->num_trcid, sizeof(*atid), GFP_KERNEL);
+	if (!atid)
+		return -ENOMEM;
+
+	ret = of_property_read_u32_array(dev->of_node, "atid",
+					 atid, drvdata->num_trcid);
+	if (ret)
+		return ret;
+
+	drvdata->traceids = devm_kcalloc(dev, drvdata->num_trcid,
+					 sizeof(uint32_t), GFP_KERNEL);
+	if (!drvdata->traceids)
+		return -ENOMEM;
+
+	for (i = 0; i < drvdata->num_trcid; i++)
+		drvdata->traceids[i] = (uint32_t)atid[i];
+
+	return 0;
+}
 
 static int remote_etm_probe(struct platform_device *pdev)
 {
@@ -271,6 +317,11 @@ static int remote_etm_probe(struct platform_device *pdev)
 		ret = PTR_ERR(drvdata->csdev);
 		goto err;
 	}
+
+	ret = remote_etm_get_traceid(drvdata);
+	if (ret)
+		drvdata->num_trcid = 0;
+
 	dev_info(dev, "Remote ETM initialized\n");
 
 	pm_runtime_enable(dev);

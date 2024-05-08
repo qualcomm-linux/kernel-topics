@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CORESIGHT_PRIV_H
@@ -136,6 +137,9 @@ void coresight_disable_path(struct coresight_path *path);
 int coresight_enable_path(struct coresight_path *path, enum cs_mode mode,
 			  void *sink_data);
 struct coresight_device *coresight_get_sink(struct coresight_path *path);
+struct coresight_device *
+coresight_get_enabled_sink(struct coresight_device *source);
+struct coresight_path *coresight_get_path(struct coresight_device *csdev);
 struct coresight_device *coresight_get_sink_by_id(u32 id);
 struct coresight_device *
 coresight_find_default_sink(struct coresight_device *csdev);

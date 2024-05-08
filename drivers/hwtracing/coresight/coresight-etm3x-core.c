@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Description: CoreSight Program Flow Trace driver
  */
@@ -33,6 +34,7 @@
 #include "coresight-etm.h"
 #include "coresight-etm-perf.h"
 #include "coresight-trace-id.h"
+#include "coresight-common.h"
 
 /*
  * Not really modular but using module_param is the easiest way to
@@ -465,6 +467,7 @@ static int etm_enable_perf(struct coresight_device *csdev,
 			   struct coresight_path *path)
 {
 	struct etm_drvdata *drvdata = dev_get_drvdata(csdev->dev.parent);
+	int trace_id, ret = 0;
 
 	if (WARN_ON_ONCE(drvdata->cpu != smp_processor_id()))
 		return -EINVAL;
@@ -473,8 +476,14 @@ static int etm_enable_perf(struct coresight_device *csdev,
 	etm_parse_event_config(drvdata, event);
 	drvdata->traceid = path->trace_id;
 
+	coresight_csr_set_etr_atid(csdev, drvdata->traceid, true);
+
 	/* And enable it */
-	return etm_enable_hw(drvdata);
+	ret = etm_enable_hw(drvdata);
+	if (ret)
+		coresight_csr_set_etr_atid(csdev, drvdata->traceid, false);
+
+	return ret;
 }
 
 static int etm_enable_sysfs(struct coresight_device *csdev, struct coresight_path *path)
@@ -486,6 +495,8 @@ static int etm_enable_sysfs(struct coresight_device *csdev, struct coresight_pat
 	spin_lock(&drvdata->spinlock);
 
 	drvdata->traceid = path->trace_id;
+
+	coresight_csr_set_etr_atid(csdev, drvdata->traceid, true);
 
 	/*
 	 * Configure the ETM only if the CPU is online.  If it isn't online
@@ -503,8 +514,10 @@ static int etm_enable_sysfs(struct coresight_device *csdev, struct coresight_pat
 		ret = -ENODEV;
 	}
 
-	if (ret)
+	if (ret) {
+		coresight_csr_set_etr_atid(csdev, drvdata->traceid, false);
 		etm_release_trace_id(drvdata);
+	}
 
 	spin_unlock(&drvdata->spinlock);
 
@@ -652,6 +665,8 @@ static void etm_disable(struct coresight_device *csdev,
 		WARN_ON_ONCE(mode);
 		return;
 	}
+
+	coresight_csr_set_etr_atid(csdev, drvdata->traceid, false);
 
 	if (mode)
 		coresight_set_mode(csdev, CS_MODE_DISABLED);
