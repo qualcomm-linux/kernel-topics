@@ -1269,6 +1269,11 @@ static void quirk_usb_early_handoff(struct pci_dev *pdev)
 	if (pdev->vendor == 0x184e)	/* vendor Netlogic */
 		return;
 
+	/* Skip handoff for Renesas PCI USB controller on QCOM SOC */
+	if ((pdev->vendor == PCI_VENDOR_ID_RENESAS) &&
+			(pcie_find_root_port(pdev)->vendor == PCI_VENDOR_ID_QCOM))
+		return;
+
 	/*
 	 * Bypass the Raspberry Pi 4 controller xHCI controller, things are
 	 * taken care of by the board's co-processor.
