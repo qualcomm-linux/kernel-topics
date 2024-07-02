@@ -437,7 +437,22 @@ enum sa8775p_functions {
 	msm_mux_audio_ref,
 	msm_mux_cam_mclk,
 	msm_mux_cci_async,
-	msm_mux_cci_i2c,
+	msm_mux_cci_i2c_scl0,
+	msm_mux_cci_i2c_scl1,
+	msm_mux_cci_i2c_scl2,
+	msm_mux_cci_i2c_scl3,
+	msm_mux_cci_i2c_scl4,
+	msm_mux_cci_i2c_scl5,
+	msm_mux_cci_i2c_scl6,
+	msm_mux_cci_i2c_scl7,
+	msm_mux_cci_i2c_sda0,
+	msm_mux_cci_i2c_sda1,
+	msm_mux_cci_i2c_sda2,
+	msm_mux_cci_i2c_sda3,
+	msm_mux_cci_i2c_sda4,
+	msm_mux_cci_i2c_sda5,
+	msm_mux_cci_i2c_sda6,
+	msm_mux_cci_i2c_sda7,
 	msm_mux_cci_timer0,
 	msm_mux_cci_timer1,
 	msm_mux_cci_timer2,
@@ -623,10 +638,69 @@ static const char * const cci_async_groups[] = {
 	"gpio50", "gpio66", "gpio68", "gpio69", "gpio70", "gpio71",
 };
 
-static const char * const cci_i2c_groups[] = {
-	"gpio52", "gpio53", "gpio54", "gpio55", "gpio56", "gpio57", "gpio58",
-	"gpio59", "gpio60", "gpio61", "gpio62", "gpio63", "gpio64", "gpio65",
-	"gpio66", "gpio67",
+
+static const char *const cci_i2c_scl0_groups[] = {
+	"gpio61",
+};
+
+static const char *const cci_i2c_scl1_groups[] = {
+	"gpio53",
+};
+
+static const char *const cci_i2c_scl2_groups[] = {
+	"gpio63",
+};
+
+static const char *const cci_i2c_scl3_groups[] = {
+	"gpio55",
+};
+
+static const char *const cci_i2c_scl4_groups[] = {
+	"gpio65",
+};
+
+static const char *const cci_i2c_scl5_groups[] = {
+	"gpio57",
+};
+
+static const char *const cci_i2c_scl6_groups[] = {
+	"gpio67",
+};
+
+static const char *const cci_i2c_scl7_groups[] = {
+	"gpio59",
+};
+
+static const char *const cci_i2c_sda0_groups[] = {
+	"gpio60",
+};
+
+static const char *const cci_i2c_sda1_groups[] = {
+	"gpio52",
+};
+
+static const char *const cci_i2c_sda2_groups[] = {
+	"gpio62",
+};
+
+static const char *const cci_i2c_sda3_groups[] = {
+	"gpio54",
+};
+
+static const char *const cci_i2c_sda4_groups[] = {
+	"gpio64",
+};
+
+static const char *const cci_i2c_sda5_groups[] = {
+	"gpio56",
+};
+
+static const char *const cci_i2c_sda6_groups[] = {
+	"gpio66",
+};
+
+static const char *const cci_i2c_sda7_groups[] = {
+	"gpio58",
 };
 
 static const char * const cci_timer0_groups[] = {
@@ -1187,7 +1261,22 @@ static const struct pinfunction sa8775p_functions[] = {
 	MSM_PIN_FUNCTION(audio_ref),
 	MSM_PIN_FUNCTION(cam_mclk),
 	MSM_PIN_FUNCTION(cci_async),
-	MSM_PIN_FUNCTION(cci_i2c),
+	MSM_PIN_FUNCTION(cci_i2c_scl0),
+	MSM_PIN_FUNCTION(cci_i2c_scl1),
+	MSM_PIN_FUNCTION(cci_i2c_scl2),
+	MSM_PIN_FUNCTION(cci_i2c_scl3),
+	MSM_PIN_FUNCTION(cci_i2c_scl4),
+	MSM_PIN_FUNCTION(cci_i2c_scl5),
+	MSM_PIN_FUNCTION(cci_i2c_scl6),
+	MSM_PIN_FUNCTION(cci_i2c_scl7),
+	MSM_PIN_FUNCTION(cci_i2c_sda0),
+	MSM_PIN_FUNCTION(cci_i2c_sda1),
+	MSM_PIN_FUNCTION(cci_i2c_sda2),
+	MSM_PIN_FUNCTION(cci_i2c_sda3),
+	MSM_PIN_FUNCTION(cci_i2c_sda4),
+	MSM_PIN_FUNCTION(cci_i2c_sda5),
+	MSM_PIN_FUNCTION(cci_i2c_sda6),
+	MSM_PIN_FUNCTION(cci_i2c_sda7),
 	MSM_PIN_FUNCTION(cci_timer0),
 	MSM_PIN_FUNCTION(cci_timer1),
 	MSM_PIN_FUNCTION(cci_timer2),
@@ -1387,24 +1476,27 @@ static const struct msm_pingroup sa8775p_groups[] = {
 	[49] = PINGROUP(49, qup1_se4, qdss_cti, edp3_lcd, _, _, _, _, _, _),
 	[50] = PINGROUP(50, qup1_se4, cci_async, qdss_cti, mdp1_vsync8, _, _, _, _, _),
 	[51] = PINGROUP(51, qup1_se4, qdss_cti, mdp1_vsync6, gcc_gp1, _, _, _, _, _),
-	[52] = PINGROUP(52, qup1_se5, cci_timer4, cci_i2c, mdp1_vsync7,	gcc_gp2, _, ddr_pxi1, _, _),
-	[53] = PINGROUP(53, qup1_se5, cci_timer5, cci_i2c, gcc_gp3, _, ddr_pxi1, _, _, _),
-	[54] = PINGROUP(54, qup1_se5, cci_timer6, cci_i2c, _, _, _, _, _, _),
-	[55] = PINGROUP(55, qup1_se5, cci_timer7, cci_i2c, gcc_gp4, _, ddr_pxi2, _, _, _),
-	[56] = PINGROUP(56, qup1_se6, qup1_se6, cci_timer8, cci_i2c, phase_flag,
+	[52] = PINGROUP(52, qup1_se5, cci_timer4, cci_i2c_sda1, mdp1_vsync7, gcc_gp2, _,
+			ddr_pxi1, _, _),
+	[53] = PINGROUP(53, qup1_se5, cci_timer5, cci_i2c_scl1, gcc_gp3, _, ddr_pxi1, _, _, _),
+	[54] = PINGROUP(54, qup1_se5, cci_timer6, cci_i2c_sda3, _, _, _, _, _, _),
+	[55] = PINGROUP(55, qup1_se5, cci_timer7, cci_i2c_scl3, gcc_gp4, _, ddr_pxi2, _, _, _),
+	[56] = PINGROUP(56, qup1_se6, qup1_se6, cci_timer8, cci_i2c_sda5, phase_flag,
 			ddr_bist, _, _, _),
-	[57] = PINGROUP(57, qup1_se6, qup1_se6, cci_timer9, cci_i2c, mdp0_vsync0,
+	[57] = PINGROUP(57, qup1_se6, qup1_se6, cci_timer9, cci_i2c_scl5, mdp0_vsync0,
 			phase_flag, ddr_bist, _, _),
-	[58] = PINGROUP(58, cci_i2c, mdp0_vsync1, ddr_bist, _, atest_usb2, atest_char, _, _, _),
-	[59] = PINGROUP(59, cci_i2c, mdp0_vsync2, ddr_bist, _, atest_usb2, atest_char, _, _, _),
-	[60] = PINGROUP(60, cci_i2c, qdss_gpio, _, _, _, _, _, _, _),
-	[61] = PINGROUP(61, cci_i2c, qdss_gpio, _, _, _, _, _, _, _),
-	[62] = PINGROUP(62, cci_i2c, qdss_gpio, _, _, _, _, _, _, _),
-	[63] = PINGROUP(63, cci_i2c, qdss_gpio, _, _, _, _, _, _, _),
-	[64] = PINGROUP(64, cci_i2c, qdss_gpio, _, _, _, _, _, _, _),
-	[65] = PINGROUP(65, cci_i2c, qdss_gpio, _, _, _, _, _, _, _),
-	[66] = PINGROUP(66, cci_i2c, cci_async, qdss_gpio, _, _, _, _, _, _),
-	[67] = PINGROUP(67, cci_i2c, qdss_gpio, _, _, _, _, _, _, _),
+	[58] = PINGROUP(58, cci_i2c_sda7, mdp0_vsync1, ddr_bist, _, atest_usb2,
+			atest_char, _, _, _),
+	[59] = PINGROUP(59, cci_i2c_scl7, mdp0_vsync2, ddr_bist, _, atest_usb2,
+			atest_char, _, _, _),
+	[60] = PINGROUP(60, cci_i2c_sda0, qdss_gpio, _, _, _, _, _, _, _),
+	[61] = PINGROUP(61, cci_i2c_scl0, qdss_gpio, _, _, _, _, _, _, _),
+	[62] = PINGROUP(62, cci_i2c_sda2, qdss_gpio, _, _, _, _, _, _, _),
+	[63] = PINGROUP(63, cci_i2c_scl2, qdss_gpio, _, _, _, _, _, _, _),
+	[64] = PINGROUP(64, cci_i2c_sda4, qdss_gpio, _, _, _, _, _, _, _),
+	[65] = PINGROUP(65, cci_i2c_scl4, qdss_gpio, _, _, _, _, _, _, _),
+	[66] = PINGROUP(66, cci_i2c_sda6, cci_async, qdss_gpio, _, _, _, _, _, _),
+	[67] = PINGROUP(67, cci_i2c_scl6, qdss_gpio, _, _, _, _, _, _, _),
 	[68] = PINGROUP(68, cci_timer0, cci_async, _, _, _, _, _, _, _),
 	[69] = PINGROUP(69, cci_timer1, cci_async, _, _, _, _, _, _, _),
 	[70] = PINGROUP(70, cci_timer2, cci_async, _, _, _, _, _, _, _),
