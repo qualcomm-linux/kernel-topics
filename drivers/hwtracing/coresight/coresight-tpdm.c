@@ -21,7 +21,7 @@
 #include "coresight-common.h"
 #include "coresight-tpda.h"
 
-#define TPDA_KEY	"-tpda"
+#define TPDA_KEY	"tpda"
 
 DEFINE_CORESIGHT_DEVLIST(tpdm_devs, "tpdm");
 
