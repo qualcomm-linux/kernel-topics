@@ -1888,11 +1888,9 @@ static int _tmc_disable_etr_sink(struct coresight_device *csdev,
 		tmc_etr_disable_hw(drvdata);
 	} else {
 		raw_spin_unlock_irqrestore(&drvdata->spinlock, flags);
-		tmc_usb_disable(drvdata->usb_data);
-		raw_spin_lock_irqsave(&drvdata->spinlock, flags);
+		return -EINVAL;
 	}
 
-	tmc_etr_disable_hw(drvdata);
 	/* Dissociate from monitored process. */
 	drvdata->pid = -1;
 	coresight_set_mode(csdev, CS_MODE_DISABLED);
