@@ -16,6 +16,7 @@
 #include <linux/coresight.h>
 #include <linux/clk.h>
 #include <linux/mutex.h>
+#include <linux/of_platform.h>
 
 #include "coresight-priv.h"
 #include "coresight-common.h"
@@ -471,16 +472,22 @@ EXPORT_SYMBOL_GPL(coresight_csr_get);
 
 int of_get_coresight_csr_name(struct device_node *node, const char **csr_name)
 {
-	int ret;
 	struct device_node *csr_node;
+	struct csr_drvdata *drvdata;
+	struct platform_device *pdev;
 
 	csr_node = of_parse_phandle(node, "coresight-csr", 0);
 	if (!csr_node)
 		return -EINVAL;
 
-	ret = of_property_read_string(csr_node, "device-name", csr_name);
+	pdev = of_find_device_by_node(csr_node);
+	if (!pdev)
+		return -EINVAL;
+
+	drvdata = platform_get_drvdata(pdev);
+	*csr_name = drvdata->csr.name;
 	of_node_put(csr_node);
-	return ret;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(of_get_coresight_csr_name);
 
