@@ -319,10 +319,8 @@ static int remote_etm_probe(struct platform_device *pdev)
 	}
 
 	ret = remote_etm_get_traceid(drvdata);
-	if (ret) {
-		coresight_unregister(drvdata->csdev);
-		return ret;
-	}
+	if (ret)
+		drvdata->num_trcid = 0;
 
 	dev_info(dev, "Remote ETM initialized\n");
 
