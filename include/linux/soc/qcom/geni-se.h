@@ -65,6 +65,7 @@ struct geni_icc_path {
  * @icc_paths:		Array of ICC paths for SE
  * @mode:		Transfer mode se fifo, dma or gsi.
  * @protocol:		Protocol spi or i2c or serial.
+ * @shared_geni_se:	True if SE is shared between multiprocessors.
  */
 struct geni_se {
 	void __iomem *base;
@@ -76,6 +77,7 @@ struct geni_se {
 	struct geni_icc_path icc_paths[3];
 	enum geni_se_xfer_mode mode;
 	enum geni_se_protocol_type protocol;
+	bool shared_geni_se;
 };
 
 /* Common SE registers */
