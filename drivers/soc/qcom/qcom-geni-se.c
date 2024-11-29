@@ -502,9 +502,14 @@ int geni_se_resources_off(struct geni_se *se)
 	if (has_acpi_companion(se->dev))
 		return 0;
 
-	ret = pinctrl_pm_select_sleep_state(se->dev);
-	if (ret)
-		return ret;
+	/* Don't alter pin states on shared SEs to avoid potentially
+	 * interrupting transfers started by other subsystems.
+	 */
+	if (!se->shared_geni_se) {
+		ret = pinctrl_pm_select_sleep_state(se->dev);
+		if (ret)
+			return ret;
+	}
 
 	geni_se_clks_off(se);
 	return 0;
