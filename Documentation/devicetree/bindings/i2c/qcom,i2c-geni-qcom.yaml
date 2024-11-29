@@ -60,6 +60,14 @@ properties:
   power-domains:
     maxItems: 1
 
+  qcom,shared-se:
+    description: True if I2C controller is shared between two or more system processors.
+        SE(Serial Engine HW controller working as protocol master controller) is an
+        I2C controller. Basically, a programmable SERDES(serializer/deserializer)
+        coupled with data DMA entity, capable in handling a bus protocol, and data
+        moves to/from system memory.
+    type: boolean
+
   reg:
     maxItems: 1
 
