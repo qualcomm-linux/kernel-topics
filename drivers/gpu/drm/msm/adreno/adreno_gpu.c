@@ -576,6 +576,7 @@ int adreno_load_fw(struct adreno_gpu *adreno_gpu)
 {
 	int i;
 
+	/* We intentionally want to dummy load rgmu fw even though we don't use it at the moment */
 	for (i = 0; i < ARRAY_SIZE(adreno_gpu->info->fw); i++) {
 		const struct firmware *fw;
 
