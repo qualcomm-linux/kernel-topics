@@ -27,6 +27,7 @@ properties:
           - pattern: '^qcom,adreno-gmu-x[1-9][0-9][0-9]\.[0-9]$'
           - const: qcom,adreno-gmu
       - const: qcom,adreno-gmu-wrapper
+      - const: qcom,adreno-rgmu
 
   reg:
     minItems: 1
@@ -55,14 +56,12 @@ properties:
       - const: gmu
 
   power-domains:
-    items:
-      - description: CX power domain
-      - description: GX power domain
+    minItems: 2
+    maxItems: 4
 
   power-domain-names:
-    items:
-      - const: cx
-      - const: gx
+    minItems: 2
+    maxItems: 4
 
   iommus:
     maxItems: 1
@@ -269,16 +268,42 @@ allOf:
       properties:
         compatible:
           contains:
-            const: qcom,adreno-gmu-wrapper
+            enum:
+              - qcom,adreno-gmu-wrapper
+              - qcom,adreno-rgmu
     then:
       properties:
         reg:
           items:
-            - description: GMU wrapper register space
+            - description: RGMU/GMU wrapper register space
         reg-names:
           items:
             - const: gmu
+        power-domains:
+          items:
+            anyOf:
+              - description: CX power domain
+              - description: GX power domain
+              - description: VDD_CX power domain
+              - description: VDD_MX power domain
+        power-domain-names:
+          items:
+            anyOf:
+              - const: cx
+              - const: gx
+              - const: vdd_cx
+              - const: vdd_mx
     else:
+      properties:
+        power-domains:
+          items:
+            - description: CX power domain
+            - description: GX power domain
+        power-domain-names:
+          items:
+            - const: cx
+            - const: gx
+
       required:
         - clocks
         - clock-names
