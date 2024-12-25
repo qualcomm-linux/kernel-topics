@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
+<<<<<<< HEAD
  * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+=======
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+>>>>>>> ed10e909d83f3... FROMLIST: coresight-tpdm: Add MCMB dataset support
  */
 
 #ifndef _CORESIGHT_CORESIGHT_TPDM_H

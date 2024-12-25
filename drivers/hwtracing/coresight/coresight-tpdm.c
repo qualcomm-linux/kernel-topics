@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
+<<<<<<< HEAD
  * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+=======
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+>>>>>>> ed10e909d83f3... FROMLIST: coresight-tpdm: Add MCMB dataset support
  */
 
 #include <linux/amba/bus.h>
@@ -40,6 +44,21 @@ static bool tpdm_has_mcmb_dataset(struct tpdm_drvdata *drvdata)
 	return (drvdata->datasets & TPDM_PIDR0_DS_MCMB);
 }
 static int coresight_get_aggre_atid(struct coresight_device *csdev);
+
+static bool tpdm_has_dsb_dataset(struct tpdm_drvdata *drvdata)
+{
+	return (drvdata->datasets & TPDM_PIDR0_DS_DSB);
+}
+
+static bool tpdm_has_cmb_dataset(struct tpdm_drvdata *drvdata)
+{
+	return (drvdata->datasets & TPDM_PIDR0_DS_CMB);
+}
+
+static bool tpdm_has_mcmb_dataset(struct tpdm_drvdata *drvdata)
+{
+	return (drvdata->datasets & TPDM_PIDR0_DS_MCMB);
+}
 
 /* Read dataset array member with the index number */
 static ssize_t tpdm_simple_dataset_show(struct device *dev,
