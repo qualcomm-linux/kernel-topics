@@ -707,17 +707,31 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 			 int num)
 {
 	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
+	struct device *dev = gi2c->se.dev;
 	int ret;
 
 	gi2c->err = 0;
 	reinit_completion(&gi2c->done);
-	ret = pm_runtime_get_sync(gi2c->se.dev);
-	if (ret < 0) {
-		dev_err(gi2c->se.dev, "error turning SE resources:%d\n", ret);
-		pm_runtime_put_noidle(gi2c->se.dev);
-		/* Set device in suspended since resume failed */
-		pm_runtime_set_suspended(gi2c->se.dev);
-		return ret;
+	/* During early resume stage, runtime PM is disabled and pm_runtime_get_sync()
+	 * returns error Hence use force_resume() and serve transfer.
+	 */
+	if (!pm_runtime_enabled(dev) && gi2c->suspended) {
+		#if (!IS_ENABLED(CONFIG_PM))
+		dev_dbg(dev, "Forced power ON, pm_usage_count: %d\n",
+				atomic_read(&dev->power.usage_count));
+		#endif
+		ret = pm_runtime_force_resume(dev);
+		if (ret)
+			return ret;
+	} else {
+		ret = pm_runtime_get_sync(gi2c->se.dev);
+		if (ret < 0) {
+			dev_err(gi2c->se.dev, "Error turning resources: %d\n", ret);
+			pm_runtime_put_noidle(gi2c->se.dev);
+			/* Set device in suspended since resume failed */
+			pm_runtime_set_suspended(gi2c->se.dev);
+			return ret;
+		}
 	}
 
 	qcom_geni_i2c_conf(gi2c);
@@ -727,8 +741,20 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 	else
 		ret = geni_i2c_fifo_xfer(gi2c, msgs, num);
 
-	pm_runtime_mark_last_busy(gi2c->se.dev);
-	pm_runtime_put_autosuspend(gi2c->se.dev);
+	/* if Runtime PM is disabled, do force_suspend() else autosuspend the driver */
+	if (!pm_runtime_enabled(dev) && !gi2c->suspended) {
+		ret = pm_runtime_force_suspend(dev);
+		#if (!IS_ENABLED(CONFIG_PM))
+		dev_dbg(dev, "Forced power OFF, pm_usage_count: %d\n",
+			atomic_read(&dev->power.usage_count));
+		#endif
+		if (ret)
+			return ret;
+	} else {
+		pm_runtime_mark_last_busy(gi2c->se.dev);
+		pm_runtime_put_autosuspend(gi2c->se.dev);
+	}
+
 	gi2c->cur = NULL;
 	gi2c->err = 0;
 	return ret;
@@ -845,7 +871,8 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, gi2c);
 
 	/* Keep interrupts disabled initially to allow for low-power modes */
-	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq, IRQF_NO_AUTOEN,
+	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq,
+			       IRQF_NO_AUTOEN | IRQF_EARLY_RESUME | IRQF_NO_SUSPEND,
 			       dev_name(dev), gi2c);
 	if (ret)
 		return dev_err_probe(dev, ret,
