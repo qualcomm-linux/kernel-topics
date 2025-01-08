@@ -385,6 +385,14 @@ struct arm_smmu_domain {
 	struct mutex			init_mutex; /* Protects smmu pointer */
 	spinlock_t			cb_lock; /* Serialises ATS1* ops and TLB syncs */
 	struct iommu_domain		domain;
+	/*
+	 * Use to store parse vmid value for those clients which want HLOS
+	 * to share pgtable to different entity(VMID).
+	 * Fix Me: Ideally this should be implemented on arm-smmu vendor implementation
+	 * driver, but as per current design of arm_smmu_domain_alloc there is no way
+	 * to call implementation callbacks.
+	 */
+	u32				secure_vmid;
 };
 
 struct arm_smmu_master_cfg {
