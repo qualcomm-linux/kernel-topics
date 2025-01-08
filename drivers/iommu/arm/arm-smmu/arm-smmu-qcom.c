@@ -4,6 +4,7 @@
  */
 
 #include <linux/acpi.h>
+#include <linux/dev_printk.h>
 #include <linux/adreno-smmu-priv.h>
 #include <linux/delay.h>
 #include <linux/of_device.h>
@@ -373,6 +374,74 @@ static const struct of_device_id qcom_smmu_client_of_match[] __maybe_unused = {
 	{ }
 };
 
+static void *qcom_alloc_pages(void *cookie, size_t size, gfp_t gfp)
+{
+	struct page *p;
+	struct qcom_scm_vmperm perms[2];
+	u64 src  = BIT(QCOM_SCM_VMID_HLOS);
+	int ret;
+
+	struct arm_smmu_domain *domain = (void *)cookie;
+	/*
+	 * qcom_scm_assign_mem call during atomic allocation can sleep, Using GFP flags
+	 * to detect allocation path and return failure for atomic allocations.
+	 */
+	if (!gfpflags_allow_blocking(gfp)) {
+		dev_err(domain->smmu->dev,
+			"qcom_scm_assign_mem call are not allowed during atomic allocations\n");
+		return NULL;
+	}
+	p = alloc_page(gfp);
+	if (!p)
+		return NULL;
+
+	perms[0].vmid = QCOM_SCM_VMID_HLOS;
+	perms[0].perm = QCOM_SCM_PERM_RW;
+	perms[1].vmid = domain->secure_vmid;
+	perms[1].perm = QCOM_SCM_PERM_READ;
+	ret = qcom_scm_assign_mem(page_to_phys(p), PAGE_SIZE,
+				  &src, perms, 2);
+	if (ret < 0) {
+		dev_err(domain->smmu->dev,
+			"assign memory failed for vmid=%x ret=%d\n",
+			domain->secure_vmid, ret);
+		__free_page(p);
+		return NULL;
+	}
+
+	return page_address(p);
+}
+
+static void qcom_free_pages(void *cookie, void *pages, size_t size)
+{
+	struct qcom_scm_vmperm perms;
+	struct page *p;
+	u64 src;
+	int ret;
+
+	struct arm_smmu_domain *domain = (void *)cookie;
+
+	p = virt_to_page(pages);
+
+	perms.vmid = QCOM_SCM_VMID_HLOS;
+	perms.perm = QCOM_SCM_PERM_RWX;
+	src = BIT(domain->secure_vmid) | BIT(QCOM_SCM_VMID_HLOS);
+	ret = qcom_scm_assign_mem(page_to_phys(p), PAGE_SIZE,
+				  &src, &perms, 1);
+	/*
+	 * For assign failure scenario, it is not safe to use these pages by HLOS.
+	 * So returning from here instead of freeing the page.
+	 */
+	if (ret < 0) {
+		dev_err(domain->smmu->dev,
+			"assign memory failed to HLOS for vmid=%x ret=%d\n",
+			domain->secure_vmid, ret);
+		return;
+	}
+
+	__free_page(p);
+}
+
 static int qcom_smmu_init_context(struct arm_smmu_domain *smmu_domain,
 		struct io_pgtable_cfg *pgtbl_cfg, struct device *dev)
 {
@@ -380,6 +449,7 @@ static int qcom_smmu_init_context(struct arm_smmu_domain *smmu_domain,
 	struct qcom_smmu *qsmmu = to_qcom_smmu(smmu);
 	const struct of_device_id *client_match;
 	int cbndx = smmu_domain->cfg.cbndx;
+	u32 val;
 
 	smmu_domain->cfg.flush_walk_prefer_tlbiasid = true;
 
@@ -387,6 +457,16 @@ static int qcom_smmu_init_context(struct arm_smmu_domain *smmu_domain,
 
 	if (client_match)
 		qcom_smmu_set_actlr_dev(dev, smmu, cbndx, client_match);
+
+	/*
+	 * For those client where qcom,iommu-vmid is not defined, default arm-smmu pgtable
+	 * alloc/free handler will be used.
+	 */
+	if (of_property_read_u32(dev->of_node, "qcom,iommu-vmid", &val) == 0) {
+		smmu_domain->secure_vmid = val;
+		pgtbl_cfg->alloc = qcom_alloc_pages;
+		pgtbl_cfg->free = qcom_free_pages;
+	}
 
 	return 0;
 }
