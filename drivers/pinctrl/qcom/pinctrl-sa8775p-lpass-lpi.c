@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * ALSA SoC platform-machine driver for QTi LPASS
  */
 
@@ -123,12 +123,12 @@ static const char * const ext_mclk1_d_groups[] = { "gpio14" };
 static const char * const ext_mclk1_e_groups[] = { "gpio22" };
 
 static const struct lpi_pingroup sa8775p_groups[] = {
-	LPI_PINGROUP(0, LPI_NO_SLEW, qua_mi2s_sclk, _, _, _),
-	LPI_PINGROUP(1, LPI_NO_SLEW, qua_mi2s_ws, _, _, _),
-	LPI_PINGROUP(2, LPI_NO_SLEW, qua_mi2s_data, _, _, _),
-	LPI_PINGROUP(3, LPI_NO_SLEW, qua_mi2s_data, _, _, _),
-	LPI_PINGROUP(4, LPI_NO_SLEW, qua_mi2s_data, _, _, _),
-	LPI_PINGROUP(5, LPI_NO_SLEW, ext_mclk1_c, qua_mi2s_data, _, _),
+	LPI_PINGROUP(0, LPI_NO_SLEW, _, qua_mi2s_sclk, _, _),
+	LPI_PINGROUP(1, LPI_NO_SLEW, _, qua_mi2s_ws, _, _),
+	LPI_PINGROUP(2, LPI_NO_SLEW, _, qua_mi2s_data, _, _),
+	LPI_PINGROUP(3, LPI_NO_SLEW, _, qua_mi2s_data, _, _),
+	LPI_PINGROUP(4, LPI_NO_SLEW, _, qua_mi2s_data, _, _),
+	LPI_PINGROUP(5, LPI_NO_SLEW, _, ext_mclk1_c, qua_mi2s_data, _),
 	LPI_PINGROUP(6, LPI_NO_SLEW, dmic1_clk, i2s1_clk, _, _),
 	LPI_PINGROUP(7, LPI_NO_SLEW, dmic1_data, i2s1_ws, _, _),
 	LPI_PINGROUP(8, LPI_NO_SLEW, dmic2_clk, i2s1_data, _, _),
