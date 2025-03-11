@@ -80,6 +80,10 @@ int qce_submit_cmd_desc(struct qce_device *qce, unsigned long flags)
 	int ret = 0;
 
 	desc_flags = DMA_PREP_CMD;
+	if (flags & QCE_DMA_DESC_FLAG_LOCK)
+		desc_flags |= DMA_PREP_LOCK;
+	else if (flags & QCE_DMA_DESC_FLAG_UNLOCK)
+		desc_flags |= DMA_PREP_UNLOCK;
 
 	/*
 	 * The HPG recommends always using the consumer pipe for command

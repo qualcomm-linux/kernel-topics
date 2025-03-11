@@ -65,4 +65,7 @@ struct qce_algo_ops {
 	int (*async_req_handle)(struct crypto_async_request *async_req);
 };
 
+void qce_bam_lock(struct qce_device *qce);
+void qce_bam_unlock(struct qce_device *qce);
+
 #endif /* _CORE_H_ */
