@@ -8,6 +8,7 @@
 #include <linux/dma-mapping.h>
 #include <crypto/scatterwalk.h>
 
+#include "common.h"
 #include "core.h"
 #include "dma.h"
 
@@ -106,9 +107,9 @@ int qce_submit_cmd_desc(struct qce_device *qce, unsigned long flags)
 	return ret;
 }
 
-static __maybe_unused void
-qce_prep_dma_command_desc(struct qce_device *qce, struct qce_dma_data *dma,
-			  unsigned int addr, void *buff)
+static void qce_prep_dma_command_desc(struct qce_device *qce,
+				      struct qce_dma_data *dma,
+				      unsigned int addr, void *buff)
 {
 	struct qce_bam_transaction *qce_bam_txn = dma->qce_bam_txn;
 	struct bam_cmd_element *qce_bam_ce_buffer;
@@ -132,6 +133,12 @@ qce_prep_dma_command_desc(struct qce_device *qce, struct qce_dma_data *dma,
 
 	++qce_bam_txn->qce_write_sgl_cnt;
 	qce_bam_txn->qce_pre_bam_ce_index = qce_bam_txn->qce_bam_ce_index;
+}
+
+void qce_write(struct qce_device *qce, unsigned int offset, u32 val)
+{
+	qce_prep_dma_command_desc(qce, &qce->dma, (qce->base_dma + offset),
+				  &val);
 }
 
 static void qce_dma_release(void *data)
