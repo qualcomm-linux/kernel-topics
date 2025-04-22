@@ -5,6 +5,7 @@ SUBLEVEL = 0
 EXTRAVERSION = -rc1
 NAME = Baby Opossum Posse
 
+# This is a dummy change
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
 # More info can be located in ./README
