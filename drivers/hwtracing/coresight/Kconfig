@@ -259,4 +259,16 @@ config CORESIGHT_DUMMY
 
 	  To compile this driver as a module, choose M here: the module will be
 	  called coresight-dummy.
+
+config CORESIGHT_QMI
+	tristate "CORESIGHT QMI support"
+	select QCOM_QMI_HELPERS
+	help
+	  Enables support for sending command to subsystem via QMI. This is
+	  primarily used for sending QMI message to subsystems for remote trace
+	  sources.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called coresight-qmi.
+
 endif
