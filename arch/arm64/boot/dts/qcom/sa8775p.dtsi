@@ -36,6 +36,49 @@
 		};
 	};
 
+	audio-etm0 {
+		compatible = "qcom,coresight-remote-etm";
+		device-name = "audio_etm0";
+
+		qcom,inst-id = <5>;
+		atid = <40>;
+
+		out-ports {
+			port {
+				audio_out: endpoint {
+					remote-endpoint =
+					<&lpi_funnel_in0>;
+				};
+			};
+		};
+	};
+
+	lpi-funnel {
+		compatible = "arm,coresight-static-funnel";
+
+		out-ports {
+			port {
+				lpi_funnel_out: endpoint {
+					remote-endpoint =
+					<&aoss_funnel_in5>;
+				};
+			};
+		};
+
+		in-ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				lpi_funnel_in0: endpoint {
+					remote-endpoint =
+					<&audio_out>;
+				};
+			};
+		};
+	};
+
 	cpus {
 		#address-cells = <2>;
 		#size-cells = <0>;
@@ -2429,6 +2472,19 @@
 			interconnect-names = "memory";
 		};
 
+		csr: csr@4001000 {
+			compatible = "qcom,coresight-csr";
+			reg = <0x0 0x4001000 0x0 0x1000>;
+			reg-names = "csr-base";
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+
+			qcom,hwctrl-set-support;
+			qcom,set-byte-cntr-support;
+			qcom,blk-size = <1>;
+		};
+
 		stm: stm@4002000 {
 			compatible = "arm,coresight-stm", "arm,primecell";
 			reg = <0x0 0x4002000 0x0 0x1000>,
@@ -2507,6 +2563,38 @@
 			};
 		};
 
+		tgu@4b0e000 {
+			compatible = "arm,primecell", "qcom,coresight-tgu";
+			reg = <0x0 0x4b0e000 0x0 0x1000>;
+			reg-names = "tgu-base";
+			device-name = "tgu_ipcb";
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+
+			arm,primecell-periphid = <0x0003b999>;
+			tgu-conditions = <4>;
+			tgu-regs = <4>;
+			tgu-steps = <3>;
+			tgu-timer-counters = <8>;
+		};
+
+		tgu@4b0f000 {
+			compatible = "arm,primecell", "qcom,coresight-tgu";
+			reg = <0x0 0x4b0f000 0x0 0x1000>;
+			reg-names = "tgu-base";
+			device-name = "tgu_spmi0";
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+
+			arm,primecell-periphid = <0x0003b999>;
+			tgu-conditions = <4>;
+			tgu-regs = <8>;
+			tgu-steps = <3>;
+			tgu-timer-counters = <8>;
+		};
+
 		tpdm@400f000 {
 			compatible = "qcom,coresight-tpdm", "arm,primecell";
 			reg = <0x0 0x400f000 0x0 0x1000>;
@@ -2525,6 +2613,16 @@
 					};
 				};
 			};
+		};
+
+		cti@4010000 {
+			compatible = "arm,coresight-cti", "arm,primecell";
+			reg = <0x0 0x4010000 0x0 0x1000>;
+			device-name = "cti_qdss";
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+			qcom,extended_cti;
 		};
 
 		funnel@4041000 {
@@ -2633,6 +2731,134 @@
 			};
 		};
 
+		replicator@4046000 {
+			compatible = "arm,coresight-dynamic-replicator", "arm,primecell";
+			reg = <0x0 0x4046000 0x0 0x1000>;
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+
+			out-ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					qdss_rep_out0: endpoint {
+						remote-endpoint =
+						<&etr_rep_in>;
+					};
+				};
+			};
+
+			in-ports {
+				port {
+					qdss_rep_in: endpoint {
+						remote-endpoint =
+						<&swao_rep_out0>;
+					};
+				};
+			};
+		};
+
+		tmc_etr: tmc@4048000 {
+			compatible = "arm,coresight-tmc", "arm,primecell";
+			reg = <0x0 0x4048000 0x0 0x1000>,
+			      <0x0 0x4064000 0x0 0x16000>;
+			reg-names = "tmc-base", "bam-base";
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+			iommus = <&apps_smmu 0x04c0 0x00>;
+
+			arm,scatter-gather;
+
+			interrupts = <GIC_SPI 270 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "byte-cntr-irq";
+			qcom,sw-usb;
+			coresight-csr = <&csr>;
+			csr-atid-offset = <0xf8>;
+			csr-irqctrl-offset = <0x6c>;
+			byte-cntr-name = "byte-cntr";
+			byte-cntr-class-name = "coresight-tmc-etr-stream";
+
+			in-ports {
+				port {
+					etr0_in: endpoint {
+						remote-endpoint =
+						<&etr_rep_out0>;
+					};
+				};
+			};
+		};
+
+		replicator@404e000 {
+			compatible = "arm,coresight-dynamic-replicator", "arm,primecell";
+			reg = <0x0 0x404e000 0x0 0x1000>;
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+
+			out-ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					etr_rep_out0: endpoint {
+						remote-endpoint =
+						<&etr0_in>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+					etr_rep_out1: endpoint {
+						remote-endpoint =
+						<&etr1_in>;
+					};
+				};
+			};
+
+			in-ports {
+				port {
+					etr_rep_in: endpoint {
+						remote-endpoint =
+						<&qdss_rep_out0>;
+					};
+				};
+			};
+		};
+
+		tmc_etr1: tmc@404f000 {
+			compatible = "arm,coresight-tmc", "arm,primecell";
+			reg = <0x0 0x404f000 0x0 0x1000>;
+
+			clocks = <&aoss_qmp>;
+			clock-names = "apb_pclk";
+			iommus = <&apps_smmu 0x04a0 0x40>;
+
+			arm,scatter-gather;
+			arm,buffer-size = <0x400000>;
+
+			interrupts = <GIC_SPI 262 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "byte-cntr-irq";
+			coresight-csr = <&csr>;
+			csr-atid-offset = <0x108>;
+			csr-irqctrl-offset = <0x70>;
+			byte-cntr-name = "byte-cntr1";
+			byte-cntr-class-name = "coresight-tmc-etr1-stream";
+
+			in-ports {
+				port {
+					etr1_in: endpoint {
+						remote-endpoint =
+						<&etr_rep_out1>;
+					};
+				};
+			};
+		};
+
 		funnel@4b04000 {
 			compatible = "arm,coresight-dynamic-funnel", "arm,primecell";
 			reg = <0x0 0x4b04000 0x0 0x1000>;
@@ -2652,6 +2878,14 @@
 			in-ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
+
+				port@5 {
+					reg = <5>;
+					aoss_funnel_in5: endpoint {
+						remote-endpoint =
+						<&lpi_funnel_out>;
+					};
+				};
 
 				port@6 {
 					reg = <6>;
@@ -2707,6 +2941,14 @@
 			out-ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					swao_rep_out0: endpoint {
+						remote-endpoint =
+						<&qdss_rep_in>;
+					};
+				};
 
 				port@1 {
 					reg = <1>;
