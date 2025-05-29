@@ -103,6 +103,13 @@ properties:
   "#phy-cells":
     const: 0
 
+  qcom,refclk-always-on:
+    type: boolean
+    description: In some platform where PCIe switch is connected, pcie switch due to some design
+      limitation fails to propage clkreq signal to the host and due to that host will not send
+      refclk, which  results in linkdown in L1.2 or L1.1 exit initiated by EP.
+      This property if set keeps refclk always on even in Low power states.
+
 required:
   - compatible
   - reg
