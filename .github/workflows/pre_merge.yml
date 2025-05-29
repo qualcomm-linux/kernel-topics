@@ -1,6 +1,6 @@
 name: pre_merge
 on:
-  pull_request:
+  pull_request_target:
 
 jobs:
   pre-merge:
