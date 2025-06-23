@@ -1184,8 +1184,7 @@
 			phys = <&pcie_phy>;
 			phy-names = "pciephy";
 
-			eq-presets-8gts = /bits/ 16 <0x5555 0x5555 0x5555 0x5555
-					  0x5555 0x5555 0x5555 0x5555>;
+			eq-presets-8gts = /bits/ 16 <0x5555>;
 
 			operating-points-v2 = <&pcie_opp_table>;
 
