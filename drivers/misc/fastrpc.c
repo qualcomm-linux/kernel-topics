@@ -763,7 +763,7 @@ static const struct dma_buf_ops fastrpc_dma_buf_ops = {
 
 static int fastrpc_map_create(struct fastrpc_user *fl, int fd,
 				u64 va, u64 len, u32 attr,
-				struct fastrpc_map **ppmap)
+				struct fastrpc_map **ppmap, bool take_ref)
 {
 	struct fastrpc_session_ctx *sess = fl->sctx;
 	struct fastrpc_map *map = NULL;
@@ -771,7 +771,7 @@ static int fastrpc_map_create(struct fastrpc_user *fl, int fd,
 	struct scatterlist *sgl = NULL;
 	int err = 0, sgl_index = 0;
 
-	if (!fastrpc_map_lookup(fl, fd, va, len, ppmap, true))
+	if (!fastrpc_map_lookup(fl, fd, va, len, ppmap, take_ref))
 		return 0;
 
 	map = kzalloc(sizeof(*map), GFP_KERNEL);
@@ -925,14 +925,17 @@ static int fastrpc_create_maps(struct fastrpc_invoke_ctx *ctx)
 	int i, err;
 
 	for (i = 0; i < ctx->nscalars; ++i) {
+		bool take_ref = true;
 
 		if (ctx->args[i].fd == 0 || ctx->args[i].fd == -1 ||
 		    ctx->args[i].length == 0)
 			continue;
 
+		if (i >= ctx->nbufs)
+			take_ref = false;
 		err = fastrpc_map_create(ctx->fl, ctx->args[i].fd,
 			 (u64)ctx->args[i].ptr, ctx->args[i].length,
-				ctx->args[i].attr, &ctx->maps[i]);
+				ctx->args[i].attr, &ctx->maps[i], take_ref);
 		if (err) {
 			dev_err(dev, "Error Creating map %d\n", err);
 			return -EINVAL;
@@ -1471,7 +1474,7 @@ static int fastrpc_init_create_process(struct fastrpc_user *fl,
 
 	if (init.filelen && init.filefd) {
 		err = fastrpc_map_create(fl, init.filefd, init.file,
-				init.filelen, 0, &map);
+				init.filelen, 0, &map, true);
 		if (err)
 			goto err;
 	}
@@ -2152,7 +2155,7 @@ static int fastrpc_req_mem_map(struct fastrpc_user *fl, char __user *argp)
 
 	/* create SMMU mapping */
 	err = fastrpc_map_create(fl, req.fd, req.vaddrin, req.length,
-			0, &map);
+			0, &map, true);
 	if (err) {
 		dev_err(dev, "failed to map buffer, fd = %d\n", req.fd);
 		return err;
