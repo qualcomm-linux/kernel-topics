@@ -1153,6 +1153,8 @@ void ath12k_dp_rx_h_ppdu(struct ath12k_pdev_dp *dp_pdev,
 	channel_num = meta_data;
 	center_freq = meta_data >> 16;
 
+	rx_status->band = NUM_NL80211_BANDS;
+
 	if (center_freq >= ATH12K_MIN_6GHZ_FREQ &&
 	    center_freq <= ATH12K_MAX_6GHZ_FREQ) {
 		rx_status->band = NL80211_BAND_6GHZ;
@@ -1161,8 +1163,14 @@ void ath12k_dp_rx_h_ppdu(struct ath12k_pdev_dp *dp_pdev,
 		rx_status->band = NL80211_BAND_2GHZ;
 	} else if (channel_num >= 36 && channel_num <= 173) {
 		rx_status->band = NL80211_BAND_5GHZ;
-	} else {
+	}
+
+	if (unlikely(rx_status->band == NUM_NL80211_BANDS ||
+		     !ath12k_ar_to_hw(ar)->wiphy->bands[rx_status->band])) {
 		struct ath12k *ar = ath12k_pdev_dp_to_ar(dp_pdev);
+
+		ath12k_warn(ar->ab, "sband is NULL for status band %d channel_num %d center_freq %d pdev_id %d\n",
+			    rx_status->band, channel_num, center_freq, ar->pdev_idx);
 
 		spin_lock_bh(&ar->data_lock);
 		channel = ar->rx_channel;
@@ -1170,14 +1178,18 @@ void ath12k_dp_rx_h_ppdu(struct ath12k_pdev_dp *dp_pdev,
 			rx_status->band = channel->band;
 			channel_num =
 				ieee80211_frequency_to_channel(channel->center_freq);
+			rx_status->freq = ieee80211_channel_to_frequency(channel_num,
+									 rx_status->band);
 		}
 		spin_unlock_bh(&ar->data_lock);
+		goto h_rate;
 	}
 
 	if (rx_status->band != NL80211_BAND_6GHZ)
 		rx_status->freq = ieee80211_channel_to_frequency(channel_num,
 								 rx_status->band);
 
+h_rate:
 	ath12k_dp_rx_h_rate(dp_pdev, rx_info);
 }
 EXPORT_SYMBOL(ath12k_dp_rx_h_ppdu);
