@@ -1624,7 +1624,7 @@ static int wsa883x_probe(struct sdw_slave *pdev,
 				       wsa883x);
 	if (ret)
 		return ret;
-
+ 
 	ret = wsa883x_get_reset(dev, wsa883x);
         if (ret)
                 return ret;
