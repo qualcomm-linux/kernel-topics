@@ -514,7 +514,7 @@ const char *drm_get_color_range_name(enum drm_color_range range)
  * drm_plane_create_color_properties - color encoding related plane properties
  * @plane: plane object
  * @supported_encodings: bitfield indicating supported color encodings
- * @supported_ranges: bitfileld indicating supported color ranges
+ * @supported_ranges: bitfield indicating supported color ranges
  * @default_encoding: default color encoding
  * @default_range: default color range
  *
