@@ -1482,7 +1482,9 @@ static int ath12k_dp_setup(struct ath12k_base *ab)
 
 	INIT_LIST_HEAD(&dp->reo_cmd_list);
 	INIT_LIST_HEAD(&dp->reo_cmd_cache_flush_list);
+	INIT_LIST_HEAD(&dp->reo_cmd_update_rx_queue_list);
 	spin_lock_init(&dp->reo_cmd_lock);
+	spin_lock_init(&dp->reo_rxq_flush_lock);
 
 	spin_lock_init(&dp->dp_lock);
 	INIT_LIST_HEAD(&dp->peers);

@@ -65,8 +65,8 @@ void ath12k_wifi7_peer_rx_tid_qref_setup(struct ath12k_base *ab, u16 peer_id, u1
 	ath12k_hal_reo_shared_qaddr_cache_clear(ab);
 }
 
-static void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab,
-						u16 peer_id, u16 tid)
+void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab,
+					 u16 peer_id, u16 tid)
 {
 	struct ath12k_reo_queue_ref *qref;
 	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
@@ -96,8 +96,8 @@ void ath12k_wifi7_dp_rx_peer_tid_delete(struct ath12k_base *ab,
 					struct ath12k_dp_link_peer *peer, u8 tid)
 {
 	struct ath12k_dp_rx_tid *rx_tid = &peer->dp_peer->rx_tid[tid];
-	int ret;
-	struct ath12k_dp_rx_tid_rxq rx_tid_rxq;
+	struct ath12k_base *ab = ar->ab;
+	struct ath12k_dp *dp = &ab->dp;
 
 	if (!(peer->rx_tid_active_bitmask & (1 << tid)))
 		return;

@@ -369,20 +369,29 @@ void ath12k_dp_rx_reo_cmd_list_cleanup(struct ath12k_base *ab)
 	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
 	struct ath12k_dp_rx_reo_cmd *cmd, *tmp;
 	struct ath12k_dp_rx_reo_cache_flush_elem *cmd_cache, *tmp_cache;
+	struct dp_reo_update_rx_queue_elem *cmd_queue, *tmp_queue;
 
-	spin_lock_bh(&dp->reo_cmd_lock);
-	list_for_each_entry_safe(cmd, tmp, &dp->reo_cmd_list, list) {
-		list_del(&cmd->list);
-		ath12k_dp_rx_tid_cleanup(ab, &cmd->data.qbuf);
-		kfree(cmd);
+	spin_lock_bh(&dp->reo_rxq_flush_lock);
+	list_for_each_entry_safe(cmd_queue, tmp_queue, &dp->reo_cmd_update_rx_queue_list,
+				 list) {
+		list_del(&cmd_queue->list);
+		ath12k_dp_rx_tid_cleanup(ab, &cmd_queue->rx_tid.qbuf);
+		kfree(cmd_queue);
 	}
-
 	list_for_each_entry_safe(cmd_cache, tmp_cache,
 				 &dp->reo_cmd_cache_flush_list, list) {
 		list_del(&cmd_cache->list);
 		dp->reo_cmd_cache_flush_count--;
 		ath12k_dp_rx_tid_cleanup(ab, &cmd_cache->data.qbuf);
 		kfree(cmd_cache);
+	}
+	spin_unlock_bh(&dp->reo_rxq_flush_lock);
+
+	spin_lock_bh(&dp->reo_cmd_lock);
+	list_for_each_entry_safe(cmd, tmp, &dp->reo_cmd_list, list) {
+		list_del(&cmd->list);
+		ath12k_dp_rx_tid_cleanup(ab, &cmd->data.qbuf);
+		kfree(cmd);
 	}
 	spin_unlock_bh(&dp->reo_cmd_lock);
 }
@@ -400,6 +409,35 @@ void ath12k_dp_reo_cmd_free(struct ath12k_dp *dp, void *ctx,
 }
 EXPORT_SYMBOL(ath12k_dp_reo_cmd_free);
 
+static void ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(struct ath12k_dp *dp)
+{
+	struct ath12k_base *ab = dp->ab;
+	struct dp_reo_update_rx_queue_elem *elem, *tmp;
+
+	spin_lock_bh(&dp->reo_rxq_flush_lock);
+
+	list_for_each_entry_safe(elem, tmp, &dp->reo_cmd_update_rx_queue_list, list) {
+		if (elem->rx_tid.active)
+			continue;
+
+		if (ath12k_dp_rx_tid_delete_handler(ab, &elem->rx_tid))
+			break;
+
+		ath12k_peer_rx_tid_qref_reset(ab,
+					      elem->is_ml_peer ? elem->ml_peer_id :
+					      elem->peer_id,
+					      elem->rx_tid.tid);
+
+		if (ab->hw_params->reoq_lut_support)
+			ath12k_hal_reo_shared_qaddr_cache_clear(ab);
+
+		list_del(&elem->list);
+		kfree(elem);
+	}
+
+	spin_unlock_bh(&dp->reo_rxq_flush_lock);
+}
+
 void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 			       enum hal_reo_cmd_status status)
 {
@@ -416,6 +454,13 @@ void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 		return;
 	}
 
+	/* Retry the HAL_REO_CMD_UPDATE_RX_QUEUE command for entries
+	 * in the pending queue list marked TID as inactive
+	 */
+	spin_lock_bh(&dp->ab->base_lock);
+	ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(dp);
+	spin_unlock_bh(&dp->ab->base_lock);
+
 	elem = kzalloc(sizeof(*elem), GFP_ATOMIC);
 	if (!elem)
 		goto free_desc;
@@ -423,7 +468,7 @@ void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 	elem->ts = jiffies;
 	memcpy(&elem->data, rx_tid, sizeof(*rx_tid));
 
-	spin_lock_bh(&dp->reo_cmd_lock);
+	spin_lock_bh(&dp->reo_rxq_flush_lock);
 	list_add_tail(&elem->list, &dp->reo_cmd_cache_flush_list);
 	dp->reo_cmd_cache_flush_count++;
 
@@ -435,24 +480,11 @@ void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 			       msecs_to_jiffies(ATH12K_DP_RX_REO_DESC_FREE_TIMEOUT_MS))) {
 			list_del(&elem->list);
 			dp->reo_cmd_cache_flush_count--;
-
-			/* Unlock the reo_cmd_lock before using ath12k_dp_reo_cmd_send()
-			 * within ath12k_wifi7_dp_reo_cache_flush.
-			 * The reo_cmd_cache_flush_list is used in only two contexts,
-			 * one is in this function called from napi and the other in
-			 * ath12k_dp_free during core destroy.
-			 * Before dp_free, the irqs would be disabled and would wait to
-			 * synchronize. Hence there wouldn’t be any race against add or
-			 * delete to this list. Hence unlock-lock is safe here.
-			 */
-			spin_unlock_bh(&dp->reo_cmd_lock);
-
 			ath12k_dp_arch_reo_cache_flush(dp, &elem->data);
 			kfree(elem);
-			spin_lock_bh(&dp->reo_cmd_lock);
 		}
 	}
-	spin_unlock_bh(&dp->reo_cmd_lock);
+	spin_unlock_bh(&dp->reo_rxq_flush_lock);
 
 	return;
 free_desc:
@@ -473,6 +505,25 @@ static int ath12k_dp_rx_tid_delete_handler(struct ath12k_base *ab,
 	return ath12k_dp_reo_cmd_send(ab, rx_tid,
 				      HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
 				      ath12k_dp_rx_tid_del_func);
+}
+
+static void ath12k_dp_mark_tid_as_inactive(struct ath12k_dp *dp, int peer_id, u8 tid)
+{
+	struct dp_reo_update_rx_queue_elem *elem;
+	struct ath12k_dp_rx_tid_rxq *rx_tid;
+
+	spin_lock_bh(&dp->reo_rxq_flush_lock);
+	list_for_each_entry(elem, &dp->reo_cmd_update_rx_queue_list, list) {
+		if (elem->peer_id == peer_id) {
+			rx_tid = &elem->rx_tid;
+			if (rx_tid->tid == tid) {
+				rx_tid->active = false;
+				break;
+			}
+		}
+	}
+
+	spin_unlock_bh(&dp->reo_rxq_flush_lock);
 }
 
 void ath12k_dp_rx_peer_tid_cleanup(struct ath12k *ar, struct ath12k_dp_link_peer *peer)
@@ -497,6 +548,29 @@ void ath12k_dp_rx_peer_tid_cleanup(struct ath12k *ar, struct ath12k_dp_link_peer
 		timer_delete_sync(&rx_tid->frag_timer);
 		spin_lock_bh(&dp->dp_lock);
 	}
+}
+
+static int ath12k_dp_prepare_reo_update_elem(struct ath12k_dp *dp,
+					     struct ath12k_peer *peer,
+					     struct ath12k_dp_rx_tid *rx_tid)
+{
+	struct dp_reo_update_rx_queue_elem *elem;
+
+	elem = kzalloc(sizeof(*elem), GFP_ATOMIC);
+	if (!elem)
+		return -ENOMEM;
+
+	elem->peer_id = peer->peer_id;
+	elem->is_ml_peer = peer->mlo;
+	elem->ml_peer_id = peer->ml_id;
+
+	ath12k_dp_init_rx_tid_rxq(&elem->rx_tid, rx_tid);
+
+	spin_lock_bh(&dp->reo_rxq_flush_lock);
+	list_add_tail(&elem->list, &dp->reo_cmd_update_rx_queue_list);
+	spin_unlock_bh(&dp->reo_rxq_flush_lock);
+
+	return 0;
 }
 
 int ath12k_dp_rx_peer_tid_setup(struct ath12k *ar, const u8 *peer_mac, int vdev_id,
@@ -578,6 +652,19 @@ int ath12k_dp_rx_peer_tid_setup(struct ath12k *ar, const u8 *peer_mac, int vdev_
 	}
 
 	peer->rx_tid_active_bitmask |= (1 << tid);
+
+	/* Pre-allocate the update_rxq_list for the corresponding tid
+	 * This will be used during the tid delete. The reason we are not
+	 * allocating during tid delete is that, if any alloc fail in update_rxq_list
+	 * we may not be able to delete the tid vaddr/paddr and may lead to leak
+	 */
+	ret = ath12k_dp_prepare_reo_update_elem(dp, peer, rx_tid);
+	if (ret) {
+		ath12k_warn(ab, "failed to alloc update_rxq_list for rx tid %u\n", tid);
+		ath12k_dp_rx_tid_cleanup(ab, &rx_tid->qbuf);
+		spin_unlock_bh(&ab->base_lock);
+		return ret;
+	}
 
 	paddr_aligned = rx_tid->qbuf.paddr_aligned;
 	if (ab->hw_params->reoq_lut_support) {
