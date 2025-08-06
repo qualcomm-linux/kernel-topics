@@ -17,6 +17,9 @@
 #include "dp_mon.h"
 #include "debugfs_htt_stats.h"
 
+static int ath12k_dp_rx_tid_delete_handler(struct ath12k_base *ab,
+					   struct ath12k_dp_rx_tid_rxq *rx_tid);
+
 static size_t ath12k_dp_list_cut_nodes(struct list_head *list,
 				       struct list_head *head,
 				       size_t count)
@@ -447,6 +450,21 @@ free_desc:
 	rx_tid->qbuf.vaddr = NULL;
 }
 EXPORT_SYMBOL(ath12k_dp_rx_tid_del_func);
+
+static int ath12k_dp_rx_tid_delete_handler(struct ath12k_base *ab,
+					     struct ath12k_dp_rx_tid *rx_tid)
+{
+	struct ath12k_hal_reo_cmd cmd = {};
+
+	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
+	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
+	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
+	cmd.upd0 |= HAL_REO_CMD_UPD0_VLD;
+
+	return ath12k_dp_reo_cmd_send(ab, rx_tid,
+				      HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
+				      ath12k_dp_rx_tid_del_func);
+}
 
 void ath12k_dp_rx_peer_tid_cleanup(struct ath12k *ar, struct ath12k_dp_link_peer *peer)
 {

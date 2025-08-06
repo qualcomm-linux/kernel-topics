@@ -95,20 +95,13 @@ static void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab,
 void ath12k_wifi7_dp_rx_peer_tid_delete(struct ath12k_base *ab,
 					struct ath12k_dp_link_peer *peer, u8 tid)
 {
-	struct ath12k_hal_reo_cmd cmd = {};
 	struct ath12k_dp_rx_tid *rx_tid = &peer->dp_peer->rx_tid[tid];
 	int ret;
 
 	if (!(peer->rx_tid_active_bitmask & (1 << tid)))
 		return;
 
-	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
-	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.upd0 = HAL_REO_CMD_UPD0_VLD;
-	ret = ath12k_wifi7_dp_reo_cmd_send(ab, rx_tid,
-					   HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
-					   ath12k_dp_rx_tid_del_func);
+	ret = ath12k_dp_rx_tid_delete_handler(ar->ab, rx_tid);
 	if (ret) {
 		ath12k_err(ab, "failed to send HAL_REO_CMD_UPDATE_RX_QUEUE cmd, tid %d (%d)\n",
 			   tid, ret);
