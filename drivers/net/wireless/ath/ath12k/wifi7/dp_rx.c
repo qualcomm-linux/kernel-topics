@@ -105,10 +105,7 @@ void ath12k_wifi7_dp_rx_peer_tid_delete(struct ath12k_base *ab,
 	if (ret) {
 		ath12k_err(ab, "failed to send HAL_REO_CMD_UPDATE_RX_QUEUE cmd, tid %d (%d)\n",
 			   tid, ret);
-		dma_unmap_single(ab->dev, rx_tid->qbuf.paddr_aligned,
-				 rx_tid->qbuf.size, DMA_BIDIRECTIONAL);
-		kfree(rx_tid->qbuf.vaddr);
-		rx_tid->qbuf.vaddr = NULL;
+		ath12k_dp_rx_tid_cleanup(ar->ab, &rx_tid->qbuf);
 	}
 
 	if (peer->mlo)
