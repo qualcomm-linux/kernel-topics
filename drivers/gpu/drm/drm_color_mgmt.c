@@ -233,7 +233,7 @@ int drm_mode_crtc_set_gamma_size(struct drm_crtc *crtc,
 EXPORT_SYMBOL(drm_mode_crtc_set_gamma_size);
 
 /**
- * drm_crtc_supports_legacy_gamma - does the crtc support legacy gamma correction table
+ * drm_crtc_supports_legacy_gamma - does the crtc support legacy gamma correction table?
  * @crtc: CRTC object
  *
  * Returns true/false if the given crtc supports setting the legacy gamma
