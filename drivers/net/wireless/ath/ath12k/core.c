@@ -631,6 +631,7 @@ u32 ath12k_core_get_max_peers_per_radio(struct ath12k_base *ab)
 {
 	return ath12k_core_get_max_station_per_radio(ab) + TARGET_NUM_VDEVS(ab);
 }
+EXPORT_SYMBOL(ath12k_core_get_max_peers_per_radio);
 
 struct reserved_mem *ath12k_core_get_reserved_mem(struct ath12k_base *ab,
 						  int index)
@@ -1738,6 +1739,7 @@ enum ath12k_qmi_mem_mode ath12k_core_get_memory_mode(struct ath12k_base *ab)
 
 	return ATH12K_QMI_MEMORY_MODE_DEFAULT;
 }
+EXPORT_SYMBOL(ath12k_core_get_memory_mode);
 
 int ath12k_core_pre_init(struct ath12k_base *ab)
 {
@@ -2282,3 +2284,6 @@ err_sc_free:
 	kfree(ab);
 	return NULL;
 }
+
+MODULE_DESCRIPTION("Driver support for Qualcomm Technologies WLAN devices");
+MODULE_LICENSE("Dual BSD/GPL");
