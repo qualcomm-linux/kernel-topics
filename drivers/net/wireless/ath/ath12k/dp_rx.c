@@ -2007,6 +2007,7 @@ void ath12k_dp_htt_htc_t2h_msg_handler(struct ath12k_base *ab,
 
 	dev_kfree_skb_any(skb);
 }
+EXPORT_SYMBOL(ath12k_dp_htt_htc_t2h_msg_handler);
 
 static int ath12k_dp_rx_msdu_coalesce(struct ath12k *ar,
 				      struct sk_buff_head *msdu_list,
@@ -4563,6 +4564,7 @@ int ath12k_dp_rxdma_ring_sel_config_qcn9274(struct ath12k_base *ab)
 
 	return ret;
 }
+EXPORT_SYMBOL(ath12k_dp_rxdma_ring_sel_config_qcn9274);
 
 int ath12k_dp_rxdma_ring_sel_config_wcn7850(struct ath12k_base *ab)
 {
@@ -4605,6 +4607,7 @@ int ath12k_dp_rxdma_ring_sel_config_wcn7850(struct ath12k_base *ab)
 
 	return ret;
 }
+EXPORT_SYMBOL(ath12k_dp_rxdma_ring_sel_config_wcn7850);
 
 int ath12k_dp_rx_htt_setup(struct ath12k_base *ab)
 {
