@@ -998,16 +998,8 @@
 	status = "okay";
 };
 
-&mdss_dp0_out {
-	data-lanes = <0 1>;
-};
-
 &mdss_dp1 {
 	status = "okay";
-};
-
-&mdss_dp1_out {
-	data-lanes = <0 1>;
 };
 
 &mdss_dp3 {
