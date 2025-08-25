@@ -764,11 +764,13 @@ static int msm_dp_display_disable(struct msm_dp_display_private *dp)
 	return 0;
 }
 
-int msm_dp_display_set_stream_info(struct msm_dp *msm_dp_display,
-				   struct msm_dp_panel *panel, enum msm_dp_stream_id stream_id)
+int msm_dp_display_set_stream_info(struct msm_dp *msm_dp_display, struct msm_dp_panel *panel,
+				   enum msm_dp_stream_id stream_id, u32 start_slot,
+				   u32 num_slots, u32 pbn)
 {
 	int rc = 0;
 	struct msm_dp_display_private *dp;
+	const int max_slots = 64;
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
@@ -777,7 +779,16 @@ int msm_dp_display_set_stream_info(struct msm_dp *msm_dp_display,
 		return -EINVAL;
 	}
 
+	if (start_slot + num_slots > max_slots) {
+		DRM_ERROR("invalid channel info received. start:%d, slots:%d\n",
+			  start_slot, num_slots);
+		return -EINVAL;
+	}
+
+	msm_dp_ctrl_set_mst_channel_info(dp->ctrl, stream_id, start_slot, num_slots);
+
 	panel->stream_id = stream_id;
+	panel->pbn = pbn;
 	msm_dp_panel_set_pixel_base(panel, dp->pixel_base[stream_id]);
 
 	return rc;
@@ -1520,7 +1531,7 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display)
 
 	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	msm_dp_display_set_stream_info(msm_dp_display, dp->panel, 0);
+	msm_dp_display_set_stream_info(msm_dp_display, dp->panel, 0, 0, 0, 0);
 
 	rc = msm_dp_display_enable(dp);
 	if (rc)
@@ -1535,14 +1546,15 @@ void msm_dp_display_atomic_enable(struct msm_dp *msm_dp_display)
 	drm_dbg_dp(msm_dp_display->drm_dev, "type=%d Done\n", msm_dp_display->connector_type);
 }
 
-void msm_dp_display_atomic_disable(struct msm_dp *dp)
+void msm_dp_display_atomic_disable(struct msm_dp *msm_dp_display)
 {
-	struct msm_dp_display_private *msm_dp_display;
+	struct msm_dp_display_private *dp;
 
-	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
 
-	msm_dp_ctrl_push_idle(msm_dp_display->ctrl);
-	msm_dp_ctrl_mst_send_act(msm_dp_display->ctrl);
+	msm_dp_ctrl_push_idle(dp->ctrl);
+	msm_dp_ctrl_mst_stream_channel_slot_setup(dp->ctrl);
+	msm_dp_ctrl_mst_send_act(dp->ctrl);
 }
 
 static void msm_dp_display_unprepare(struct msm_dp_display_private *dp)
