@@ -24,6 +24,8 @@ struct msm_dp {
 	bool is_edp;
 	bool prepared;
 
+	void *msm_dp_mst;
+
 	struct msm_dp_audio *msm_dp_audio;
 	bool psr_supported;
 };
