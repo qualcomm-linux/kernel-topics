@@ -642,6 +642,7 @@ struct ath12k {
 	u32 txpower_scale;
 	u32 power_scale;
 	u32 chan_tx_pwr;
+	u32 rts_threshold;
 	u32 num_stations;
 	u32 max_num_stations;
 
