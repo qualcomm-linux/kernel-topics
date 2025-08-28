@@ -13,7 +13,7 @@
 #include "hal_desc.h"
 #include "hw.h"
 #include "dp_rx.h"
-#include "hal_rx.h"
+#include "wifi7/hal_rx.h"
 #include "dp_tx.h"
 #include "peer.h"
 #include "dp_mon.h"
