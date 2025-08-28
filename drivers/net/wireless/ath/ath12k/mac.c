@@ -14,6 +14,7 @@
 #include "wmi.h"
 #include "hw.h"
 #include "dp_tx.h"
+#include "wifi7/dp_tx.h"
 #include "dp_rx.h"
 #include "testmode.h"
 #include "peer.h"
