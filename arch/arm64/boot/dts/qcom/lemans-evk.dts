@@ -356,6 +356,14 @@
 	};
 };
 
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sa8775p/a663_zap.mbn";
+};
+
 &ethernet0 {
 	phy-handle = <&hsgmii_phy0>;
 	phy-mode = "2500base-x";
