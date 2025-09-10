@@ -1203,8 +1203,6 @@ struct ath12k_base {
 		bool fw_features_valid;
 	} fw;
 
-	const struct hal_rx_ops *hal_rx_ops;
-
 	struct completion restart_completed;
 
 #ifdef CONFIG_ACPI
