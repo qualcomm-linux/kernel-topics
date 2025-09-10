@@ -15,6 +15,7 @@
 #include "core.h"
 #include "dp_tx.h"
 #include "dp_rx.h"
+#include "wifi7/dp_rx.h"
 #include "debug.h"
 #include "debugfs.h"
 #include "fw.h"
