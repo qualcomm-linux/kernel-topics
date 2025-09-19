@@ -397,6 +397,7 @@
 	wlan_en_state: wlan-en-state {
 		pins = "gpio98";
 		function = "gpio";
+		drive-strength = <16>;
 		bias-pull-down;
 		output-low;
 	};
