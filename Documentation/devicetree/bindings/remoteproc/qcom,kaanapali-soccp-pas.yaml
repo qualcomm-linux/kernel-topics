@@ -17,8 +17,13 @@ description:
 
 properties:
   compatible:
-    enum:
-      - qcom,kaanapali-soccp-pas
+    oneOf:
+      - items:
+          - enum:
+              - qcom,glymur-soccp-pas
+          - const: qcom,kaanapali-soccp-pas
+      - enum:
+          - qcom,kaanapali-soccp-pas
 
   reg:
     maxItems: 1
