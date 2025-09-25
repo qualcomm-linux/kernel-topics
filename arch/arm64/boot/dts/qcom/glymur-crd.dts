@@ -13,6 +13,49 @@
 
 	aliases {
 		serial0 = &uart21;
+		serial1 = &uart14;
+		i2c0 = &i2c16;
+		i2c1 = &i2c17;
+		i2c2 = &i2c18;
+		i2c3 = &i2c19;
+		i2c4 = &i2c20;
+		i2c5 = &i2c22;
+		i2c6 = &i2c23;
+		i2c7 = &i2c8;
+		i2c8 = &i2c9;
+		i2c9 = &i2c10;
+		i2c10 = &i2c11;
+		i2c11 = &i2c12;
+		i2c12 = &i2c13;
+		i2c13 = &i2c15;
+		i2c14 = &i2c0;
+		i2c15 = &i2c1;
+		i2c16 = &i2c2;
+		i2c17 = &i2c3;
+		i2c18 = &i2c4;
+		i2c19 = &i2c5;
+		i2c20 = &i2c6;
+		spi0 = &spi16;
+		spi1 = &spi17;
+		spi2 = &spi18;
+		spi3 = &spi19;
+		spi4 = &spi20;
+		spi5 = &spi22;
+		spi6 = &spi23;
+		spi7 = &spi8;
+		spi8 = &spi9;
+		spi9 = &spi10;
+		spi10 = &spi11;
+		spi11 = &spi12;
+		spi12 = &spi13;
+		spi13 = &spi15;
+		spi14 = &spi0;
+		spi15 = &spi1;
+		spi16 = &spi2;
+		spi17 = &spi3;
+		spi18 = &spi4;
+		spi19 = &spi5;
+		spi20 = &spi6;
 	};
 
 	chosen {
