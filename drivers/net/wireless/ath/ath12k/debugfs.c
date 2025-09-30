@@ -1180,6 +1180,9 @@ static ssize_t ath12k_debugfs_dump_device_dp_stats(struct file *file,
 		len += scnprintf(buf + len, size - len, "\n");
 	}
 
+	len += scnprintf(buf + len, size - len, "\nREO excep MSDU buf type:%u\n",
+			 device_stats->reo_excep_msdu_buf_type);
+
 	len += scnprintf(buf + len, size - len, "\nRx WBM REL SRC Errors:\n");
 
 	for (i = 0; i < HAL_WBM_REL_SRC_MODULE_MAX; i++) {
