@@ -9,6 +9,7 @@
 
 #include <net/mac80211.h>
 #include "htc.h"
+#include "cmn_defs.h"
 
 /* Naming conventions for structures:
  *
@@ -5150,8 +5151,6 @@ struct wmi_probe_tmpl_cmd {
 	__le32 vdev_id;
 	__le32 buf_len;
 } __packed;
-
-#define MAX_RADIOS 2
 
 #define WMI_MLO_CMD_TIMEOUT_HZ (5 * HZ)
 #define WMI_SERVICE_READY_TIMEOUT_HZ (5 * HZ)
