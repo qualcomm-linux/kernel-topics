@@ -1556,6 +1556,950 @@ u64 ath12k_dp_rx_h_get_pn(struct ath12k_dp *dp, struct sk_buff *skb)
 	return pn;
 }
 
+static bool
+ath12k_dp_rx_h_defrag_validate_incr_pn(struct ath12k *ar, struct ath12k_dp_rx_tid *rx_tid)
+{
+	struct ath12k_base *ab = ar->ab;
+	enum hal_encrypt_type encrypt_type;
+	struct sk_buff *first_frag, *skb;
+	struct hal_rx_desc *desc;
+	u64 last_pn;
+	u64 cur_pn;
+
+	first_frag = skb_peek(&rx_tid->rx_frags);
+	desc = (struct hal_rx_desc *)first_frag->data;
+
+	encrypt_type = ath12k_dp_rx_h_enctype(ab, desc);
+	if (encrypt_type != HAL_ENCRYPT_TYPE_CCMP_128 &&
+	    encrypt_type != HAL_ENCRYPT_TYPE_CCMP_256 &&
+	    encrypt_type != HAL_ENCRYPT_TYPE_GCMP_128 &&
+	    encrypt_type != HAL_ENCRYPT_TYPE_AES_GCMP_256)
+		return true;
+
+	last_pn = ath12k_dp_rx_h_get_pn(ar, first_frag);
+	skb_queue_walk(&rx_tid->rx_frags, skb) {
+		if (skb == first_frag)
+			continue;
+
+		cur_pn = ath12k_dp_rx_h_get_pn(ar, skb);
+		if (cur_pn != last_pn + 1)
+			return false;
+		last_pn = cur_pn;
+	}
+	return true;
+}
+
+static int ath12k_dp_rx_frag_h_mpdu(struct ath12k *ar,
+				    struct sk_buff *msdu,
+				    struct hal_reo_dest_ring *ring_desc)
+{
+	struct ath12k_base *ab = ar->ab;
+	struct hal_rx_desc *rx_desc;
+	struct ath12k_peer *peer;
+	struct ath12k_dp_rx_tid *rx_tid;
+	struct sk_buff *defrag_skb = NULL;
+	u32 peer_id;
+	u16 seqno, frag_no;
+	u8 tid;
+	int ret = 0;
+	bool more_frags;
+
+	rx_desc = (struct hal_rx_desc *)msdu->data;
+	peer_id = ath12k_dp_rx_h_peer_id(ab, rx_desc);
+	tid = ath12k_dp_rx_h_tid(ab, rx_desc);
+	seqno = ath12k_dp_rx_h_seq_no(ab, rx_desc);
+	frag_no = ath12k_dp_rx_h_frag_no(ab, msdu);
+	more_frags = ath12k_dp_rx_h_more_frags(ab, msdu);
+
+	if (!ath12k_dp_rx_h_seq_ctrl_valid(ab, rx_desc) ||
+	    !ath12k_dp_rx_h_fc_valid(ab, rx_desc) ||
+	    tid > IEEE80211_NUM_TIDS)
+		return -EINVAL;
+
+	/* received unfragmented packet in reo
+	 * exception ring, this shouldn't happen
+	 * as these packets typically come from
+	 * reo2sw srngs.
+	 */
+	if (WARN_ON_ONCE(!frag_no && !more_frags))
+		return -EINVAL;
+
+	spin_lock_bh(&ab->base_lock);
+	peer = ath12k_peer_find_by_id(ab, peer_id);
+	if (!peer) {
+		ath12k_warn(ab, "failed to find the peer to de-fragment received fragment peer_id %d\n",
+			    peer_id);
+		ret = -ENOENT;
+		goto out_unlock;
+	}
+
+	if (!peer->dp_setup_done) {
+		ath12k_warn(ab, "The peer %pM [%d] has uninitialized datapath\n",
+			    peer->addr, peer_id);
+		ret = -ENOENT;
+		goto out_unlock;
+	}
+
+	rx_tid = &peer->rx_tid[tid];
+
+	if ((!skb_queue_empty(&rx_tid->rx_frags) && seqno != rx_tid->cur_sn) ||
+	    skb_queue_empty(&rx_tid->rx_frags)) {
+		/* Flush stored fragments and start a new sequence */
+		ath12k_dp_rx_frags_cleanup(rx_tid, true);
+		rx_tid->cur_sn = seqno;
+	}
+
+	if (rx_tid->rx_frag_bitmap & BIT(frag_no)) {
+		/* Fragment already present */
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	if ((!rx_tid->rx_frag_bitmap || frag_no > __fls(rx_tid->rx_frag_bitmap)))
+		__skb_queue_tail(&rx_tid->rx_frags, msdu);
+	else
+		ath12k_dp_rx_h_sort_frags(ab, &rx_tid->rx_frags, msdu);
+
+	rx_tid->rx_frag_bitmap |= BIT(frag_no);
+	if (!more_frags)
+		rx_tid->last_frag_no = frag_no;
+
+	if (frag_no == 0) {
+		rx_tid->dst_ring_desc = kmemdup(ring_desc,
+						sizeof(*rx_tid->dst_ring_desc),
+						GFP_ATOMIC);
+		if (!rx_tid->dst_ring_desc) {
+			ret = -ENOMEM;
+			goto out_unlock;
+		}
+	} else {
+		ath12k_dp_rx_link_desc_return(ab, &ring_desc->buf_addr_info,
+					      HAL_WBM_REL_BM_ACT_PUT_IN_IDLE);
+	}
+
+	if (!rx_tid->last_frag_no ||
+	    rx_tid->rx_frag_bitmap != GENMASK(rx_tid->last_frag_no, 0)) {
+		mod_timer(&rx_tid->frag_timer, jiffies +
+					       ATH12K_DP_RX_FRAGMENT_TIMEOUT_MS);
+		goto out_unlock;
+	}
+
+	spin_unlock_bh(&ab->base_lock);
+	timer_delete_sync(&rx_tid->frag_timer);
+	spin_lock_bh(&ab->base_lock);
+
+	peer = ath12k_peer_find_by_id(ab, peer_id);
+	if (!peer)
+		goto err_frags_cleanup;
+
+	if (!ath12k_dp_rx_h_defrag_validate_incr_pn(ar, rx_tid))
+		goto err_frags_cleanup;
+
+	if (ath12k_dp_rx_h_defrag(ar, peer, rx_tid, &defrag_skb))
+		goto err_frags_cleanup;
+
+	if (!defrag_skb)
+		goto err_frags_cleanup;
+
+	if (ath12k_dp_rx_h_defrag_reo_reinject(ar, rx_tid, defrag_skb))
+		goto err_frags_cleanup;
+
+	ath12k_dp_rx_frags_cleanup(rx_tid, false);
+	goto out_unlock;
+
+err_frags_cleanup:
+	dev_kfree_skb_any(defrag_skb);
+	ath12k_dp_rx_frags_cleanup(rx_tid, true);
+out_unlock:
+	spin_unlock_bh(&ab->base_lock);
+	return ret;
+}
+
+static int
+ath12k_dp_process_rx_err_buf(struct ath12k *ar, struct hal_reo_dest_ring *desc,
+			     struct list_head *used_list,
+			     bool drop, u32 cookie)
+{
+	struct ath12k_base *ab = ar->ab;
+	struct sk_buff *msdu;
+	struct ath12k_skb_rxcb *rxcb;
+	struct hal_rx_desc *rx_desc;
+	u16 msdu_len;
+	u32 hal_rx_desc_sz = ab->hal.hal_desc_sz;
+	struct ath12k_rx_desc_info *desc_info;
+	u64 desc_va;
+
+	desc_va = ((u64)le32_to_cpu(desc->buf_va_hi) << 32 |
+		   le32_to_cpu(desc->buf_va_lo));
+	desc_info = (struct ath12k_rx_desc_info *)((unsigned long)desc_va);
+
+	/* retry manual desc retrieval */
+	if (!desc_info) {
+		desc_info = ath12k_dp_get_rx_desc(ab, cookie);
+		if (!desc_info) {
+			ath12k_warn(ab, "Invalid cookie in DP rx error descriptor retrieval: 0x%x\n",
+				    cookie);
+			return -EINVAL;
+		}
+	}
+
+	if (desc_info->magic != ATH12K_DP_RX_DESC_MAGIC)
+		ath12k_warn(ab, " RX Exception, Check HW CC implementation");
+
+	msdu = desc_info->skb;
+	desc_info->skb = NULL;
+
+	list_add_tail(&desc_info->list, used_list);
+
+	rxcb = ATH12K_SKB_RXCB(msdu);
+	dma_unmap_single(ar->ab->dev, rxcb->paddr,
+			 msdu->len + skb_tailroom(msdu),
+			 DMA_FROM_DEVICE);
+
+	if (drop) {
+		dev_kfree_skb_any(msdu);
+		return 0;
+	}
+
+	rcu_read_lock();
+	if (!rcu_dereference(ar->ab->pdevs_active[ar->pdev_idx])) {
+		dev_kfree_skb_any(msdu);
+		goto exit;
+	}
+
+	if (test_bit(ATH12K_FLAG_CAC_RUNNING, &ar->dev_flags)) {
+		dev_kfree_skb_any(msdu);
+		goto exit;
+	}
+
+	rx_desc = (struct hal_rx_desc *)msdu->data;
+	msdu_len = ath12k_dp_rx_h_msdu_len(ar->ab, rx_desc);
+	if ((msdu_len + hal_rx_desc_sz) > DP_RX_BUFFER_SIZE) {
+		ath12k_warn(ar->ab, "invalid msdu leng %u", msdu_len);
+		ath12k_dbg_dump(ar->ab, ATH12K_DBG_DATA, NULL, "", rx_desc,
+				sizeof(*rx_desc));
+		dev_kfree_skb_any(msdu);
+		goto exit;
+	}
+
+	skb_put(msdu, hal_rx_desc_sz + msdu_len);
+
+	if (ath12k_dp_rx_frag_h_mpdu(ar, msdu, desc)) {
+		dev_kfree_skb_any(msdu);
+		ath12k_dp_rx_link_desc_return(ar->ab, &desc->buf_addr_info,
+					      HAL_WBM_REL_BM_ACT_PUT_IN_IDLE);
+	}
+exit:
+	rcu_read_unlock();
+	return 0;
+}
+
+static int ath12k_dp_h_msdu_buffer_type(struct ath12k_base *ab,
+					struct list_head *list,
+					struct hal_reo_dest_ring *desc)
+{
+	struct ath12k_rx_desc_info *desc_info;
+	struct ath12k_skb_rxcb *rxcb;
+	struct sk_buff *msdu;
+	u64 desc_va;
+
+	desc_va = (u64)le32_to_cpu(desc->buf_va_hi) << 32 |
+		  le32_to_cpu(desc->buf_va_lo);
+	desc_info = (struct ath12k_rx_desc_info *)(uintptr_t)desc_va;
+	if (!desc_info) {
+		u32 cookie;
+
+		cookie = le32_get_bits(desc->buf_addr_info.info1,
+				       BUFFER_ADDR_INFO1_SW_COOKIE);
+		desc_info = ath12k_dp_get_rx_desc(ab, cookie);
+		if (!desc_info) {
+			ath12k_warn(ab, "Invalid cookie in manual descriptor retrieval: 0x%x\n",
+				    cookie);
+			return -EINVAL;
+		}
+	}
+
+	if (desc_info->magic != ATH12K_DP_RX_DESC_MAGIC) {
+		ath12k_warn(ab, "rx exception, magic check failed with value: %u\n",
+			    desc_info->magic);
+		return -EINVAL;
+	}
+
+	msdu = desc_info->skb;
+	desc_info->skb = NULL;
+	list_add_tail(&desc_info->list, list);
+	rxcb = ATH12K_SKB_RXCB(msdu);
+	dma_unmap_single(ab->dev, rxcb->paddr, msdu->len + skb_tailroom(msdu),
+			 DMA_FROM_DEVICE);
+	dev_kfree_skb_any(msdu);
+
+	return 0;
+}
+
+int ath12k_dp_rx_process_err(struct ath12k_base *ab, struct napi_struct *napi,
+			     int budget)
+{
+	struct ath12k_hw_group *ag = ab->ag;
+	struct list_head rx_desc_used_list[ATH12K_MAX_DEVICES];
+	u32 msdu_cookies[HAL_NUM_RX_MSDUS_PER_LINK_DESC];
+	int num_buffs_reaped[ATH12K_MAX_DEVICES] = {};
+	struct dp_link_desc_bank *link_desc_banks;
+	enum hal_rx_buf_return_buf_manager rbm;
+	struct hal_rx_msdu_link *link_desc_va;
+	int tot_n_bufs_reaped, quota, ret, i;
+	struct hal_reo_dest_ring *reo_desc;
+	struct dp_rxdma_ring *rx_ring;
+	struct dp_srng *reo_except;
+	struct ath12k_hw_link *hw_links = ag->hw_links;
+	struct ath12k_base *partner_ab;
+	u8 hw_link_id, device_id;
+	u32 desc_bank, num_msdus;
+	struct hal_srng *srng;
+	struct ath12k *ar;
+	dma_addr_t paddr;
+	bool is_frag;
+	bool drop;
+	int pdev_id;
+
+	tot_n_bufs_reaped = 0;
+	quota = budget;
+
+	for (device_id = 0; device_id < ATH12K_MAX_DEVICES; device_id++)
+		INIT_LIST_HEAD(&rx_desc_used_list[device_id]);
+
+	reo_except = &ab->dp.reo_except_ring;
+
+	srng = &ab->hal.srng_list[reo_except->ring_id];
+
+	spin_lock_bh(&srng->lock);
+
+	ath12k_hal_srng_access_begin(ab, srng);
+
+	while (budget &&
+	       (reo_desc = ath12k_hal_srng_dst_get_next_entry(ab, srng))) {
+		drop = false;
+		ab->device_stats.err_ring_pkts++;
+
+		hw_link_id = le32_get_bits(reo_desc->info0,
+					   HAL_REO_DEST_RING_INFO0_SRC_LINK_ID);
+		device_id = hw_links[hw_link_id].device_id;
+		partner_ab = ath12k_ag_to_ab(ag, device_id);
+
+		/* Below case is added to handle data packet from un-associated clients.
+		 * As it is expected that AST lookup will fail for
+		 * un-associated station's data packets.
+		 */
+		if (le32_get_bits(reo_desc->info0, HAL_REO_DEST_RING_INFO0_BUFFER_TYPE) ==
+		    HAL_REO_DEST_RING_BUFFER_TYPE_MSDU) {
+			if (!ath12k_dp_h_msdu_buffer_type(partner_ab,
+							  &rx_desc_used_list[device_id],
+							  reo_desc)) {
+				num_buffs_reaped[device_id]++;
+				tot_n_bufs_reaped++;
+			}
+			goto next_desc;
+		}
+
+		ret = ath12k_hal_desc_reo_parse_err(ab, reo_desc, &paddr,
+						    &desc_bank);
+		if (ret) {
+			ath12k_warn(ab, "failed to parse error reo desc %d\n",
+				    ret);
+			continue;
+		}
+
+		pdev_id = ath12k_hw_mac_id_to_pdev_id(partner_ab->hw_params,
+						      hw_links[hw_link_id].pdev_idx);
+		ar = partner_ab->pdevs[pdev_id].ar;
+
+		link_desc_banks = partner_ab->dp.link_desc_banks;
+		link_desc_va = link_desc_banks[desc_bank].vaddr +
+			       (paddr - link_desc_banks[desc_bank].paddr);
+		ath12k_hal_rx_msdu_link_info_get(link_desc_va, &num_msdus, msdu_cookies,
+						 &rbm);
+		if (rbm != partner_ab->dp.idle_link_rbm &&
+		    rbm != HAL_RX_BUF_RBM_SW3_BM &&
+		    rbm != partner_ab->hw_params->hal_params->rx_buf_rbm) {
+			ab->device_stats.invalid_rbm++;
+			ath12k_warn(ab, "invalid return buffer manager %d\n", rbm);
+			ath12k_dp_rx_link_desc_return(partner_ab,
+						      &reo_desc->buf_addr_info,
+						      HAL_WBM_REL_BM_ACT_REL_MSDU);
+			continue;
+		}
+
+		is_frag = !!(le32_to_cpu(reo_desc->rx_mpdu_info.info0) &
+			     RX_MPDU_DESC_INFO0_FRAG_FLAG);
+
+		/* Process only rx fragments with one msdu per link desc below, and drop
+		 * msdu's indicated due to error reasons.
+		 * Dynamic fragmentation not supported in Multi-link client, so drop the
+		 * partner device buffers.
+		 */
+		if (!is_frag || num_msdus > 1 ||
+		    partner_ab->device_id != ab->device_id) {
+			drop = true;
+
+			/* Return the link desc back to wbm idle list */
+			ath12k_dp_rx_link_desc_return(partner_ab,
+						      &reo_desc->buf_addr_info,
+						      HAL_WBM_REL_BM_ACT_PUT_IN_IDLE);
+		}
+
+		for (i = 0; i < num_msdus; i++) {
+			if (!ath12k_dp_process_rx_err_buf(ar, reo_desc,
+							  &rx_desc_used_list[device_id],
+							  drop,
+							  msdu_cookies[i])) {
+				num_buffs_reaped[device_id]++;
+				tot_n_bufs_reaped++;
+			}
+		}
+
+next_desc:
+		if (tot_n_bufs_reaped >= quota) {
+			tot_n_bufs_reaped = quota;
+			goto exit;
+		}
+
+		budget = quota - tot_n_bufs_reaped;
+	}
+
+exit:
+	ath12k_hal_srng_access_end(ab, srng);
+
+	spin_unlock_bh(&srng->lock);
+
+	for (device_id = 0; device_id < ATH12K_MAX_DEVICES; device_id++) {
+		if (!num_buffs_reaped[device_id])
+			continue;
+
+		partner_ab = ath12k_ag_to_ab(ag, device_id);
+		rx_ring = &partner_ab->dp.rx_refill_buf_ring;
+
+		ath12k_dp_rx_bufs_replenish(partner_ab, rx_ring,
+					    &rx_desc_used_list[device_id],
+					    num_buffs_reaped[device_id]);
+	}
+
+	return tot_n_bufs_reaped;
+}
+
+static void ath12k_dp_rx_null_q_desc_sg_drop(struct ath12k *ar,
+					     int msdu_len,
+					     struct sk_buff_head *msdu_list)
+{
+	struct sk_buff *skb, *tmp;
+	struct ath12k_skb_rxcb *rxcb;
+	int n_buffs;
+
+	n_buffs = DIV_ROUND_UP(msdu_len,
+			       (DP_RX_BUFFER_SIZE - ar->ab->hal.hal_desc_sz));
+
+	skb_queue_walk_safe(msdu_list, skb, tmp) {
+		rxcb = ATH12K_SKB_RXCB(skb);
+		if (rxcb->err_rel_src == HAL_WBM_REL_SRC_MODULE_REO &&
+		    rxcb->err_code == HAL_REO_DEST_RING_ERROR_CODE_DESC_ADDR_ZERO) {
+			if (!n_buffs)
+				break;
+			__skb_unlink(skb, msdu_list);
+			dev_kfree_skb_any(skb);
+			n_buffs--;
+		}
+	}
+}
+
+static int ath12k_dp_rx_h_null_q_desc(struct ath12k *ar, struct sk_buff *msdu,
+				      struct ath12k_dp_rx_info *rx_info,
+				      struct sk_buff_head *msdu_list)
+{
+	struct ath12k_base *ab = ar->ab;
+	u16 msdu_len;
+	struct hal_rx_desc *desc = (struct hal_rx_desc *)msdu->data;
+	u8 l3pad_bytes;
+	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
+	u32 hal_rx_desc_sz = ar->ab->hal.hal_desc_sz;
+
+	msdu_len = ath12k_dp_rx_h_msdu_len(ab, desc);
+
+	if (!rxcb->is_frag && ((msdu_len + hal_rx_desc_sz) > DP_RX_BUFFER_SIZE)) {
+		/* First buffer will be freed by the caller, so deduct it's length */
+		msdu_len = msdu_len - (DP_RX_BUFFER_SIZE - hal_rx_desc_sz);
+		ath12k_dp_rx_null_q_desc_sg_drop(ar, msdu_len, msdu_list);
+		return -EINVAL;
+	}
+
+	/* Even after cleaning up the sg buffers in the msdu list with above check
+	 * any msdu received with continuation flag needs to be dropped as invalid.
+	 * This protects against some random err frame with continuation flag.
+	 */
+	if (rxcb->is_continuation)
+		return -EINVAL;
+
+	if (!ath12k_dp_rx_h_msdu_done(ab, desc)) {
+		ath12k_warn(ar->ab,
+			    "msdu_done bit not set in null_q_des processing\n");
+		__skb_queue_purge(msdu_list);
+		return -EIO;
+	}
+
+	/* Handle NULL queue descriptor violations arising out a missing
+	 * REO queue for a given peer or a given TID. This typically
+	 * may happen if a packet is received on a QOS enabled TID before the
+	 * ADDBA negotiation for that TID, when the TID queue is setup. Or
+	 * it may also happen for MC/BC frames if they are not routed to the
+	 * non-QOS TID queue, in the absence of any other default TID queue.
+	 * This error can show up both in a REO destination or WBM release ring.
+	 */
+
+	if (rxcb->is_frag) {
+		skb_pull(msdu, hal_rx_desc_sz);
+	} else {
+		l3pad_bytes = ath12k_dp_rx_h_l3pad(ab, desc);
+
+		if ((hal_rx_desc_sz + l3pad_bytes + msdu_len) > DP_RX_BUFFER_SIZE)
+			return -EINVAL;
+
+		skb_put(msdu, hal_rx_desc_sz + l3pad_bytes + msdu_len);
+		skb_pull(msdu, hal_rx_desc_sz + l3pad_bytes);
+	}
+	if (unlikely(!ath12k_dp_rx_check_nwifi_hdr_len_valid(ab, desc, msdu)))
+		return -EINVAL;
+
+	ath12k_dp_rx_h_fetch_info(ab, desc, rx_info);
+	ath12k_dp_rx_h_ppdu(ar, rx_info);
+	ath12k_dp_rx_h_mpdu(ar, msdu, desc, rx_info);
+
+	rxcb->tid = rx_info->tid;
+
+	/* Please note that caller will having the access to msdu and completing
+	 * rx with mac80211. Need not worry about cleaning up amsdu_list.
+	 */
+
+	return 0;
+}
+
+static bool ath12k_dp_rx_h_reo_err(struct ath12k *ar, struct sk_buff *msdu,
+				   struct ath12k_dp_rx_info *rx_info,
+				   struct sk_buff_head *msdu_list)
+{
+	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
+	bool drop = false;
+
+	ar->ab->device_stats.reo_error[rxcb->err_code]++;
+
+	switch (rxcb->err_code) {
+	case HAL_REO_DEST_RING_ERROR_CODE_DESC_ADDR_ZERO:
+		if (ath12k_dp_rx_h_null_q_desc(ar, msdu, rx_info, msdu_list))
+			drop = true;
+		break;
+	case HAL_REO_DEST_RING_ERROR_CODE_PN_CHECK_FAILED:
+		/* TODO: Do not drop PN failed packets in the driver;
+		 * instead, it is good to drop such packets in mac80211
+		 * after incrementing the replay counters.
+		 */
+		fallthrough;
+	default:
+		/* TODO: Review other errors and process them to mac80211
+		 * as appropriate.
+		 */
+		drop = true;
+		break;
+	}
+
+	return drop;
+}
+
+static bool ath12k_dp_rx_h_tkip_mic_err(struct ath12k *ar, struct sk_buff *msdu,
+					struct ath12k_dp_rx_info *rx_info)
+{
+	struct ath12k_base *ab = ar->ab;
+	u16 msdu_len;
+	struct hal_rx_desc *desc = (struct hal_rx_desc *)msdu->data;
+	u8 l3pad_bytes;
+	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
+	u32 hal_rx_desc_sz = ar->ab->hal.hal_desc_sz;
+
+	rxcb->is_first_msdu = ath12k_dp_rx_h_first_msdu(ab, desc);
+	rxcb->is_last_msdu = ath12k_dp_rx_h_last_msdu(ab, desc);
+
+	l3pad_bytes = ath12k_dp_rx_h_l3pad(ab, desc);
+	msdu_len = ath12k_dp_rx_h_msdu_len(ab, desc);
+
+	if ((hal_rx_desc_sz + l3pad_bytes + msdu_len) > DP_RX_BUFFER_SIZE) {
+		ath12k_dbg(ab, ATH12K_DBG_DATA,
+			   "invalid msdu len in tkip mic err %u\n", msdu_len);
+		ath12k_dbg_dump(ab, ATH12K_DBG_DATA, NULL, "", desc,
+				sizeof(*desc));
+		return true;
+	}
+
+	skb_put(msdu, hal_rx_desc_sz + l3pad_bytes + msdu_len);
+	skb_pull(msdu, hal_rx_desc_sz + l3pad_bytes);
+
+	if (unlikely(!ath12k_dp_rx_check_nwifi_hdr_len_valid(ab, desc, msdu)))
+		return true;
+
+	ath12k_dp_rx_h_ppdu(ar, rx_info);
+
+	rx_info->rx_status->flag |= (RX_FLAG_MMIC_STRIPPED | RX_FLAG_MMIC_ERROR |
+				     RX_FLAG_DECRYPTED);
+
+	ath12k_dp_rx_h_undecap(ar, msdu, desc,
+			       HAL_ENCRYPT_TYPE_TKIP_MIC, rx_info->rx_status, false);
+	return false;
+}
+
+static bool ath12k_dp_rx_h_rxdma_err(struct ath12k *ar,  struct sk_buff *msdu,
+				     struct ath12k_dp_rx_info *rx_info)
+{
+	struct ath12k_base *ab = ar->ab;
+	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
+	struct hal_rx_desc *rx_desc = (struct hal_rx_desc *)msdu->data;
+	bool drop = false;
+	u32 err_bitmap;
+
+	ar->ab->device_stats.rxdma_error[rxcb->err_code]++;
+
+	switch (rxcb->err_code) {
+	case HAL_REO_ENTR_RING_RXDMA_ECODE_DECRYPT_ERR:
+	case HAL_REO_ENTR_RING_RXDMA_ECODE_TKIP_MIC_ERR:
+		err_bitmap = ath12k_dp_rx_h_mpdu_err(ab, rx_desc);
+		if (err_bitmap & HAL_RX_MPDU_ERR_TKIP_MIC) {
+			ath12k_dp_rx_h_fetch_info(ab, rx_desc, rx_info);
+			drop = ath12k_dp_rx_h_tkip_mic_err(ar, msdu, rx_info);
+			break;
+		}
+		fallthrough;
+	default:
+		/* TODO: Review other rxdma error code to check if anything is
+		 * worth reporting to mac80211
+		 */
+		drop = true;
+		break;
+	}
+
+	return drop;
+}
+
+static void ath12k_dp_rx_wbm_err(struct ath12k *ar,
+				 struct napi_struct *napi,
+				 struct sk_buff *msdu,
+				 struct sk_buff_head *msdu_list)
+{
+	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
+	struct ieee80211_rx_status rxs = {};
+	struct ath12k_dp_rx_info rx_info;
+	bool drop = true;
+
+	rx_info.addr2_present = false;
+	rx_info.rx_status = &rxs;
+
+	switch (rxcb->err_rel_src) {
+	case HAL_WBM_REL_SRC_MODULE_REO:
+		drop = ath12k_dp_rx_h_reo_err(ar, msdu, &rx_info, msdu_list);
+		break;
+	case HAL_WBM_REL_SRC_MODULE_RXDMA:
+		drop = ath12k_dp_rx_h_rxdma_err(ar, msdu, &rx_info);
+		break;
+	default:
+		/* msdu will get freed */
+		break;
+	}
+
+	if (drop) {
+		dev_kfree_skb_any(msdu);
+		return;
+	}
+
+	rx_info.rx_status->flag |= RX_FLAG_SKIP_MONITOR;
+
+	ath12k_dp_rx_deliver_msdu(ar, napi, msdu, &rx_info);
+}
+
+int ath12k_dp_rx_process_wbm_err(struct ath12k_base *ab,
+				 struct napi_struct *napi, int budget)
+{
+	struct list_head rx_desc_used_list[ATH12K_MAX_DEVICES];
+	struct ath12k_hw_group *ag = ab->ag;
+	struct ath12k *ar;
+	struct ath12k_dp *dp = &ab->dp;
+	struct dp_rxdma_ring *rx_ring;
+	struct hal_rx_wbm_rel_info err_info;
+	struct hal_srng *srng;
+	struct sk_buff *msdu;
+	struct sk_buff_head msdu_list, scatter_msdu_list;
+	struct ath12k_skb_rxcb *rxcb;
+	void *rx_desc;
+	int num_buffs_reaped[ATH12K_MAX_DEVICES] = {};
+	int total_num_buffs_reaped = 0;
+	struct ath12k_rx_desc_info *desc_info;
+	struct ath12k_device_dp_stats *device_stats = &ab->device_stats;
+	struct ath12k_hw_link *hw_links = ag->hw_links;
+	struct ath12k_base *partner_ab;
+	u8 hw_link_id, device_id;
+	int ret, pdev_id;
+	struct hal_rx_desc *msdu_data;
+
+	__skb_queue_head_init(&msdu_list);
+	__skb_queue_head_init(&scatter_msdu_list);
+
+	for (device_id = 0; device_id < ATH12K_MAX_DEVICES; device_id++)
+		INIT_LIST_HEAD(&rx_desc_used_list[device_id]);
+
+	srng = &ab->hal.srng_list[dp->rx_rel_ring.ring_id];
+	spin_lock_bh(&srng->lock);
+
+	ath12k_hal_srng_access_begin(ab, srng);
+
+	while (budget) {
+		rx_desc = ath12k_hal_srng_dst_get_next_entry(ab, srng);
+		if (!rx_desc)
+			break;
+
+		ret = ath12k_hal_wbm_desc_parse_err(ab, rx_desc, &err_info);
+		if (ret) {
+			ath12k_warn(ab,
+				    "failed to parse rx error in wbm_rel ring desc %d\n",
+				    ret);
+			continue;
+		}
+
+		desc_info = err_info.rx_desc;
+
+		/* retry manual desc retrieval if hw cc is not done */
+		if (!desc_info) {
+			desc_info = ath12k_dp_get_rx_desc(ab, err_info.cookie);
+			if (!desc_info) {
+				ath12k_warn(ab, "Invalid cookie in DP WBM rx error descriptor retrieval: 0x%x\n",
+					    err_info.cookie);
+				continue;
+			}
+		}
+
+		if (desc_info->magic != ATH12K_DP_RX_DESC_MAGIC)
+			ath12k_warn(ab, "WBM RX err, Check HW CC implementation");
+
+		msdu = desc_info->skb;
+		desc_info->skb = NULL;
+
+		device_id = desc_info->device_id;
+		partner_ab = ath12k_ag_to_ab(ag, device_id);
+		if (unlikely(!partner_ab)) {
+			dev_kfree_skb_any(msdu);
+
+			/* In any case continuation bit is set
+			 * in the previous record, cleanup scatter_msdu_list
+			 */
+			ath12k_dp_clean_up_skb_list(&scatter_msdu_list);
+			continue;
+		}
+
+		list_add_tail(&desc_info->list, &rx_desc_used_list[device_id]);
+
+		rxcb = ATH12K_SKB_RXCB(msdu);
+		dma_unmap_single(partner_ab->dev, rxcb->paddr,
+				 msdu->len + skb_tailroom(msdu),
+				 DMA_FROM_DEVICE);
+
+		num_buffs_reaped[device_id]++;
+		total_num_buffs_reaped++;
+
+		if (!err_info.continuation)
+			budget--;
+
+		if (err_info.push_reason !=
+		    HAL_REO_DEST_RING_PUSH_REASON_ERR_DETECTED) {
+			dev_kfree_skb_any(msdu);
+			continue;
+		}
+
+		msdu_data = (struct hal_rx_desc *)msdu->data;
+		rxcb->err_rel_src = err_info.err_rel_src;
+		rxcb->err_code = err_info.err_code;
+		rxcb->is_first_msdu = err_info.first_msdu;
+		rxcb->is_last_msdu = err_info.last_msdu;
+		rxcb->is_continuation = err_info.continuation;
+		rxcb->rx_desc = msdu_data;
+
+		if (err_info.continuation) {
+			__skb_queue_tail(&scatter_msdu_list, msdu);
+			continue;
+		}
+
+		hw_link_id = ath12k_dp_rx_get_msdu_src_link(partner_ab,
+							    msdu_data);
+		if (hw_link_id >= ATH12K_GROUP_MAX_RADIO) {
+			dev_kfree_skb_any(msdu);
+
+			/* In any case continuation bit is set
+			 * in the previous record, cleanup scatter_msdu_list
+			 */
+			ath12k_dp_clean_up_skb_list(&scatter_msdu_list);
+			continue;
+		}
+
+		if (!skb_queue_empty(&scatter_msdu_list)) {
+			struct sk_buff *msdu;
+
+			skb_queue_walk(&scatter_msdu_list, msdu) {
+				rxcb = ATH12K_SKB_RXCB(msdu);
+				rxcb->hw_link_id = hw_link_id;
+			}
+
+			skb_queue_splice_tail_init(&scatter_msdu_list,
+						   &msdu_list);
+		}
+
+		rxcb = ATH12K_SKB_RXCB(msdu);
+		rxcb->hw_link_id = hw_link_id;
+		__skb_queue_tail(&msdu_list, msdu);
+	}
+
+	/* In any case continuation bit is set in the
+	 * last record, cleanup scatter_msdu_list
+	 */
+	ath12k_dp_clean_up_skb_list(&scatter_msdu_list);
+
+	ath12k_hal_srng_access_end(ab, srng);
+
+	spin_unlock_bh(&srng->lock);
+
+	if (!total_num_buffs_reaped)
+		goto done;
+
+	for (device_id = 0; device_id < ATH12K_MAX_DEVICES; device_id++) {
+		if (!num_buffs_reaped[device_id])
+			continue;
+
+		partner_ab = ath12k_ag_to_ab(ag, device_id);
+		rx_ring = &partner_ab->dp.rx_refill_buf_ring;
+
+		ath12k_dp_rx_bufs_replenish(ab, rx_ring,
+					    &rx_desc_used_list[device_id],
+					    num_buffs_reaped[device_id]);
+	}
+
+	rcu_read_lock();
+	while ((msdu = __skb_dequeue(&msdu_list))) {
+		rxcb = ATH12K_SKB_RXCB(msdu);
+		hw_link_id = rxcb->hw_link_id;
+
+		device_id = hw_links[hw_link_id].device_id;
+		partner_ab = ath12k_ag_to_ab(ag, device_id);
+		if (unlikely(!partner_ab)) {
+			ath12k_dbg(ab, ATH12K_DBG_DATA,
+				   "Unable to process WBM error msdu due to invalid hw link id %d device id %d\n",
+				   hw_link_id, device_id);
+			dev_kfree_skb_any(msdu);
+			continue;
+		}
+
+		pdev_id = ath12k_hw_mac_id_to_pdev_id(partner_ab->hw_params,
+						      hw_links[hw_link_id].pdev_idx);
+		ar = partner_ab->pdevs[pdev_id].ar;
+
+		if (!ar || !rcu_dereference(ar->ab->pdevs_active[pdev_id])) {
+			dev_kfree_skb_any(msdu);
+			continue;
+		}
+
+		if (test_bit(ATH12K_FLAG_CAC_RUNNING, &ar->dev_flags)) {
+			dev_kfree_skb_any(msdu);
+			continue;
+		}
+
+		if (rxcb->err_rel_src < HAL_WBM_REL_SRC_MODULE_MAX) {
+			device_id = ar->ab->device_id;
+			device_stats->rx_wbm_rel_source[rxcb->err_rel_src][device_id]++;
+		}
+
+		ath12k_dp_rx_wbm_err(ar, napi, msdu, &msdu_list);
+	}
+	rcu_read_unlock();
+done:
+	return total_num_buffs_reaped;
+}
+
+void ath12k_dp_rx_process_reo_status(struct ath12k_base *ab)
+{
+	struct ath12k_dp *dp = &ab->dp;
+	struct hal_tlv_64_hdr *hdr;
+	struct hal_srng *srng;
+	struct ath12k_dp_rx_reo_cmd *cmd, *tmp;
+	bool found = false;
+	u16 tag;
+	struct hal_reo_status reo_status;
+
+	srng = &ab->hal.srng_list[dp->reo_status_ring.ring_id];
+
+	memset(&reo_status, 0, sizeof(reo_status));
+
+	spin_lock_bh(&srng->lock);
+
+	ath12k_hal_srng_access_begin(ab, srng);
+
+	while ((hdr = ath12k_hal_srng_dst_get_next_entry(ab, srng))) {
+		tag = le64_get_bits(hdr->tl, HAL_SRNG_TLV_HDR_TAG);
+
+		switch (tag) {
+		case HAL_REO_GET_QUEUE_STATS_STATUS:
+			ath12k_hal_reo_status_queue_stats(ab, hdr,
+							  &reo_status);
+			break;
+		case HAL_REO_FLUSH_QUEUE_STATUS:
+			ath12k_hal_reo_flush_queue_status(ab, hdr,
+							  &reo_status);
+			break;
+		case HAL_REO_FLUSH_CACHE_STATUS:
+			ath12k_hal_reo_flush_cache_status(ab, hdr,
+							  &reo_status);
+			break;
+		case HAL_REO_UNBLOCK_CACHE_STATUS:
+			ath12k_hal_reo_unblk_cache_status(ab, hdr,
+							  &reo_status);
+			break;
+		case HAL_REO_FLUSH_TIMEOUT_LIST_STATUS:
+			ath12k_hal_reo_flush_timeout_list_status(ab, hdr,
+								 &reo_status);
+			break;
+		case HAL_REO_DESCRIPTOR_THRESHOLD_REACHED_STATUS:
+			ath12k_hal_reo_desc_thresh_reached_status(ab, hdr,
+								  &reo_status);
+			break;
+		case HAL_REO_UPDATE_RX_REO_QUEUE_STATUS:
+			ath12k_hal_reo_update_rx_reo_queue_status(ab, hdr,
+								  &reo_status);
+			break;
+		default:
+			ath12k_warn(ab, "Unknown reo status type %d\n", tag);
+			continue;
+		}
+
+		spin_lock_bh(&dp->reo_cmd_lock);
+		list_for_each_entry_safe(cmd, tmp, &dp->reo_cmd_list, list) {
+			if (reo_status.uniform_hdr.cmd_num == cmd->cmd_num) {
+				found = true;
+				list_del(&cmd->list);
+				break;
+			}
+		}
+		spin_unlock_bh(&dp->reo_cmd_lock);
+
+		if (found) {
+			cmd->handler(dp, (void *)&cmd->data,
+				     reo_status.uniform_hdr.cmd_status);
+			kfree(cmd);
+		}
+
+		found = false;
+	}
+
+	ath12k_hal_srng_access_end(ab, srng);
+
+	spin_unlock_bh(&srng->lock);
+}
+
 void ath12k_dp_rx_free(struct ath12k_base *ab)
 {
 	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
