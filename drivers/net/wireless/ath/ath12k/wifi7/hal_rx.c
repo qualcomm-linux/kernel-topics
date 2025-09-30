@@ -323,7 +323,7 @@ int ath12k_wifi7_hal_desc_reo_parse_err(struct ath12k_dp *dp,
 	struct ath12k_base *ab = dp->ab;
 	enum hal_reo_dest_ring_push_reason push_reason;
 	enum hal_reo_dest_ring_error_code err_code;
-	u32 cookie, val;
+	u32 cookie;
 
 	push_reason = le32_get_bits(desc->info0,
 				    HAL_REO_DEST_RING_INFO0_PUSH_REASON);
@@ -335,12 +335,6 @@ int ath12k_wifi7_hal_desc_reo_parse_err(struct ath12k_dp *dp,
 	    push_reason != HAL_REO_DEST_RING_PUSH_REASON_ROUTING_INSTRUCTION) {
 		ath12k_warn(ab, "expected error push reason code, received %d\n",
 			    push_reason);
-		return -EINVAL;
-	}
-
-	val = le32_get_bits(desc->info0, HAL_REO_DEST_RING_INFO0_BUFFER_TYPE);
-	if (val != HAL_REO_DEST_RING_BUFFER_TYPE_LINK_DESC) {
-		ath12k_warn(ab, "expected buffer type link_desc");
 		return -EINVAL;
 	}
 
