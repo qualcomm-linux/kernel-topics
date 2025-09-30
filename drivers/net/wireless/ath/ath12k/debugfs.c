@@ -1020,6 +1020,7 @@ void ath12k_debugfs_op_vif_add(struct ieee80211_hw *hw,
 	debugfs_create_file("link_stats", 0400, vif->debugfs_dir, ahvif,
 			    &ath12k_fops_link_stats);
 }
+EXPORT_SYMBOL(ath12k_debugfs_op_vif_add);
 
 static ssize_t ath12k_debugfs_dump_device_dp_stats(struct file *file,
 						   char __user *user_buf,
