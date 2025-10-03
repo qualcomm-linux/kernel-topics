@@ -1836,15 +1836,7 @@ int ath12k_pci_register_driver(const enum ath12k_device_family device_id,
 
 	return pci_register_driver(pci_driver);
 }
-EXPORT_SYMBOL(ath12k_pci_register_driver);
 
-void ath12k_pci_unregister_driver(const enum ath12k_device_family device_id)
-{
-	if (device_id >= ATH12K_DEVICE_FAMILY_MAX ||
-	    !ath12k_pci_family_drivers[device_id])
-		return;
-
-	pci_unregister_driver(&ath12k_pci_family_drivers[device_id]->driver);
-	ath12k_pci_family_drivers[device_id] = NULL;
-}
-EXPORT_SYMBOL(ath12k_pci_unregister_driver);
+/* firmware files */
+MODULE_FIRMWARE(ATH12K_FW_DIR "/QCN9274/hw2.0/*");
+MODULE_FIRMWARE(ATH12K_FW_DIR "/WCN7850/hw2.0/*");
