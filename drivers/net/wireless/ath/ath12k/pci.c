@@ -1842,3 +1842,7 @@ void ath12k_pci_unregister_driver(const enum ath12k_device_family device_id)
 	ath12k_pci_family_drivers[device_id] = NULL;
 }
 EXPORT_SYMBOL(ath12k_pci_unregister_driver);
+
+/* firmware files */
+MODULE_FIRMWARE(ATH12K_FW_DIR "/QCN9274/hw2.0/*");
+MODULE_FIRMWARE(ATH12K_FW_DIR "/WCN7850/hw2.0/*");
