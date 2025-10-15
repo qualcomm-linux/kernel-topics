@@ -26,6 +26,7 @@ properties:
       - items:
           - enum:
               - qcom,qcm2290-cci
+              - qcom,qcs8300-cci
               - qcom,sa8775p-cci
               - qcom,sc7280-cci
               - qcom,sc8280xp-cci
@@ -129,6 +130,7 @@ allOf:
           contains:
             enum:
               - qcom,qcm2290-cci
+              - qcom,qcs8300-cci
     then:
       properties:
         clocks:
