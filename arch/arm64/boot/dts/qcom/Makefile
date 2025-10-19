@@ -41,6 +41,11 @@ lemans-evk-camx-dtbs	:= lemans-evk.dtb lemans-evk-camx.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camx.dtb
 
 dtb-$(CONFIG_ARCH_QCOM)	+= monaco-evk.dtb
+
+monaco-evk-camx-dtbs   := monaco-evk.dtb monaco-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += monaco-evk-camx.dtb
+
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8216-samsung-fortuna3g.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8916-acer-a1-724.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8916-alcatel-idol347.dtb
@@ -145,6 +150,11 @@ qcs6490-rb3gen2-vision-mezzanine-camx-dtbs := qcs6490-rb3gen2-vision-mezzanine.d
 dtb-$(CONFIG_ARCH_QCOM) += qcs6490-rb3gen2-vision-mezzanine-camx.dtb
 
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs8300-ride.dtb
+
+qcs8300-ride-camx-dtbs:= qcs8300-ride.dtb qcs8300-ride-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += qcs8300-ride-camx.dtb
+
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs8550-aim300-aiot.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-ride.dtb
 
