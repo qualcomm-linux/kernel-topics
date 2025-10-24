@@ -547,18 +547,6 @@ ath12k_mac_max_eht_nss(const u16 eht_mcs_mask[NL80211_EHT_NSS_MAX])
 	return 1;
 }
 
-static u32
-ath12k_mac_max_eht_mcs_nss(const u8 *eht_mcs, int eht_mcs_set_size)
-{
-	int i;
-	u8 nss = 0;
-
-	for (i = 0; i < eht_mcs_set_size; i++)
-		nss = max(nss, u8_get_bits(eht_mcs[i], IEEE80211_EHT_MCS_NSS_RX));
-
-	return nss;
-}
-
 static u8 ath12k_parse_mpdudensity(u8 mpdudensity)
 {
 /*  From IEEE Std 802.11-2020 defined values for "Minimum MPDU Start Spacing":
@@ -3320,7 +3308,6 @@ static void ath12k_peer_assoc_h_eht(struct ath12k *ar,
 {
 	struct ieee80211_sta *sta = ath12k_ahsta_to_sta(arsta->ahsta);
 	struct ieee80211_vif *vif = ath12k_ahvif_to_vif(arvif->ahvif);
-	const struct ieee80211_eht_mcs_nss_supp *own_eht_mcs_nss_supp;
 	const struct ieee80211_eht_mcs_nss_supp_20mhz_only *bw_20;
 	const struct ieee80211_sta_eht_cap *eht_cap, *own_eht_cap;
 	const struct ieee80211_sband_iftype_data *iftd;
@@ -3329,12 +3316,9 @@ static void ath12k_peer_assoc_h_eht(struct ath12k *ar,
 	struct ieee80211_link_sta *link_sta;
 	struct ieee80211_bss_conf *link_conf;
 	struct cfg80211_chan_def def;
-	bool user_rate_valid = true;
 	enum nl80211_band band;
-	int eht_nss, nss_idx;
 	u32 *rx_mcs, *tx_mcs;
 	u16 *eht_mcs_mask;
-	u8 max_nss = 0;
 
 	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
@@ -3361,16 +3345,6 @@ static void ath12k_peer_assoc_h_eht(struct ath12k *ar,
 
 	band = def.chan->band;
 	eht_mcs_mask = arvif->bitrate_mask.control[band].eht_mcs;
-
-	iftd = ieee80211_get_sband_iftype_data(&ar->mac.sbands[band], vif->type);
-	if (!iftd) {
-		ath12k_warn(ar->ab,
-			    "unable to access iftype_data in struct ieee80211_supported_band\n");
-		return;
-	}
-
-	own_eht_cap = &iftd->eht_cap;
-	own_eht_mcs_nss_supp = &own_eht_cap->eht_mcs_nss_supp;
 
 	arg->eht_flag = true;
 
@@ -12756,12 +12730,11 @@ static u32 ath12k_mac_nlgi_to_wmigi(enum nl80211_txrate_gi gi)
 static int ath12k_mac_set_rate_params(struct ath12k_link_vif *arvif,
 				      u32 rate, u8 nss, u8 sgi, u8 ldpc,
 				      u8 he_gi, u8 he_ltf, bool he_fixed_rate,
-				      u8 eht_gi, u8 eht_ltf,
 				      bool eht_fixed_rate)
 {
 	struct ieee80211_bss_conf *link_conf;
 	struct ath12k *ar = arvif->ar;
-	bool he_support, gi_ltf_set = false;
+	bool he_support, eht_support, gi_ltf_set = false;
 	u32 vdev_param;
 	u32 param_value;
 	int ret;
@@ -12783,9 +12756,8 @@ static int ath12k_mac_set_rate_params(struct ath12k_link_vif *arvif,
 		   "he_gi 0x%02x he_ltf 0x%02x he_fixed_rate %d\n", he_gi,
 		   he_ltf, he_fixed_rate);
 
-	ath12k_dbg(ar->ab, ATH12K_DBG_MAC,
-		   "eht_gi 0x%02x eht_ltf 0x%02x eht_fixed_rate %d\n",
-		   eht_gi, eht_ltf, eht_fixed_rate);
+	ath12k_dbg(ar->ab, ATH12K_DBG_MAC, "eht_fixed_rate %d\n",
+		   eht_fixed_rate);
 
 	if (!he_support && !eht_support) {
 		vdev_param = WMI_VDEV_PARAM_FIXED_RATE;
@@ -12997,8 +12969,8 @@ ath12k_mac_validate_fixed_rate_settings(struct ath12k *ar, enum nl80211_band ban
 	bool eht_fixed_rate = false, he_fixed_rate = false, vht_fixed_rate = false;
 	const u16 *vht_mcs_mask, *he_mcs_mask, *eht_mcs_mask;
 	struct ieee80211_link_sta *link_sta;
-	struct ath12k_dp_link_peer *peer, *tmp;
-	u8 vht_nss, he_nss;
+	struct ath12k_peer *peer, *tmp;
+	u8 vht_nss, he_nss, eht_nss;
 	int ret = true;
 	struct ath12k_base *ab = ar->ab;
 	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
@@ -13225,8 +13197,7 @@ ath12k_mac_op_set_bitrate_mask(struct ieee80211_hw *hw,
 	}
 
 	ret = ath12k_mac_set_rate_params(arvif, rate, nss, sgi, ldpc, he_gi,
-					 he_ltf, he_fixed_rate, eht_gi, eht_ltf,
-					 eht_fixed_rate);
+					 he_ltf, he_fixed_rate, eht_fixed_rate);
 	if (ret) {
 		ath12k_warn(ar->ab, "failed to set rate params on vdev %i: %d\n",
 			    arvif->vdev_id, ret);
