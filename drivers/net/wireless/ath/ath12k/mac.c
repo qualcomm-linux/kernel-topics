@@ -12651,11 +12651,10 @@ ath12k_mac_get_single_legacy_rate(struct ath12k *ar,
 }
 
 static int
-ath12k_mac_set_fixed_rate_gi_ltf(struct ath12k_link_vif *arvif, u8 gi, u8 ltf,
-				 u32 param)
+ath12k_mac_set_fixed_rate_gi_ltf(struct ath12k_link_vif *arvif, u8 gi, u8 ltf)
 {
 	struct ath12k *ar = arvif->ar;
-	int ret;
+	int param, ret;
 
 	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
@@ -12670,16 +12669,11 @@ ath12k_mac_set_fixed_rate_gi_ltf(struct ath12k_link_vif *arvif, u8 gi, u8 ltf,
 			    gi, ret);
 		return ret;
 	}
+	/* start from 1 */
+	if (ltf != 0xFF)
+		ltf += 1;
 
-	if (param == WMI_VDEV_PARAM_HE_LTF) {
-		/* HE values start from 1 */
-		if (ltf != 0xFF)
-			ltf += 1;
-	} else {
-		/* EHT values start from 5 */
-		if (ltf != 0xFF)
-			ltf += 4;
-	}
+	param = WMI_VDEV_PARAM_HE_LTF;
 
 	ret = ath12k_wmi_vdev_set_param_cmd(ar, arvif->vdev_id,
 					    param, ltf);
@@ -12767,7 +12761,7 @@ static int ath12k_mac_set_rate_params(struct ath12k_link_vif *arvif,
 {
 	struct ieee80211_bss_conf *link_conf;
 	struct ath12k *ar = arvif->ar;
-	bool he_support, eht_support, gi_ltf_set = false;
+	bool he_support, gi_ltf_set = false;
 	u32 vdev_param;
 	u32 param_value;
 	int ret;
