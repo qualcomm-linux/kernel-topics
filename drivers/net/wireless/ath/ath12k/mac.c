@@ -12651,10 +12651,11 @@ ath12k_mac_get_single_legacy_rate(struct ath12k *ar,
 }
 
 static int
-ath12k_mac_set_fixed_rate_gi_ltf(struct ath12k_link_vif *arvif, u8 gi, u8 ltf)
+ath12k_mac_set_fixed_rate_gi_ltf(struct ath12k_link_vif *arvif, u8 gi, u8 ltf,
+				 u32 param)
 {
 	struct ath12k *ar = arvif->ar;
-	int param, ret;
+	int ret;
 
 	lockdep_assert_wiphy(ath12k_ar_to_hw(ar)->wiphy);
 
@@ -12669,11 +12670,16 @@ ath12k_mac_set_fixed_rate_gi_ltf(struct ath12k_link_vif *arvif, u8 gi, u8 ltf)
 			    gi, ret);
 		return ret;
 	}
-	/* start from 1 */
-	if (ltf != 0xFF)
-		ltf += 1;
 
-	param = WMI_VDEV_PARAM_HE_LTF;
+	if (param == WMI_VDEV_PARAM_HE_LTF) {
+		/* HE values start from 1 */
+		if (ltf != 0xFF)
+			ltf += 1;
+	} else {
+		/* EHT values start from 5 */
+		if (ltf != 0xFF)
+			ltf += 4;
+	}
 
 	ret = ath12k_wmi_vdev_set_param_cmd(ar, arvif->vdev_id,
 					    param, ltf);
@@ -12756,6 +12762,7 @@ static u32 ath12k_mac_nlgi_to_wmigi(enum nl80211_txrate_gi gi)
 static int ath12k_mac_set_rate_params(struct ath12k_link_vif *arvif,
 				      u32 rate, u8 nss, u8 sgi, u8 ldpc,
 				      u8 he_gi, u8 he_ltf, bool he_fixed_rate,
+				      u8 eht_gi, u8 eht_ltf,
 				      bool eht_fixed_rate)
 {
 	struct ieee80211_bss_conf *link_conf;
@@ -12782,8 +12789,9 @@ static int ath12k_mac_set_rate_params(struct ath12k_link_vif *arvif,
 		   "he_gi 0x%02x he_ltf 0x%02x he_fixed_rate %d\n", he_gi,
 		   he_ltf, he_fixed_rate);
 
-	ath12k_dbg(ar->ab, ATH12K_DBG_MAC, "eht_fixed_rate %d\n",
-		   eht_fixed_rate);
+	ath12k_dbg(ar->ab, ATH12K_DBG_MAC,
+		   "eht_gi 0x%02x eht_ltf 0x%02x eht_fixed_rate %d\n",
+		   eht_gi, eht_ltf, eht_fixed_rate);
 
 	if (!he_support && !eht_support) {
 		vdev_param = WMI_VDEV_PARAM_FIXED_RATE;
@@ -13223,7 +13231,8 @@ ath12k_mac_op_set_bitrate_mask(struct ieee80211_hw *hw,
 	}
 
 	ret = ath12k_mac_set_rate_params(arvif, rate, nss, sgi, ldpc, he_gi,
-					 he_ltf, he_fixed_rate, eht_fixed_rate);
+					 he_ltf, he_fixed_rate, eht_gi, eht_ltf,
+					 eht_fixed_rate);
 	if (ret) {
 		ath12k_warn(ar->ab, "failed to set rate params on vdev %i: %d\n",
 			    arvif->vdev_id, ret);
