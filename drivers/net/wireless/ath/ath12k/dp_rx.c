@@ -533,8 +533,11 @@ void ath12k_dp_rx_peer_tid_cleanup(struct ath12k *ar, struct ath12k_dp_link_peer
 
 	lockdep_assert_held(&dp->dp_lock);
 
+	if (!peer->primary_link)
+		return;
+
 	for (i = 0; i <= IEEE80211_NUM_TIDS; i++) {
-		rx_tid = &peer->rx_tid[i];
+		rx_tid = &peer->dp_peer->rx_tid[i];
 
 		ath12k_wifi7_dp_rx_peer_tid_delete(ar, peer, i);
 		ath12k_dp_rx_frags_cleanup(rx_tid, true);
@@ -665,7 +668,6 @@ int ath12k_dp_rx_peer_tid_setup(struct ath12k *ar, const u8 *peer_mac, int vdev_
 	struct ath12k_base *ab = ar->ab;
 	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
 	struct ath12k_dp_link_peer *peer;
-	struct ath12k_sta *ahsta;
 	struct ath12k_dp_rx_tid *rx_tid;
 	dma_addr_t paddr_aligned;
 	int ret;
@@ -673,7 +675,7 @@ int ath12k_dp_rx_peer_tid_setup(struct ath12k *ar, const u8 *peer_mac, int vdev_
 	spin_lock_bh(&dp->dp_lock);
 
 	peer = ath12k_dp_link_peer_find_by_vdev_and_addr(dp, vdev_id, peer_mac);
-	if (!peer) {
+	if (!peer || !peer->dp_peer) {
 		spin_unlock_bh(&dp->dp_lock);
 		ath12k_warn(ab, "failed to find the peer to set up rx tid\n");
 		return -ENOENT;
@@ -699,9 +701,9 @@ int ath12k_dp_rx_peer_tid_setup(struct ath12k *ar, const u8 *peer_mac, int vdev_
 		return -EINVAL;
 	}
 
-	rx_tid = &peer->rx_tid[tid];
+	rx_tid = &peer->dp_peer->rx_tid[tid];
 	/* Update the tid queue if it is already setup */
-	if (rx_tid->active) {
+	if (peer->rx_tid_active_bitmask & (1 << tid)) {
 		ret = ath12k_wifi7_peer_rx_tid_reo_update(ar, peer, rx_tid,
 							  ba_win_sz, ssn, true);
 		spin_unlock_bh(&dp->dp_lock);
@@ -730,26 +732,14 @@ int ath12k_dp_rx_peer_tid_setup(struct ath12k *ar, const u8 *peer_mac, int vdev_
 
 	rx_tid->ba_win_sz = ba_win_sz;
 
-	ahsta = ath12k_sta_to_ahsta(peer->sta);
-	ret = ath12k_wifi7_dp_rx_assign_reoq(ab, ahsta, rx_tid, ssn, pn_type);
+	ret = ath12k_wifi7_dp_rx_assign_reoq(ab, peer->dp_peer, rx_tid, ssn, pn_type);
 	if (ret) {
 		spin_unlock_bh(&dp->dp_lock);
 		ath12k_warn(ab, "failed to assign reoq buf for rx tid %u\n", tid);
 		return ret;
 	}
 
-	/* Pre-allocate the update_rxq_list for the corresponding tid
-	 * This will be used during the tid delete. The reason we are not
-	 * allocating during tid delete is that, if any alloc fail in update_rxq_list
-	 * we may not be able to delete the tid vaddr/paddr and may lead to leak
-	 */
-	ret = ath12k_dp_prepare_reo_update_elem(dp, peer, rx_tid);
-	if (ret) {
-		ath12k_warn(ab, "failed to alloc update_rxq_list for rx tid %u\n", tid);
-		ath12k_dp_rx_tid_cleanup(ab, &rx_tid->qbuf);
-		spin_unlock_bh(&ab->base_lock);
-		return ret;
-	}
+	peer->rx_tid_active_bitmask |= (1 << tid);
 
 	paddr_aligned = rx_tid->qbuf.paddr_aligned;
 	if (ab->hw_params->reoq_lut_support) {
@@ -827,20 +817,26 @@ int ath12k_dp_rx_ampdu_stop(struct ath12k *ar,
 	spin_lock_bh(&dp->dp_lock);
 
 	peer = ath12k_dp_link_peer_find_by_vdev_and_addr(dp, vdev_id, arsta->addr);
-	if (!peer) {
+	if (!peer || !peer->dp_peer) {
 		spin_unlock_bh(&dp->dp_lock);
 		ath12k_warn(ab, "failed to find the peer to stop rx aggregation\n");
 		return -ENOENT;
 	}
 
-	active = peer->rx_tid[params->tid].active;
+	if (ab->hw_params->dp_primary_link_only &&
+	    !peer->primary_link) {
+		spin_unlock_bh(&dp->dp_lock);
+		return 0;
+	}
 
+	active = peer->rx_tid_active_bitmask & (1 << params->tid);
 	if (!active) {
 		spin_unlock_bh(&dp->dp_lock);
 		return 0;
 	}
 
-	ret = ath12k_wifi7_peer_rx_tid_reo_update(ar, peer, peer->rx_tid, 1, 0, false);
+	ret = ath12k_wifi7_peer_rx_tid_reo_update(ar, peer, peer->dp_peer->rx_tid,
+						  1, 0, false);
 	spin_unlock_bh(&dp->dp_lock);
 	if (ret) {
 		ath12k_warn(ab, "failed to update reo for rx tid %d: %d\n",
@@ -877,7 +873,7 @@ int ath12k_dp_rx_peer_pn_replay_config(struct ath12k_link_vif *arvif,
 
 	peer = ath12k_dp_link_peer_find_by_vdev_and_addr(dp, arvif->vdev_id,
 							 peer_addr);
-	if (!peer) {
+	if (!peer || !peer->dp_peer) {
 		spin_unlock_bh(&dp->dp_lock);
 		ath12k_warn(ab, "failed to find the peer %pM to configure pn replay detection\n",
 			    peer_addr);
@@ -885,9 +881,10 @@ int ath12k_dp_rx_peer_pn_replay_config(struct ath12k_link_vif *arvif,
 	}
 
 	for (tid = 0; tid <= IEEE80211_NUM_TIDS; tid++) {
-		rx_tid = &peer->rx_tid[tid];
-		if (!rx_tid->active)
+		if (!(peer->rx_tid_active_bitmask & (1 << tid)))
 			continue;
+
+		rx_tid = &peer->dp_peer->rx_tid[tid];
 
 		ath12k_wifi7_dp_setup_pn_check_reo_cmd(&cmd, rx_tid, key->cipher,
 						       key_cmd);
@@ -1222,16 +1219,17 @@ void ath12k_dp_rx_h_undecap(struct ath12k_pdev_dp *dp_pdev, struct sk_buff *msdu
 }
 
 struct ath12k_dp_link_peer *
-ath12k_dp_rx_h_find_link_peer(struct ath12k_dp *dp, struct sk_buff *msdu,
+ath12k_dp_rx_h_find_link_peer(struct ath12k_pdev_dp *dp_pdev, struct sk_buff *msdu,
 			      struct hal_rx_desc_data *rx_info)
 {
 	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
 	struct ath12k_dp_link_peer *peer = NULL;
+	struct ath12k_dp *dp = dp_pdev->dp;
 
 	lockdep_assert_held(&dp->dp_lock);
 
 	if (rxcb->peer_id)
-		peer = ath12k_dp_link_peer_find_by_id(dp, rxcb->peer_id);
+		peer = ath12k_dp_link_peer_find_by_peerid(dp_pdev, rxcb->peer_id);
 
 	if (peer)
 		return peer;
@@ -1387,24 +1385,21 @@ void ath12k_dp_rx_deliver_msdu(struct ath12k_pdev_dp *dp_pdev, struct napi_struc
 	struct ath12k_base *ab = dp->ab;
 	struct ieee80211_rx_status *rx_status;
 	struct ieee80211_sta *pubsta;
-	struct ath12k_dp_link_peer *peer;
+	struct ath12k_dp_peer *peer;
 	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
 	struct ieee80211_rx_status *status = rx_info->rx_status;
 	u8 decap = rx_info->decap_type;
 	bool is_mcbc = rxcb->is_mcbc;
 	bool is_eapol = rxcb->is_eapol;
 
-	spin_lock_bh(&dp->dp_lock);
-	peer = ath12k_dp_rx_h_find_link_peer(dp, msdu, rx_info);
+	peer = ath12k_dp_peer_find_by_peerid(dp_pdev, rx_info->peer_id);
 
 	pubsta = peer ? peer->sta : NULL;
 
 	if (pubsta && pubsta->valid_links) {
 		status->link_valid = 1;
-		status->link_id = peer->link_id;
+		status->link_id = peer->hw_links[rxcb->hw_link_id];
 	}
-
-	spin_unlock_bh(&dp->dp_lock);
 
 	ath12k_dbg(ab, ATH12K_DBG_DATA,
 		   "rx skb %p len %u peer %pM %d %s sn %u %s%s%s%s%s%s%s%s%s%s rate_idx %u vht_nss %u freq %u band %u flag 0x%x fcs-err %i mic-err %i amsdu-more %i\n",
@@ -1528,7 +1523,7 @@ int ath12k_dp_rx_peer_frag_setup(struct ath12k *ar, const u8 *peer_mac, int vdev
 	spin_lock_bh(&dp->dp_lock);
 
 	peer = ath12k_dp_link_peer_find_by_vdev_and_addr(dp, vdev_id, peer_mac);
-	if (!peer) {
+	if (!peer || !peer->dp_peer) {
 		spin_unlock_bh(&dp->dp_lock);
 		crypto_free_shash(tfm);
 		ath12k_warn(ab, "failed to find the peer to set up fragment info\n");
@@ -1542,14 +1537,14 @@ int ath12k_dp_rx_peer_frag_setup(struct ath12k *ar, const u8 *peer_mac, int vdev
 	}
 
 	for (i = 0; i <= IEEE80211_NUM_TIDS; i++) {
-		rx_tid = &peer->rx_tid[i];
+		rx_tid = &peer->dp_peer->rx_tid[i];
 		rx_tid->dp = dp;
 		timer_setup(&rx_tid->frag_timer, ath12k_dp_rx_frag_timer, 0);
 		skb_queue_head_init(&rx_tid->rx_frags);
 	}
 
-	peer->tfm_mmic = tfm;
-	peer->dp_setup_done = true;
+	peer->dp_peer->tfm_mmic = tfm;
+	peer->dp_peer->dp_setup_done = true;
 	spin_unlock_bh(&dp->dp_lock);
 
 	return 0;
