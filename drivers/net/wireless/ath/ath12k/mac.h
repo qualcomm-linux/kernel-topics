@@ -81,6 +81,18 @@ enum ath12k_supported_bw {
 	ATH12K_BW_320   = 4,
 };
 
+enum ath12k_gi {
+	ATH12K_RATE_INFO_GI_0_8,
+	ATH12K_RATE_INFO_GI_1_6,
+	ATH12K_RATE_INFO_GI_3_2,
+};
+
+enum ath12k_ltf {
+	ATH12K_RATE_INFO_1XLTF,
+	ATH12K_RATE_INFO_2XLTF,
+	ATH12K_RATE_INFO_4XLTF,
+};
+
 struct ath12k_mac_get_any_chanctx_conf_arg {
 	struct ath12k *ar;
 	struct ieee80211_chanctx_conf *chanctx_conf;
