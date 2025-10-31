@@ -7985,8 +7985,6 @@ void ath12k_wmi_fw_stats_dump(struct ath12k *ar,
 		buf[len - 1] = 0;
 	else
 		buf[len] = 0;
-
-	ath12k_fw_stats_reset(ar);
 }
 
 static void
