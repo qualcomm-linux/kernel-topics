@@ -41,13 +41,13 @@ void qce_clear_bam_transaction(struct qce_device *qce)
 	bam_txn->pre_bam_ce_idx = 0;
 }
 
-int qce_submit_cmd_desc(struct qce_device *qce)
+static int qce_do_submit_cmd_desc(struct qce_device *qce, unsigned long flags)
 {
 	struct qce_desc_info *qce_desc = qce->dma.bam_txn->desc;
 	struct qce_bam_transaction *bam_txn = qce->dma.bam_txn;
 	struct dma_async_tx_descriptor *dma_desc;
 	struct dma_chan *chan = qce->dma.rxchan;
-	unsigned long attrs = DMA_PREP_CMD;
+	unsigned long attrs = DMA_PREP_CMD | flags;
 	dma_cookie_t cookie;
 	unsigned int mapped;
 	int ret;
@@ -74,6 +74,21 @@ int qce_submit_cmd_desc(struct qce_device *qce)
 	qce_dma_issue_pending(&qce->dma);
 
 	return 0;
+}
+
+int qce_submit_cmd_desc(struct qce_device *qce)
+{
+	return qce_do_submit_cmd_desc(qce, 0);
+}
+
+int qce_submit_cmd_desc_lock(struct qce_device *qce)
+{
+	return qce_do_submit_cmd_desc(qce, DMA_PREP_LOCK);
+}
+
+int qce_submit_cmd_desc_unlock(struct qce_device *qce)
+{
+	return qce_do_submit_cmd_desc(qce, DMA_PREP_UNLOCK);
 }
 
 static void qce_prep_dma_cmd_desc(struct qce_device *qce, struct qce_dma_data *dma,
