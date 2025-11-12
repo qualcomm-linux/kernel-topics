@@ -1629,6 +1629,511 @@ const struct hal_ops hal_wcn7850_ops = {
 	.get_hal_rx_compact_ops = NULL,
 };
 
+static bool ath12k_hw_qcc2072_rx_desc_get_first_msdu(struct hal_rx_desc *desc)
+{
+	return !!le16_get_bits(desc->u.qcc2072.msdu_end.info5,
+			       RX_MSDU_END_INFO5_FIRST_MSDU);
+}
+
+static bool ath12k_hw_qcc2072_rx_desc_get_last_msdu(struct hal_rx_desc *desc)
+{
+	return !!le16_get_bits(desc->u.qcc2072.msdu_end.info5,
+			       RX_MSDU_END_INFO5_LAST_MSDU);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_l3_pad_bytes(struct hal_rx_desc *desc)
+{
+	return (u8)le16_get_bits(desc->u.qcc2072.msdu_end.info5,
+				 RX_MSDU_END_INFO5_L3_HDR_PADDING);
+}
+
+static bool ath12k_hw_qcc2072_rx_desc_encrypt_valid(struct hal_rx_desc *desc)
+{
+	return !!le32_get_bits(desc->u.qcc2072.mpdu_start.info4,
+			       RX_MPDU_START_INFO4_ENCRYPT_INFO_VALID);
+}
+
+static u32 ath12k_hw_qcc2072_rx_desc_get_encrypt_type(struct hal_rx_desc *desc)
+{
+	return le32_get_bits(desc->u.qcc2072.mpdu_start.info2,
+			     RX_MPDU_START_INFO2_ENC_TYPE);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_decap_type(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.msdu_end.info11,
+				 RX_MSDU_END_INFO11_DECAP_FORMAT);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_mesh_ctl(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.msdu_end.info11,
+				 RX_MSDU_END_INFO11_MESH_CTRL_PRESENT);
+}
+
+static bool ath12k_hw_qcc2072_rx_desc_get_mpdu_seq_ctl_vld(struct hal_rx_desc *desc)
+{
+	return !!le32_get_bits(desc->u.qcc2072.mpdu_start.info4,
+			       RX_MPDU_START_INFO4_MPDU_SEQ_CTRL_VALID);
+}
+
+static bool ath12k_hw_qcc2072_rx_desc_get_mpdu_fc_valid(struct hal_rx_desc *desc)
+{
+	return !!le32_get_bits(desc->u.qcc2072.mpdu_start.info4,
+			       RX_MPDU_START_INFO4_MPDU_FCTRL_VALID);
+}
+
+static u16 ath12k_hw_qcc2072_rx_desc_get_mpdu_start_seq_no(struct hal_rx_desc *desc)
+{
+	return (u16)le32_get_bits(desc->u.qcc2072.mpdu_start.info4,
+				  RX_MPDU_START_INFO4_MPDU_SEQ_NUM);
+}
+
+static u16 ath12k_hw_qcc2072_rx_desc_get_msdu_len(struct hal_rx_desc *desc)
+{
+	return (u16)le32_get_bits(desc->u.qcc2072.msdu_end.info10,
+				  RX_MSDU_END_INFO10_MSDU_LENGTH);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_msdu_sgi(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.msdu_end.info12,
+				 RX_MSDU_END_INFO12_SGI);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_msdu_rate_mcs(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.msdu_end.info12,
+				 RX_MSDU_END_INFO12_RATE_MCS);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_msdu_rx_bw(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.msdu_end.info12,
+				 RX_MSDU_END_INFO12_RECV_BW);
+}
+
+static u32 ath12k_hw_qcc2072_rx_desc_get_msdu_freq(struct hal_rx_desc *desc)
+{
+	return __le32_to_cpu(desc->u.qcc2072.msdu_end.phy_meta_data);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_msdu_pkt_type(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.msdu_end.info12,
+				 RX_MSDU_END_INFO12_PKT_TYPE);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_msdu_nss(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.msdu_end.info12,
+				 RX_MSDU_END_INFO12_MIMO_SS_BITMAP);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_mpdu_tid(struct hal_rx_desc *desc)
+{
+	return (u8)le32_get_bits(desc->u.qcc2072.mpdu_start.info2,
+				 RX_MPDU_START_INFO2_TID);
+}
+
+static u16 ath12k_hw_qcc2072_rx_desc_get_mpdu_peer_id(struct hal_rx_desc *desc)
+{
+	return __le16_to_cpu(desc->u.qcc2072.mpdu_start.sw_peer_id);
+}
+
+static void ath12k_hw_qcc2072_rx_desc_copy_end_tlv(struct hal_rx_desc *fdesc,
+						   struct hal_rx_desc *ldesc)
+{
+	memcpy(&fdesc->u.qcc2072.msdu_end, &ldesc->u.qcc2072.msdu_end,
+	       sizeof(struct rx_msdu_end_qcn9274));
+}
+
+static u32 ath12k_hw_qcc2072_rx_desc_get_mpdu_start_tag(struct hal_rx_desc *desc)
+{
+	return le32_get_bits(desc->u.qcc2072.mpdu_start_tag,
+			     HAL_TLV_HDR_TAG);
+}
+
+static u32 ath12k_hw_qcc2072_rx_desc_get_mpdu_ppdu_id(struct hal_rx_desc *desc)
+{
+	return __le16_to_cpu(desc->u.qcc2072.mpdu_start.phy_ppdu_id);
+}
+
+static void ath12k_hw_qcc2072_rx_desc_set_msdu_len(struct hal_rx_desc *desc, u16 len)
+{
+	u32 info = __le32_to_cpu(desc->u.qcc2072.msdu_end.info10);
+
+	info &= ~RX_MSDU_END_INFO10_MSDU_LENGTH;
+	info |= u32_encode_bits(len, RX_MSDU_END_INFO10_MSDU_LENGTH);
+
+	desc->u.qcc2072.msdu_end.info10 = __cpu_to_le32(info);
+}
+
+static u8 *ath12k_hw_qcc2072_rx_desc_get_msdu_payload(struct hal_rx_desc *desc)
+{
+	return &desc->u.qcc2072.msdu_payload[0];
+}
+
+static u32 ath12k_hw_qcc2072_rx_desc_get_mpdu_start_offset(void)
+{
+	return offsetof(struct hal_rx_desc_qcc2072, mpdu_start_tag);
+}
+
+static u32 ath12k_hw_qcc2072_rx_desc_get_msdu_end_offset(void)
+{
+	return offsetof(struct hal_rx_desc_qcc2072, msdu_end_tag);
+}
+
+static bool ath12k_hw_qcc2072_rx_desc_mac_addr2_valid(struct hal_rx_desc *desc)
+{
+	return __le32_to_cpu(desc->u.qcc2072.mpdu_start.info4) &
+	       RX_MPDU_START_INFO4_MAC_ADDR2_VALID;
+}
+
+static u8 *ath12k_hw_qcc2072_rx_desc_mpdu_start_addr2(struct hal_rx_desc *desc)
+{
+	return desc->u.qcc2072.mpdu_start.addr2;
+}
+
+static bool ath12k_hw_qcc2072_rx_desc_is_da_mcbc(struct hal_rx_desc *desc)
+{
+	return __le32_to_cpu(desc->u.qcc2072.msdu_end.info13) &
+	       RX_MSDU_END_INFO13_MCAST_BCAST;
+}
+
+static void ath12k_hw_qcc2072_rx_desc_get_dot11_hdr(struct hal_rx_desc *desc,
+						    struct ieee80211_hdr *hdr)
+{
+	hdr->frame_control = desc->u.qcc2072.mpdu_start.frame_ctrl;
+	hdr->duration_id = desc->u.qcc2072.mpdu_start.duration;
+	ether_addr_copy(hdr->addr1, desc->u.qcc2072.mpdu_start.addr1);
+	ether_addr_copy(hdr->addr2, desc->u.qcc2072.mpdu_start.addr2);
+	ether_addr_copy(hdr->addr3, desc->u.qcc2072.mpdu_start.addr3);
+	if (__le32_to_cpu(desc->u.qcc2072.mpdu_start.info4) &
+			RX_MPDU_START_INFO4_MAC_ADDR4_VALID) {
+		ether_addr_copy(hdr->addr4, desc->u.qcc2072.mpdu_start.addr4);
+	}
+	hdr->seq_ctrl = desc->u.qcc2072.mpdu_start.seq_ctrl;
+}
+
+static void ath12k_hw_qcc2072_rx_desc_get_crypto_hdr(struct hal_rx_desc *desc,
+						     u8 *crypto_hdr,
+						     enum hal_encrypt_type enctype)
+{
+	unsigned int key_id;
+
+	switch (enctype) {
+	case HAL_ENCRYPT_TYPE_OPEN:
+		return;
+	case HAL_ENCRYPT_TYPE_TKIP_NO_MIC:
+	case HAL_ENCRYPT_TYPE_TKIP_MIC:
+		crypto_hdr[0] =
+			HAL_RX_MPDU_INFO_PN_GET_BYTE2(desc->u.qcc2072.mpdu_start.pn[0]);
+		crypto_hdr[1] = 0;
+		crypto_hdr[2] =
+			HAL_RX_MPDU_INFO_PN_GET_BYTE1(desc->u.qcc2072.mpdu_start.pn[0]);
+		break;
+	case HAL_ENCRYPT_TYPE_CCMP_128:
+	case HAL_ENCRYPT_TYPE_CCMP_256:
+	case HAL_ENCRYPT_TYPE_GCMP_128:
+	case HAL_ENCRYPT_TYPE_AES_GCMP_256:
+		crypto_hdr[0] =
+			HAL_RX_MPDU_INFO_PN_GET_BYTE1(desc->u.qcc2072.mpdu_start.pn[0]);
+		crypto_hdr[1] =
+			HAL_RX_MPDU_INFO_PN_GET_BYTE2(desc->u.qcc2072.mpdu_start.pn[0]);
+		crypto_hdr[2] = 0;
+		break;
+	case HAL_ENCRYPT_TYPE_WEP_40:
+	case HAL_ENCRYPT_TYPE_WEP_104:
+	case HAL_ENCRYPT_TYPE_WEP_128:
+	case HAL_ENCRYPT_TYPE_WAPI_GCM_SM4:
+	case HAL_ENCRYPT_TYPE_WAPI:
+		return;
+	}
+	key_id = u32_get_bits(__le32_to_cpu(desc->u.qcc2072.mpdu_start.info5),
+			      RX_MPDU_START_INFO5_KEY_ID);
+	crypto_hdr[3] = (u8)(0x20 | (key_id << 6));
+	crypto_hdr[4] = HAL_RX_MPDU_INFO_PN_GET_BYTE3(desc->u.qcc2072.mpdu_start.pn[0]);
+	crypto_hdr[5] = HAL_RX_MPDU_INFO_PN_GET_BYTE4(desc->u.qcc2072.mpdu_start.pn[0]);
+	crypto_hdr[6] = HAL_RX_MPDU_INFO_PN_GET_BYTE1(desc->u.qcc2072.mpdu_start.pn[1]);
+	crypto_hdr[7] = HAL_RX_MPDU_INFO_PN_GET_BYTE2(desc->u.qcc2072.mpdu_start.pn[1]);
+}
+
+static int ath12k_hal_srng_create_config_qcc2072(struct ath12k_base *ab)
+{
+	struct ath12k_hal *hal = &ab->hal;
+	struct hal_srng_config *s;
+
+	hal->srng_config = kmemdup(hw_srng_config_template,
+				   sizeof(hw_srng_config_template),
+				   GFP_KERNEL);
+	if (!hal->srng_config)
+		return -ENOMEM;
+
+	s = &hal->srng_config[HAL_REO_DST];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO1_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO1_RING_HP;
+	s->reg_size[0] = HAL_REO2_RING_BASE_LSB(ab) - HAL_REO1_RING_BASE_LSB(ab);
+	s->reg_size[1] = HAL_REO2_RING_HP - HAL_REO1_RING_HP;
+
+	s = &hal->srng_config[HAL_REO_EXCEPTION];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO_SW0_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO_SW0_RING_HP;
+
+	s = &hal->srng_config[HAL_REO_REINJECT];
+	s->max_rings = 1;
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_SW2REO_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_SW2REO_RING_HP;
+
+	s = &hal->srng_config[HAL_REO_CMD];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO_CMD_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO_CMD_HP;
+	s->entry_size = (sizeof(struct hal_tlv_hdr) +
+			 sizeof(struct hal_reo_get_queue_stats_qcc2072)) >> 2,
+
+	s = &hal->srng_config[HAL_REO_STATUS];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO_STATUS_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_REO_REG + HAL_REO_STATUS_HP;
+	s->entry_size = (sizeof(struct hal_tlv_hdr) +
+			 sizeof(struct hal_reo_get_queue_stats_status_qcc2072)) >> 2,
+
+	s = &hal->srng_config[HAL_TCL_DATA];
+	s->max_rings = 5;
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_TCL_REG + HAL_TCL1_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_TCL_REG + HAL_TCL1_RING_HP;
+	s->reg_size[0] = HAL_TCL2_RING_BASE_LSB(ab) - HAL_TCL1_RING_BASE_LSB(ab);
+	s->reg_size[1] = HAL_TCL2_RING_HP - HAL_TCL1_RING_HP;
+
+	s = &hal->srng_config[HAL_TCL_CMD];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_TCL_REG + HAL_TCL_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_TCL_REG + HAL_TCL_RING_HP;
+
+	s = &hal->srng_config[HAL_TCL_STATUS];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_TCL_REG + HAL_TCL_STATUS_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_TCL_REG + HAL_TCL_STATUS_RING_HP;
+
+	s = &hal->srng_config[HAL_CE_SRC];
+	s->max_rings = 12;
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_CE0_SRC_REG(ab) + HAL_CE_DST_RING_BASE_LSB;
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_CE0_SRC_REG(ab) + HAL_CE_DST_RING_HP;
+	s->reg_size[0] = HAL_SEQ_WCSS_UMAC_CE1_SRC_REG(ab) -
+		HAL_SEQ_WCSS_UMAC_CE0_SRC_REG(ab);
+	s->reg_size[1] = HAL_SEQ_WCSS_UMAC_CE1_SRC_REG(ab) -
+		HAL_SEQ_WCSS_UMAC_CE0_SRC_REG(ab);
+
+	s = &hal->srng_config[HAL_CE_DST];
+	s->max_rings = 12;
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab) + HAL_CE_DST_RING_BASE_LSB;
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab) + HAL_CE_DST_RING_HP;
+	s->reg_size[0] = HAL_SEQ_WCSS_UMAC_CE1_DST_REG(ab) -
+		HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab);
+	s->reg_size[1] = HAL_SEQ_WCSS_UMAC_CE1_DST_REG(ab) -
+		HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab);
+
+	s = &hal->srng_config[HAL_CE_DST_STATUS];
+	s->max_rings = 12;
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab) +
+		HAL_CE_DST_STATUS_RING_BASE_LSB;
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab) + HAL_CE_DST_STATUS_RING_HP;
+	s->reg_size[0] = HAL_SEQ_WCSS_UMAC_CE1_DST_REG(ab) -
+		HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab);
+	s->reg_size[1] = HAL_SEQ_WCSS_UMAC_CE1_DST_REG(ab) -
+		HAL_SEQ_WCSS_UMAC_CE0_DST_REG(ab);
+
+	s = &hal->srng_config[HAL_WBM_IDLE_LINK];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_WBM_REG + HAL_WBM_IDLE_LINK_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_WBM_REG + HAL_WBM_IDLE_LINK_RING_HP;
+
+	s = &hal->srng_config[HAL_SW2WBM_RELEASE];
+	s->max_rings = 1;
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_WBM_REG +
+		HAL_WBM_SW_RELEASE_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_WBM_REG + HAL_WBM_SW_RELEASE_RING_HP;
+
+	s = &hal->srng_config[HAL_WBM2SW_RELEASE];
+	s->reg_start[0] = HAL_SEQ_WCSS_UMAC_WBM_REG + HAL_WBM0_RELEASE_RING_BASE_LSB(ab);
+	s->reg_start[1] = HAL_SEQ_WCSS_UMAC_WBM_REG + HAL_WBM0_RELEASE_RING_HP;
+	s->reg_size[0] = HAL_WBM1_RELEASE_RING_BASE_LSB(ab) -
+		HAL_WBM0_RELEASE_RING_BASE_LSB(ab);
+	s->reg_size[1] = HAL_WBM1_RELEASE_RING_HP - HAL_WBM0_RELEASE_RING_HP;
+
+	s = &hal->srng_config[HAL_RXDMA_BUF];
+	s->max_rings = 2;
+	s->mac_type = ATH12K_HAL_SRNG_PMAC;
+
+	s = &hal->srng_config[HAL_RXDMA_DST];
+	s->max_rings = 1;
+	s->entry_size = sizeof(struct hal_reo_entrance_ring) >> 2;
+
+	/* below rings are not used */
+	s = &hal->srng_config[HAL_RXDMA_DIR_BUF];
+	s->max_rings = 0;
+
+	s = &hal->srng_config[HAL_PPE2TCL];
+	s->max_rings = 0;
+
+	s = &hal->srng_config[HAL_PPE_RELEASE];
+	s->max_rings = 0;
+
+	s = &hal->srng_config[HAL_TX_MONITOR_BUF];
+	s->max_rings = 0;
+
+	s = &hal->srng_config[HAL_TX_MONITOR_DST];
+	s->max_rings = 0;
+
+	s = &hal->srng_config[HAL_PPE2TCL];
+	s->max_rings = 0;
+
+	return 0;
+}
+
+static void ath12k_hal_qcc2072_reo_init_cmd_ring(void *entry, int cmd_num)
+{
+	struct hal_reo_get_queue_stats *desc;
+	struct hal_tlv_hdr *tlv = entry;
+
+	desc = (struct hal_reo_get_queue_stats *)tlv->value;
+	desc->cmd.info0 = le32_encode_bits(cmd_num, HAL_REO_CMD_HDR_INFO0_CMD_NUMBER);
+}
+
+static void *ath12k_hal_qcc2072_reo_cmd_encode_hdr(void *reo_desc,
+						   u64 tag, u64 len)
+{
+	struct hal_tlv_hdr *tlv = reo_desc;
+
+	tlv->tl = le32_encode_bits((u32)tag, HAL_TLV_HDR_TAG) |
+		  le32_encode_bits((u32)len, HAL_TLV_HDR_LEN);
+
+	return tlv->value;
+}
+
+static u16 ath12k_hal_qcc2072_reo_status_decode_hdr(void *reo_desc, void **desc)
+{
+	struct hal_tlv_hdr *tlv = reo_desc;
+	u16 tag;
+
+	tag = (u16)le32_get_bits(tlv->tl, HAL_SRNG_TLV_HDR_TAG);
+	/* actual desc starts after tlv32_padding */
+	*desc = tlv->value + sizeof(u32);
+
+	return tag;
+}
+
+static bool ath12k_hw_qcc2072_dp_rx_h_msdu_done(struct hal_rx_desc *desc)
+{
+	return !!le32_get_bits(desc->u.qcc2072.msdu_end.info14,
+			       RX_MSDU_END_INFO14_MSDU_DONE);
+}
+
+static bool ath12k_hw_qcc2072_dp_rx_h_l4_cksum_fail(struct hal_rx_desc *desc)
+{
+	return !!le32_get_bits(desc->u.qcc2072.msdu_end.info13,
+			       RX_MSDU_END_INFO13_TCP_UDP_CKSUM_FAIL);
+}
+
+static bool ath12k_hw_qcc2072_dp_rx_h_ip_cksum_fail(struct hal_rx_desc *desc)
+{
+	return !!le32_get_bits(desc->u.qcc2072.msdu_end.info13,
+			      RX_MSDU_END_INFO13_IP_CKSUM_FAIL);
+}
+
+static bool ath12k_hw_qcc2072_dp_rx_h_is_decrypted(struct hal_rx_desc *desc)
+{
+	return (le32_get_bits(desc->u.qcc2072.msdu_end.info14,
+			      RX_MSDU_END_INFO14_DECRYPT_STATUS_CODE) ==
+			      RX_DESC_DECRYPT_STATUS_CODE_OK);
+}
+
+static u32 ath12k_hw_qcc2072_dp_rx_h_mpdu_err(struct hal_rx_desc *desc)
+{
+	u32 info = __le32_to_cpu(desc->u.qcc2072.msdu_end.info13);
+	u32 errmap = 0;
+
+	if (info & RX_MSDU_END_INFO13_FCS_ERR)
+		errmap |= HAL_RX_MPDU_ERR_FCS;
+
+	if (info & RX_MSDU_END_INFO13_DECRYPT_ERR)
+		errmap |= HAL_RX_MPDU_ERR_DECRYPT;
+
+	if (info & RX_MSDU_END_INFO13_TKIP_MIC_ERR)
+		errmap |= HAL_RX_MPDU_ERR_TKIP_MIC;
+
+	if (info & RX_MSDU_END_INFO13_A_MSDU_ERROR)
+		errmap |= HAL_RX_MPDU_ERR_AMSDU_ERR;
+
+	if (info & RX_MSDU_END_INFO13_OVERFLOW_ERR)
+		errmap |= HAL_RX_MPDU_ERR_OVERFLOW;
+
+	if (info & RX_MSDU_END_INFO13_MSDU_LEN_ERR)
+		errmap |= HAL_RX_MPDU_ERR_MSDU_LEN;
+
+	if (info & RX_MSDU_END_INFO13_MPDU_LEN_ERR)
+		errmap |= HAL_RX_MPDU_ERR_MPDU_LEN;
+
+	return errmap;
+}
+
+static u32 ath12k_hw_qcc2072_get_rx_desc_size(void)
+{
+	return sizeof(struct hal_rx_desc_qcc2072);
+}
+
+static u8 ath12k_hw_qcc2072_rx_desc_get_msdu_src_link(struct hal_rx_desc *desc)
+{
+	return 0;
+}
+
+const struct hal_rx_ops hal_rx_qcc2072_ops = {
+	.rx_desc_get_first_msdu = ath12k_hw_qcc2072_rx_desc_get_first_msdu,
+	.rx_desc_get_last_msdu = ath12k_hw_qcc2072_rx_desc_get_last_msdu,
+	.rx_desc_get_l3_pad_bytes = ath12k_hw_qcc2072_rx_desc_get_l3_pad_bytes,
+	.rx_desc_encrypt_valid = ath12k_hw_qcc2072_rx_desc_encrypt_valid,
+	.rx_desc_get_encrypt_type = ath12k_hw_qcc2072_rx_desc_get_encrypt_type,
+	.rx_desc_get_decap_type = ath12k_hw_qcc2072_rx_desc_get_decap_type,
+	.rx_desc_get_mesh_ctl = ath12k_hw_qcc2072_rx_desc_get_mesh_ctl,
+	.rx_desc_get_mpdu_seq_ctl_vld = ath12k_hw_qcc2072_rx_desc_get_mpdu_seq_ctl_vld,
+	.rx_desc_get_mpdu_fc_valid = ath12k_hw_qcc2072_rx_desc_get_mpdu_fc_valid,
+	.rx_desc_get_mpdu_start_seq_no = ath12k_hw_qcc2072_rx_desc_get_mpdu_start_seq_no,
+	.rx_desc_get_msdu_len = ath12k_hw_qcc2072_rx_desc_get_msdu_len,
+	.rx_desc_get_msdu_sgi = ath12k_hw_qcc2072_rx_desc_get_msdu_sgi,
+	.rx_desc_get_msdu_rate_mcs = ath12k_hw_qcc2072_rx_desc_get_msdu_rate_mcs,
+	.rx_desc_get_msdu_rx_bw = ath12k_hw_qcc2072_rx_desc_get_msdu_rx_bw,
+	.rx_desc_get_msdu_freq = ath12k_hw_qcc2072_rx_desc_get_msdu_freq,
+	.rx_desc_get_msdu_pkt_type = ath12k_hw_qcc2072_rx_desc_get_msdu_pkt_type,
+	.rx_desc_get_msdu_nss = ath12k_hw_qcc2072_rx_desc_get_msdu_nss,
+	.rx_desc_get_mpdu_tid = ath12k_hw_qcc2072_rx_desc_get_mpdu_tid,
+	.rx_desc_get_mpdu_peer_id = ath12k_hw_qcc2072_rx_desc_get_mpdu_peer_id,
+	.rx_desc_copy_end_tlv = ath12k_hw_qcc2072_rx_desc_copy_end_tlv,
+	.rx_desc_get_mpdu_start_tag = ath12k_hw_qcc2072_rx_desc_get_mpdu_start_tag,
+	.rx_desc_get_mpdu_ppdu_id = ath12k_hw_qcc2072_rx_desc_get_mpdu_ppdu_id,
+	.rx_desc_set_msdu_len = ath12k_hw_qcc2072_rx_desc_set_msdu_len,
+	.rx_desc_get_msdu_payload = ath12k_hw_qcc2072_rx_desc_get_msdu_payload,
+	.rx_desc_get_mpdu_start_offset = ath12k_hw_qcc2072_rx_desc_get_mpdu_start_offset,
+	.rx_desc_get_msdu_end_offset = ath12k_hw_qcc2072_rx_desc_get_msdu_end_offset,
+	.rx_desc_mac_addr2_valid = ath12k_hw_qcc2072_rx_desc_mac_addr2_valid,
+	.rx_desc_mpdu_start_addr2 = ath12k_hw_qcc2072_rx_desc_mpdu_start_addr2,
+	.rx_desc_is_da_mcbc = ath12k_hw_qcc2072_rx_desc_is_da_mcbc,
+	.rx_desc_get_dot11_hdr = ath12k_hw_qcc2072_rx_desc_get_dot11_hdr,
+	.rx_desc_get_crypto_header = ath12k_hw_qcc2072_rx_desc_get_crypto_hdr,
+	.dp_rx_h_msdu_done = ath12k_hw_qcc2072_dp_rx_h_msdu_done,
+	.dp_rx_h_l4_cksum_fail = ath12k_hw_qcc2072_dp_rx_h_l4_cksum_fail,
+	.dp_rx_h_ip_cksum_fail = ath12k_hw_qcc2072_dp_rx_h_ip_cksum_fail,
+	.dp_rx_h_is_decrypted = ath12k_hw_qcc2072_dp_rx_h_is_decrypted,
+	.dp_rx_h_mpdu_err = ath12k_hw_qcc2072_dp_rx_h_mpdu_err,
+	.rx_desc_get_desc_size = ath12k_hw_qcc2072_get_rx_desc_size,
+	.rx_desc_get_msdu_src_link_id = ath12k_hw_qcc2072_rx_desc_get_msdu_src_link,
+};
+
+const struct hal_ops hal_qcc2072_ops = {
+	.create_srng_config = ath12k_hal_srng_create_config_qcc2072,
+	.tcl_to_wbm_rbm_map = ath12k_hal_wcn7850_tcl_to_wbm_rbm_map,
+	.reo_init_cmd_ring = ath12k_hal_qcc2072_reo_init_cmd_ring,
+	.reo_cmd_encode_hdr = ath12k_hal_qcc2072_reo_cmd_encode_hdr,
+	.reo_status_decode_hdr = ath12k_hal_qcc2072_reo_status_decode_hdr,
+	.rxdma_ring_wmask_rx_mpdu_start = NULL,
+	.rxdma_ring_wmask_rx_msdu_end = NULL,
+	.get_hal_rx_compact_ops = NULL,
+};
 static int ath12k_hal_alloc_cont_rdp(struct ath12k_base *ab)
 {
 	struct ath12k_hal *hal = &ab->hal;

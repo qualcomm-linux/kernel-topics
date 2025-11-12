@@ -1115,10 +1115,12 @@ struct hal_ops {
 
 extern const struct hal_ops hal_qcn9274_ops;
 extern const struct hal_ops hal_wcn7850_ops;
+extern const struct hal_ops hal_qcc2072_ops;
 
 extern const struct hal_rx_ops hal_rx_qcn9274_ops;
 extern const struct hal_rx_ops hal_rx_qcn9274_compact_ops;
 extern const struct hal_rx_ops hal_rx_wcn7850_ops;
+extern const struct hal_rx_ops hal_rx_qcc2072_ops;
 
 u32 ath12k_hal_reo_qdesc_size(u32 ba_window_size, u8 tid);
 void ath12k_hal_reo_qdesc_setup(struct hal_rx_reo_queue *qdesc,
