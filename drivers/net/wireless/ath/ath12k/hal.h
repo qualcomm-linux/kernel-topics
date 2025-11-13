@@ -1106,6 +1106,9 @@ struct hal_ops {
 	u16 (*rxdma_ring_wmask_rx_mpdu_start)(void);
 	u32 (*rxdma_ring_wmask_rx_msdu_end)(void);
 	const struct hal_rx_ops *(*get_hal_rx_compact_ops)(void);
+	void (*reo_init_cmd_ring)(void *entry, int cmd_num);
+	void *(*reo_cmd_encode_hdr)(void *reo_desc,
+				    u64 tag, u64 len);
 	const struct ath12k_hal_tcl_to_wbm_rbm_map *tcl_to_wbm_rbm_map;
 };
 

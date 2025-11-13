@@ -1030,6 +1030,26 @@ static u32 ath12k_hw_qcn9274_compact_dp_rx_h_mpdu_err(struct hal_rx_desc *desc)
 	return errmap;
 }
 
+static void ath12k_hal_qcn9274_reo_init_cmd_ring(void *entry, int cmd_num)
+{
+	struct hal_reo_get_queue_stats *desc;
+	struct hal_tlv_64_hdr *tlv = entry;
+
+	desc = (struct hal_reo_get_queue_stats *)tlv->value;
+	desc->cmd.info0 = le32_encode_bits(cmd_num, HAL_REO_CMD_HDR_INFO0_CMD_NUMBER);
+}
+
+static void *ath12k_hal_qcn9274_reo_cmd_encode_hdr(void *reo_desc,
+						   u64 tag, u64 len)
+{
+	struct hal_tlv_64_hdr *tlv = reo_desc;
+
+	tlv->tl = le64_encode_bits(tag, HAL_TLV_HDR_TAG) |
+		  le64_encode_bits(len, HAL_TLV_HDR_LEN);
+
+	return tlv->value;
+}
+
 static u32 ath12k_hw_qcn9274_compact_get_rx_desc_size(void)
 {
 	return sizeof(struct hal_rx_desc_qcn9274_compact);
@@ -1089,6 +1109,8 @@ const struct hal_rx_ops hal_rx_qcn9274_compact_ops = {
 const struct hal_ops hal_qcn9274_ops = {
 	.create_srng_config = ath12k_hal_srng_create_config_qcn9274,
 	.tcl_to_wbm_rbm_map = ath12k_hal_qcn9274_tcl_to_wbm_rbm_map,
+	.reo_init_cmd_ring = ath12k_hal_qcn9274_reo_init_cmd_ring,
+	.reo_cmd_encode_hdr = ath12k_hal_qcn9274_reo_cmd_encode_hdr,
 	.rxdma_ring_wmask_rx_mpdu_start = ath12k_hal_qcn9274_rx_mpdu_start_wmask_get,
 	.rxdma_ring_wmask_rx_msdu_end = ath12k_hal_qcn9274_rx_msdu_end_wmask_get,
 	.get_hal_rx_compact_ops = ath12k_hal_qcn9274_get_hal_rx_compact_ops,
@@ -1512,6 +1534,26 @@ static u8 ath12k_hw_wcn7850_rx_desc_get_msdu_src_link(struct hal_rx_desc *desc)
 	return 0;
 }
 
+static void ath12k_hal_wcn7850_reo_init_cmd_ring(void *entry, int cmd_num)
+{
+	struct hal_reo_get_queue_stats *desc;
+	struct hal_tlv_64_hdr *tlv = entry;
+
+	desc = (struct hal_reo_get_queue_stats *)tlv->value;
+	desc->cmd.info0 = le32_encode_bits(cmd_num, HAL_REO_CMD_HDR_INFO0_CMD_NUMBER);
+}
+
+static void *ath12k_hal_wcn7850_reo_cmd_encode_hdr(void *reo_desc,
+						   u64 tag, u64 len)
+{
+	struct hal_tlv_64_hdr *tlv = reo_desc;
+
+	tlv->tl = le64_encode_bits(tag, HAL_TLV_HDR_TAG) |
+		  le64_encode_bits(len, HAL_TLV_HDR_LEN);
+
+	return tlv->value;
+}
+
 const struct hal_rx_ops hal_rx_wcn7850_ops = {
 	.rx_desc_get_first_msdu = ath12k_hw_wcn7850_rx_desc_get_first_msdu,
 	.rx_desc_get_last_msdu = ath12k_hw_wcn7850_rx_desc_get_last_msdu,
@@ -1556,6 +1598,8 @@ const struct hal_rx_ops hal_rx_wcn7850_ops = {
 const struct hal_ops hal_wcn7850_ops = {
 	.create_srng_config = ath12k_hal_srng_create_config_wcn7850,
 	.tcl_to_wbm_rbm_map = ath12k_hal_wcn7850_tcl_to_wbm_rbm_map,
+	.reo_init_cmd_ring = ath12k_hal_wcn7850_reo_init_cmd_ring,
+	.reo_cmd_encode_hdr = ath12k_hal_wcn7850_reo_cmd_encode_hdr,
 	.rxdma_ring_wmask_rx_mpdu_start = NULL,
 	.rxdma_ring_wmask_rx_msdu_end = NULL,
 	.get_hal_rx_compact_ops = NULL,

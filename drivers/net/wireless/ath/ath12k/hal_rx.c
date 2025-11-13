@@ -21,15 +21,15 @@ static void ath12k_hal_reo_set_desc_hdr(struct hal_desc_header *hdr,
 	hdr->info0 |= le32_encode_bits(magic, HAL_DESC_HDR_INFO0_DBG_RESERVED);
 }
 
-static int ath12k_hal_reo_cmd_queue_stats(struct hal_tlv_64_hdr *tlv,
+static int ath12k_hal_reo_cmd_queue_stats(struct ath12k_base *ab,
+					  struct hal_tlv_64_hdr *tlv,
 					  struct ath12k_hal_reo_cmd *cmd)
 {
 	struct hal_reo_get_queue_stats *desc;
 
-	tlv->tl = le64_encode_bits(HAL_REO_GET_QUEUE_STATS, HAL_TLV_HDR_TAG) |
-		  le64_encode_bits(sizeof(*desc), HAL_TLV_HDR_LEN);
-
-	desc = (struct hal_reo_get_queue_stats *)tlv->value;
+	desc = ab->hw_params->hal_ops->reo_cmd_encode_hdr(tlv,
+							  HAL_REO_GET_QUEUE_STATS,
+							  sizeof(*desc));
 	memset_startat(desc, 0, queue_addr_lo);
 
 	desc->cmd.info0 &= ~cpu_to_le32(HAL_REO_CMD_HDR_INFO0_STATUS_REQUIRED);
@@ -45,10 +45,11 @@ static int ath12k_hal_reo_cmd_queue_stats(struct hal_tlv_64_hdr *tlv,
 	return le32_get_bits(desc->cmd.info0, HAL_REO_CMD_HDR_INFO0_CMD_NUMBER);
 }
 
-static int ath12k_hal_reo_cmd_flush_cache(struct ath12k_hal *hal,
+static int ath12k_hal_reo_cmd_flush_cache(struct ath12k_base *ab,
 					  struct hal_tlv_64_hdr *tlv,
 					  struct ath12k_hal_reo_cmd *cmd)
 {
+	struct ath12k_hal *hal = &ab->hal;
 	struct hal_reo_flush_cache *desc;
 	u8 avail_slot = ffz(hal->avail_blk_resource);
 
@@ -59,10 +60,9 @@ static int ath12k_hal_reo_cmd_flush_cache(struct ath12k_hal *hal,
 		hal->current_blk_index = avail_slot;
 	}
 
-	tlv->tl = le64_encode_bits(HAL_REO_FLUSH_CACHE, HAL_TLV_HDR_TAG) |
-		  le64_encode_bits(sizeof(*desc), HAL_TLV_HDR_LEN);
-
-	desc = (struct hal_reo_flush_cache *)tlv->value;
+	desc = ab->hw_params->hal_ops->reo_cmd_encode_hdr(tlv,
+							  HAL_REO_FLUSH_CACHE,
+							  sizeof(*desc));
 	memset_startat(desc, 0, cache_addr_lo);
 
 	desc->cmd.info0 &= ~cpu_to_le32(HAL_REO_CMD_HDR_INFO0_STATUS_REQUIRED);
@@ -95,15 +95,15 @@ static int ath12k_hal_reo_cmd_flush_cache(struct ath12k_hal *hal,
 	return le32_get_bits(desc->cmd.info0, HAL_REO_CMD_HDR_INFO0_CMD_NUMBER);
 }
 
-static int ath12k_hal_reo_cmd_update_rx_queue(struct hal_tlv_64_hdr *tlv,
+static int ath12k_hal_reo_cmd_update_rx_queue(struct ath12k_base *ab,
+					      struct hal_tlv_64_hdr *tlv,
 					      struct ath12k_hal_reo_cmd *cmd)
 {
 	struct hal_reo_update_rx_queue *desc;
 
-	tlv->tl = le64_encode_bits(HAL_REO_UPDATE_RX_REO_QUEUE, HAL_TLV_HDR_TAG) |
-		  le64_encode_bits(sizeof(*desc), HAL_TLV_HDR_LEN);
-
-	desc = (struct hal_reo_update_rx_queue *)tlv->value;
+	desc = ab->hw_params->hal_ops->reo_cmd_encode_hdr(tlv,
+							  HAL_REO_UPDATE_RX_REO_QUEUE,
+							  sizeof(*desc));
 	memset_startat(desc, 0, queue_addr_lo);
 
 	desc->cmd.info0 &= ~cpu_to_le32(HAL_REO_CMD_HDR_INFO0_STATUS_REQUIRED);
@@ -238,13 +238,13 @@ int ath12k_hal_reo_cmd_send(struct ath12k_base *ab, struct hal_srng *srng,
 
 	switch (type) {
 	case HAL_REO_CMD_GET_QUEUE_STATS:
-		ret = ath12k_hal_reo_cmd_queue_stats(reo_desc, cmd);
+		ret = ath12k_hal_reo_cmd_queue_stats(ab, reo_desc, cmd);
 		break;
 	case HAL_REO_CMD_FLUSH_CACHE:
-		ret = ath12k_hal_reo_cmd_flush_cache(&ab->hal, reo_desc, cmd);
+		ret = ath12k_hal_reo_cmd_flush_cache(ab, reo_desc, cmd);
 		break;
 	case HAL_REO_CMD_UPDATE_RX_QUEUE:
-		ret = ath12k_hal_reo_cmd_update_rx_queue(reo_desc, cmd);
+		ret = ath12k_hal_reo_cmd_update_rx_queue(ab, reo_desc, cmd);
 		break;
 	case HAL_REO_CMD_FLUSH_QUEUE:
 	case HAL_REO_CMD_UNBLOCK_CACHE:
@@ -872,8 +872,6 @@ void ath12k_hal_reo_init_cmd_ring(struct ath12k_base *ab,
 				  struct hal_srng *srng)
 {
 	struct hal_srng_params params;
-	struct hal_tlv_64_hdr *tlv;
-	struct hal_reo_get_queue_stats *desc;
 	int i, cmd_num = 1;
 	int entry_size;
 	u8 *entry;
@@ -885,11 +883,9 @@ void ath12k_hal_reo_init_cmd_ring(struct ath12k_base *ab,
 	entry = (u8 *)params.ring_base_vaddr;
 
 	for (i = 0; i < params.num_entries; i++) {
-		tlv = (struct hal_tlv_64_hdr *)entry;
-		desc = (struct hal_reo_get_queue_stats *)tlv->value;
-		desc->cmd.info0 = le32_encode_bits(cmd_num++,
-						   HAL_REO_CMD_HDR_INFO0_CMD_NUMBER);
+		ab->hw_params->hal_ops->reo_init_cmd_ring(entry, cmd_num);
 		entry += entry_size;
+		cmd_num++;
 	}
 }
 
