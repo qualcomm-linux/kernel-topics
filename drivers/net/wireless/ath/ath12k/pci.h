@@ -119,6 +119,8 @@ struct ath12k_pci {
 	const struct ath12k_pci_ops *pci_ops;
 	u32 qmi_instance;
 	u64 dma_mask;
+
+	u32 window_reg_addr;
 };
 
 static inline struct ath12k_pci *ath12k_pci_priv(struct ath12k_base *ab)
