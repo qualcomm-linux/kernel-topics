@@ -2134,6 +2134,17 @@ const struct hal_ops hal_qcc2072_ops = {
 	.rxdma_ring_wmask_rx_msdu_end = NULL,
 	.get_hal_rx_compact_ops = NULL,
 };
+
+u32 ath12k_hal_rx_desc_get_mpdu_start_offset_qcc2072(void)
+{
+	return offsetof(struct hal_rx_desc_qcc2072, mpdu_start_tag);
+}
+
+u32 ath12k_hal_rx_desc_get_msdu_end_offset_qcc2072(void)
+{
+	return offsetof(struct hal_rx_desc_qcc2072, msdu_end_tag);
+}
+
 static int ath12k_hal_alloc_cont_rdp(struct ath12k_base *ab)
 {
 	struct ath12k_hal *hal = &ab->hal;

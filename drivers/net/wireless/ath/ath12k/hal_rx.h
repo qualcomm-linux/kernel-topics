@@ -1168,4 +1168,6 @@ void ath12k_hal_rx_msdu_list_get(struct ath12k *ar,
 				 struct hal_rx_msdu_list *msdu_list,
 				 u16 *num_msdus);
 
+u32 ath12k_hal_rx_desc_get_mpdu_start_offset_qcc2072(void);
+u32 ath12k_hal_rx_desc_get_msdu_end_offset_qcc2072(void);
 #endif

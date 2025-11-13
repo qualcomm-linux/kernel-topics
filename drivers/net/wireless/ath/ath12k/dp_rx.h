@@ -170,6 +170,7 @@ u32 ath12k_dp_rx_h_mpdu_err(struct ath12k_base *ab,
 void ath12k_dp_rx_h_ppdu(struct ath12k *ar, struct ath12k_dp_rx_info *rx_info);
 int ath12k_dp_rxdma_ring_sel_config_qcn9274(struct ath12k_base *ab);
 int ath12k_dp_rxdma_ring_sel_config_wcn7850(struct ath12k_base *ab);
+int ath12k_dp_rxdma_ring_sel_config_qcc2072(struct ath12k_base *ab);
 
 int ath12k_dp_htt_tlv_iter(struct ath12k_base *ab, const void *ptr, size_t len,
 			   int (*iter)(struct ath12k_base *ar, u16 tag, u16 len,
