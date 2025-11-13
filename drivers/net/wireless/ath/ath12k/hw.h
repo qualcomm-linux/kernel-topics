@@ -285,6 +285,8 @@ enum ath12k_bd_ie_type {
 	ATH12K_BD_IE_REGDB = 1,
 };
 
+#define ATH12K_HW_REG_UNDEFINED	0xdeadbeaf
+
 struct ath12k_hw_regs {
 	u32 hal_tcl1_ring_id;
 	u32 hal_tcl1_ring_misc;
