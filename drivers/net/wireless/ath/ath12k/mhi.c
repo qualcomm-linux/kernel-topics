@@ -317,6 +317,7 @@ static void ath12k_mhi_op_write_reg(struct mhi_controller *mhi_cntrl,
 int ath12k_mhi_register(struct ath12k_pci *ab_pci)
 {
 	struct ath12k_base *ab = ab_pci->ab;
+	const struct ath12k_hw_params *hw_params = ab->hw_params;
 	struct mhi_controller *mhi_ctrl;
 	unsigned int board_id;
 	int ret;
@@ -331,11 +332,12 @@ int ath12k_mhi_register(struct ath12k_pci *ab_pci)
 	mhi_ctrl->cntrl_dev = ab->dev;
 	mhi_ctrl->regs = ab->mem;
 	mhi_ctrl->reg_len = ab->mem_len;
-	mhi_ctrl->rddm_size = ab->hw_params->rddm_size;
+	mhi_ctrl->rddm_size = hw_params->rddm_size;
+	mhi_ctrl->standard_elf_image = hw_params->fw.std_elf_img;
 
-	if (ab->hw_params->otp_board_id_register) {
+	if (hw_params->otp_board_id_register) {
 		board_id =
-			ath12k_pci_read32(ab, ab->hw_params->otp_board_id_register);
+			ath12k_pci_read32(ab, hw_params->otp_board_id_register);
 		board_id = u32_get_bits(board_id, OTP_BOARD_ID_MASK);
 
 		if (!board_id || (board_id == OTP_INVALID_BOARD_ID)) {
@@ -392,7 +394,7 @@ int ath12k_mhi_register(struct ath12k_pci *ab_pci)
 	mhi_ctrl->read_reg = ath12k_mhi_op_read_reg;
 	mhi_ctrl->write_reg = ath12k_mhi_op_write_reg;
 
-	ret = mhi_register_controller(mhi_ctrl, ab->hw_params->mhi_config);
+	ret = mhi_register_controller(mhi_ctrl, hw_params->mhi_config);
 	if (ret) {
 		ath12k_err(ab, "failed to register to mhi bus, err = %d\n", ret);
 		goto free_controller;

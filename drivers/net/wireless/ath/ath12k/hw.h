@@ -147,6 +147,7 @@ struct ath12k_hw_params {
 		size_t board_size;
 		size_t cal_offset;
 		enum ath12k_m3_fw_loaders m3_loader;
+		bool std_elf_img:1;
 	} fw;
 
 	u8 max_radios;
