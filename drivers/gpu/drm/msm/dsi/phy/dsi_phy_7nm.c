@@ -595,6 +595,12 @@ static unsigned long dsi_pll_7nm_vco_recalc_rate(struct clk_hw *hw,
 	pll_freq += div_u64(tmp64, multiplier);
 
 	vco_rate = pll_freq;
+	/*
+	 * Recalculating the rate from dec and frac doesn't end up the rate
+	 * we originally set. Convert the freq to KHz, round it up and
+	 * convert it back to Hz.
+	 */
+	vco_rate = DIV_ROUND_UP_ULL(vco_rate, 1000) * 1000;
 	pll_7nm->vco_current_rate = vco_rate;
 
 	DBG("DSI PLL%d returning vco rate = %lu, dec = %x, frac = %x",
