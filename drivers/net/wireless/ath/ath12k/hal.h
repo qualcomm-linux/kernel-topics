@@ -1109,6 +1109,7 @@ struct hal_ops {
 	void (*reo_init_cmd_ring)(void *entry, int cmd_num);
 	void *(*reo_cmd_encode_hdr)(void *reo_desc,
 				    u64 tag, u64 len);
+	u16 (*reo_status_decode_hdr)(void *reo_desc, void **desc);
 	const struct ath12k_hal_tcl_to_wbm_rbm_map *tcl_to_wbm_rbm_map;
 };
 
