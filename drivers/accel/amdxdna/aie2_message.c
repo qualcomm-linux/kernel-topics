@@ -290,18 +290,25 @@ int aie2_map_host_buf(struct amdxdna_dev_hdl *ndev, u32 context_id, u64 addr, u6
 	return 0;
 }
 
+static int amdxdna_hwctx_col_map(struct amdxdna_hwctx *hwctx, void *arg)
+{
+	u32 *bitmap = arg;
+
+	*bitmap |= GENMASK(hwctx->start_col + hwctx->num_col - 1, hwctx->start_col);
+
+	return 0;
+}
+
 int aie2_query_status(struct amdxdna_dev_hdl *ndev, char __user *buf,
 		      u32 size, u32 *cols_filled)
 {
 	DECLARE_AIE2_MSG(aie_column_info, MSG_OP_QUERY_COL_STATUS);
 	struct amdxdna_dev *xdna = ndev->xdna;
 	struct amdxdna_client *client;
-	struct amdxdna_hwctx *hwctx;
-	unsigned long hwctx_id;
 	dma_addr_t dma_addr;
 	u32 aie_bitmap = 0;
 	u8 *buff_addr;
-	int ret, idx;
+	int ret;
 
 	buff_addr = dma_alloc_noncoherent(xdna->ddev.dev, size, &dma_addr,
 					  DMA_FROM_DEVICE, GFP_KERNEL);
@@ -309,12 +316,8 @@ int aie2_query_status(struct amdxdna_dev_hdl *ndev, char __user *buf,
 		return -ENOMEM;
 
 	/* Go through each hardware context and mark the AIE columns that are active */
-	list_for_each_entry(client, &xdna->client_list, node) {
-		idx = srcu_read_lock(&client->hwctx_srcu);
-		amdxdna_for_each_hwctx(client, hwctx_id, hwctx)
-			aie_bitmap |= amdxdna_hwctx_col_map(hwctx);
-		srcu_read_unlock(&client->hwctx_srcu, idx);
-	}
+	list_for_each_entry(client, &xdna->client_list, node)
+		amdxdna_hwctx_walk(client, &aie_bitmap, amdxdna_hwctx_col_map);
 
 	*cols_filled = 0;
 	req.dump_buff_addr = dma_addr;
@@ -525,7 +528,7 @@ aie2_cmdlist_fill_one_slot_cf(void *cmd_buf, u32 offset,
 	if (!payload)
 		return -EINVAL;
 
-	if (!slot_cf_has_space(offset, payload_len))
+	if (!slot_has_space(*buf, offset, payload_len))
 		return -ENOSPC;
 
 	buf->cu_idx = cu_idx;
@@ -558,7 +561,7 @@ aie2_cmdlist_fill_one_slot_dpu(void *cmd_buf, u32 offset,
 	if (payload_len < sizeof(*sn) || arg_sz > MAX_DPU_ARGS_SIZE)
 		return -EINVAL;
 
-	if (!slot_dpu_has_space(offset, arg_sz))
+	if (!slot_has_space(*buf, offset, arg_sz))
 		return -ENOSPC;
 
 	buf->inst_buf_addr = sn->buffer;
@@ -569,7 +572,7 @@ aie2_cmdlist_fill_one_slot_dpu(void *cmd_buf, u32 offset,
 	memcpy(buf->args, sn->prop_args, arg_sz);
 
 	/* Accurate buf size to hint firmware to do necessary copy */
-	*size += sizeof(*buf) + arg_sz;
+	*size = sizeof(*buf) + arg_sz;
 	return 0;
 }
 

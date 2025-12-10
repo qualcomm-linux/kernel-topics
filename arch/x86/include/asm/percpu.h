@@ -29,6 +29,8 @@
 
 #ifdef CONFIG_SMP
 
+#define __force_percpu_prefix	"%%"__stringify(__percpu_seg)":"
+
 #ifdef CONFIG_CC_HAS_NAMED_AS
 
 #ifdef __CHECKER__
@@ -36,23 +38,23 @@
 # define __seg_fs		__attribute__((address_space(__seg_fs)))
 #endif
 
+#define __percpu_prefix
 #define __percpu_seg_override	CONCATENATE(__seg_, __percpu_seg)
-#define __percpu_prefix		""
 
 #else /* !CONFIG_CC_HAS_NAMED_AS: */
 
+#define __percpu_prefix		__force_percpu_prefix
 #define __percpu_seg_override
-#define __percpu_prefix		"%%"__stringify(__percpu_seg)":"
 
 #endif /* CONFIG_CC_HAS_NAMED_AS */
-
-#define __force_percpu_prefix	"%%"__stringify(__percpu_seg)":"
-#define __my_cpu_offset		this_cpu_read(this_cpu_off)
 
 /*
  * Compared to the generic __my_cpu_offset version, the following
  * saves one instruction and avoids clobbering a temp register.
- *
+ */
+#define __my_cpu_offset		this_cpu_read(this_cpu_off)
+
+/*
  * arch_raw_cpu_ptr should not be used in 32-bit VDSO for a 64-bit
  * kernel, because games are played with CONFIG_X86_64 there and
  * sizeof(this_cpu_off) becames 4.
@@ -77,9 +79,9 @@
 
 #else /* !CONFIG_SMP: */
 
+#define __force_percpu_prefix
+#define __percpu_prefix
 #define __percpu_seg_override
-#define __percpu_prefix		""
-#define __force_percpu_prefix	""
 
 #define PER_CPU_VAR(var)	(var)__percpu_rel
 
@@ -97,8 +99,8 @@
 # define __my_cpu_var(var)	(*__my_cpu_ptr(&(var)))
 #endif
 
-#define __percpu_arg(x)		__percpu_prefix "%" #x
 #define __force_percpu_arg(x)	__force_percpu_prefix "%" #x
+#define __percpu_arg(x)		__percpu_prefix "%" #x
 
 /*
  * For arch-specific code, we can use direct single-insn ops (they
@@ -307,8 +309,7 @@ do {									\
 									\
 	asm qual (__pcpu_op_##size("cmpxchg") "%[nval], "		\
 		  __percpu_arg([var])					\
-		  CC_SET(z)						\
-		  : CC_OUT(z) (success),				\
+		  : "=@ccz" (success),					\
 		    [oval] "+a" (pco_old__),				\
 		    [var] "+m" (__my_cpu_var(_var))			\
 		  : [nval] __pcpu_reg_##size(, pco_new__)		\
@@ -365,8 +366,7 @@ do {									\
 	asm_inline qual (						\
 		ALTERNATIVE("call this_cpu_cmpxchg8b_emu",		\
 			    "cmpxchg8b " __percpu_arg([var]), X86_FEATURE_CX8) \
-		CC_SET(z)						\
-		: ALT_OUTPUT_SP(CC_OUT(z) (success),			\
+		: ALT_OUTPUT_SP("=@ccz" (success),			\
 				[var] "+m" (__my_cpu_var(_var)),	\
 				"+a" (old__.low), "+d" (old__.high))	\
 		: "b" (new__.low), "c" (new__.high),			\
@@ -434,8 +434,7 @@ do {									\
 	asm_inline qual (						\
 		ALTERNATIVE("call this_cpu_cmpxchg16b_emu",		\
 			    "cmpxchg16b " __percpu_arg([var]), X86_FEATURE_CX16) \
-		CC_SET(z)						\
-		: ALT_OUTPUT_SP(CC_OUT(z) (success),			\
+		: ALT_OUTPUT_SP("=@ccz" (success),			\
 				[var] "+m" (__my_cpu_var(_var)),	\
 				"+a" (old__.low), "+d" (old__.high))	\
 		: "b" (new__.low), "c" (new__.high),			\
@@ -583,8 +582,7 @@ do {									\
 	bool oldbit;							\
 									\
 	asm volatile("btl %[nr], " __percpu_arg([var])			\
-		     CC_SET(c)						\
-		     : CC_OUT(c) (oldbit)				\
+		     : "=@ccc" (oldbit)					\
 		     : [var] "m" (__my_cpu_var(_var)),			\
 		       [nr] "rI" (_nr));				\
 	oldbit;								\

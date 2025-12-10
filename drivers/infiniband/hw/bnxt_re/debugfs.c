@@ -8,6 +8,7 @@
 
 #include <linux/debugfs.h>
 #include <linux/pci.h>
+#include <linux/seq_file.h>
 #include <rdma/ib_addr.h>
 
 #include "bnxt_ulp.h"
@@ -170,6 +171,9 @@ static int map_cc_config_offset_gen0_ext0(u32 offset, struct bnxt_qplib_cc_param
 	case CMDQ_MODIFY_ROCE_CC_MODIFY_MASK_TCP_CP:
 		*val =  ccparam->tcp_cp;
 		break;
+	case CMDQ_MODIFY_ROCE_CC_MODIFY_MASK_INACTIVITY_CP:
+		*val = ccparam->inact_th;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -203,7 +207,7 @@ static ssize_t bnxt_re_cc_config_get(struct file *filp, char __user *buffer,
 	return simple_read_from_buffer(buffer, usr_buf_len, ppos, (u8 *)(buf), rc);
 }
 
-static void bnxt_re_fill_gen0_ext0(struct bnxt_qplib_cc_param *ccparam, u32 offset, u32 val)
+static int bnxt_re_fill_gen0_ext0(struct bnxt_qplib_cc_param *ccparam, u32 offset, u32 val)
 {
 	u32 modify_mask;
 
@@ -247,7 +251,9 @@ static void bnxt_re_fill_gen0_ext0(struct bnxt_qplib_cc_param *ccparam, u32 offs
 		ccparam->tcp_cp = val;
 		break;
 	case CMDQ_MODIFY_ROCE_CC_MODIFY_MASK_TX_QUEUE:
+		return -EOPNOTSUPP;
 	case CMDQ_MODIFY_ROCE_CC_MODIFY_MASK_INACTIVITY_CP:
+		ccparam->inact_th = val;
 		break;
 	case CMDQ_MODIFY_ROCE_CC_MODIFY_MASK_TIME_PER_PHASE:
 		ccparam->time_pph = val;
@@ -258,17 +264,20 @@ static void bnxt_re_fill_gen0_ext0(struct bnxt_qplib_cc_param *ccparam, u32 offs
 	}
 
 	ccparam->mask = modify_mask;
+	return 0;
 }
 
 static int bnxt_re_configure_cc(struct bnxt_re_dev *rdev, u32 gen_ext, u32 offset, u32 val)
 {
 	struct bnxt_qplib_cc_param ccparam = { };
+	int rc;
 
-	/* Supporting only Gen 0 now */
-	if (gen_ext == CC_CONFIG_GEN0_EXT0)
-		bnxt_re_fill_gen0_ext0(&ccparam, offset, val);
-	else
-		return -EINVAL;
+	if (gen_ext != CC_CONFIG_GEN0_EXT0)
+		return -EOPNOTSUPP;
+
+	rc = bnxt_re_fill_gen0_ext0(&ccparam, offset, val);
+	if (rc)
+		return rc;
 
 	bnxt_qplib_modify_cc(&rdev->qplib_res, &ccparam);
 	return 0;
@@ -306,6 +315,40 @@ static const struct file_operations bnxt_re_cc_config_ops = {
 	.write = bnxt_re_cc_config_set,
 };
 
+static int info_show(struct seq_file *m, void *unused)
+{
+	struct bnxt_re_dev *rdev = m->private;
+	struct bnxt_re_res_cntrs *res_s = &rdev->stats.res;
+
+	seq_puts(m, "Info:\n");
+	seq_printf(m, "Device Name\t\t: %s\n", dev_name(&rdev->ibdev.dev));
+	seq_printf(m, "PD Watermark\t\t: %llu\n", res_s->pd_watermark);
+	seq_printf(m, "AH Watermark\t\t: %llu\n", res_s->ah_watermark);
+	seq_printf(m, "QP Watermark\t\t: %llu\n", res_s->qp_watermark);
+	seq_printf(m, "RC QP Watermark\t\t: %llu\n", res_s->rc_qp_watermark);
+	seq_printf(m, "UD QP Watermark\t\t: %llu\n", res_s->ud_qp_watermark);
+	seq_printf(m, "SRQ Watermark\t\t: %llu\n", res_s->srq_watermark);
+	seq_printf(m, "CQ Watermark\t\t: %llu\n", res_s->cq_watermark);
+	seq_printf(m, "MR Watermark\t\t: %llu\n", res_s->mr_watermark);
+	seq_printf(m, "MW Watermark\t\t: %llu\n", res_s->mw_watermark);
+	seq_printf(m, "CQ Resize Count\t\t: %d\n", atomic_read(&res_s->resize_count));
+	if (rdev->pacing.dbr_pacing) {
+		seq_printf(m, "DB Pacing Reschedule\t: %llu\n", rdev->stats.pacing.resched);
+		seq_printf(m, "DB Pacing Complete\t: %llu\n", rdev->stats.pacing.complete);
+		seq_printf(m, "DB Pacing Alerts\t: %llu\n", rdev->stats.pacing.alerts);
+		seq_printf(m, "DB FIFO Register\t: 0x%x\n",
+			   readl(rdev->en_dev->bar0 + rdev->pacing.dbr_db_fifo_reg_off));
+	}
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(info);
+
+static void bnxt_re_debugfs_add_info(struct bnxt_re_dev *rdev)
+{
+	debugfs_create_file("info", 0400, rdev->dbg_root, rdev, &info_fops);
+}
+
 void bnxt_re_debugfs_add_pdev(struct bnxt_re_dev *rdev)
 {
 	struct pci_dev *pdev = rdev->en_dev->pdev;
@@ -316,6 +359,8 @@ void bnxt_re_debugfs_add_pdev(struct bnxt_re_dev *rdev)
 
 	rdev->qp_debugfs = debugfs_create_dir("QPs", rdev->dbg_root);
 	rdev->cc_config = debugfs_create_dir("cc_config", rdev->dbg_root);
+
+	bnxt_re_debugfs_add_info(rdev);
 
 	rdev->cc_config_params = kzalloc(sizeof(*cc_params), GFP_KERNEL);
 

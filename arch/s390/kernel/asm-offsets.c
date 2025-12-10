@@ -4,6 +4,7 @@
  * This code generates raw asm output which is post-processed to extract
  * and format the required data.
  */
+#define COMPILE_OFFSETS
 
 #include <linux/kbuild.h>
 #include <linux/sched.h>
@@ -50,7 +51,6 @@ int main(void)
 	OFFSET(__PT_ORIG_GPR2, pt_regs, orig_gpr2);
 	OFFSET(__PT_INT_CODE, pt_regs, int_code);
 	OFFSET(__PT_FLAGS, pt_regs, flags);
-	OFFSET(__PT_CR1, pt_regs, cr1);
 	OFFSET(__PT_LAST_BREAK, pt_regs, last_break);
 	DEFINE(__PT_SIZE, sizeof(struct pt_regs));
 	BLANK();

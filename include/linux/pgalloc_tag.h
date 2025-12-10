@@ -107,7 +107,8 @@ static inline bool get_page_tag_ref(struct page *page, union codetag_ref *ref,
 	if (static_key_enabled(&mem_profiling_compressed)) {
 		pgalloc_tag_idx idx;
 
-		idx = (page->flags >> alloc_tag_ref_offs) & alloc_tag_ref_mask;
+		idx = (page->flags.f >> alloc_tag_ref_offs) &
+			alloc_tag_ref_mask;
 		idx_to_ref(idx, ref);
 		handle->page = page;
 	} else {
@@ -149,11 +150,11 @@ static inline void update_page_tag_ref(union pgtag_ref_handle handle, union code
 		idx = (unsigned long)ref_to_idx(ref);
 		idx = (idx & alloc_tag_ref_mask) << alloc_tag_ref_offs;
 		do {
-			old_flags = READ_ONCE(page->flags);
+			old_flags = READ_ONCE(page->flags.f);
 			flags = old_flags;
 			flags &= ~(alloc_tag_ref_mask << alloc_tag_ref_offs);
 			flags |= idx;
-		} while (unlikely(!try_cmpxchg(&page->flags, &old_flags, flags)));
+		} while (unlikely(!try_cmpxchg(&page->flags.f, &old_flags, flags)));
 	} else {
 		if (WARN_ON(!handle.ref || !ref))
 			return;
@@ -188,6 +189,13 @@ static inline struct alloc_tag *__pgalloc_tag_get(struct page *page)
 	return tag;
 }
 
+static inline struct alloc_tag *pgalloc_tag_get(struct page *page)
+{
+	if (mem_alloc_profiling_enabled())
+		return __pgalloc_tag_get(page);
+	return NULL;
+}
+
 void pgalloc_tag_split(struct folio *folio, int old_order, int new_order);
 void pgalloc_tag_swap(struct folio *new, struct folio *old);
 
@@ -199,6 +207,7 @@ static inline void clear_page_tag_ref(struct page *page) {}
 static inline void alloc_tag_sec_init(void) {}
 static inline void pgalloc_tag_split(struct folio *folio, int old_order, int new_order) {}
 static inline void pgalloc_tag_swap(struct folio *new, struct folio *old) {}
+static inline struct alloc_tag *pgalloc_tag_get(struct page *page) { return NULL; }
 
 #endif /* CONFIG_MEM_ALLOC_PROFILING */
 

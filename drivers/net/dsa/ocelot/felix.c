@@ -1153,6 +1153,9 @@ static void felix_phylink_get_caps(struct dsa_switch *ds, int port,
 
 	__set_bit(ocelot->ports[port]->phy_mode,
 		  config->supported_interfaces);
+	if (ocelot->ports[port]->phy_mode == PHY_INTERFACE_MODE_USXGMII)
+		__set_bit(PHY_INTERFACE_MODE_10G_QXGMII,
+			  config->supported_interfaces);
 }
 
 static void felix_phylink_mac_config(struct phylink_config *config,
@@ -1359,6 +1362,7 @@ static const u32 felix_phy_match_table[PHY_INTERFACE_MODE_MAX] = {
 	[PHY_INTERFACE_MODE_SGMII] = OCELOT_PORT_MODE_SGMII,
 	[PHY_INTERFACE_MODE_QSGMII] = OCELOT_PORT_MODE_QSGMII,
 	[PHY_INTERFACE_MODE_USXGMII] = OCELOT_PORT_MODE_USXGMII,
+	[PHY_INTERFACE_MODE_10G_QXGMII] = OCELOT_PORT_MODE_10G_QXGMII,
 	[PHY_INTERFACE_MODE_1000BASEX] = OCELOT_PORT_MODE_1000BASEX,
 	[PHY_INTERFACE_MODE_2500BASEX] = OCELOT_PORT_MODE_2500BASEX,
 };
@@ -1774,22 +1778,25 @@ static void felix_teardown(struct dsa_switch *ds)
 }
 
 static int felix_hwtstamp_get(struct dsa_switch *ds, int port,
-			      struct ifreq *ifr)
+			      struct kernel_hwtstamp_config *config)
 {
 	struct ocelot *ocelot = ds->priv;
 
-	return ocelot_hwstamp_get(ocelot, port, ifr);
+	ocelot_hwstamp_get(ocelot, port, config);
+
+	return 0;
 }
 
 static int felix_hwtstamp_set(struct dsa_switch *ds, int port,
-			      struct ifreq *ifr)
+			      struct kernel_hwtstamp_config *config,
+			      struct netlink_ext_ack *extack)
 {
 	struct ocelot *ocelot = ds->priv;
 	struct felix *felix = ocelot_to_felix(ocelot);
 	bool using_tag_8021q;
 	int err;
 
-	err = ocelot_hwstamp_set(ocelot, port, ifr);
+	err = ocelot_hwstamp_set(ocelot, port, config, extack);
 	if (err)
 		return err;
 

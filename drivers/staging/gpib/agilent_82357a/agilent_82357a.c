@@ -26,7 +26,7 @@ static struct usb_interface *agilent_82357a_driver_interfaces[MAX_NUM_82357A_INT
 static DEFINE_MUTEX(agilent_82357a_hotplug_lock); // protect board insertion and removal
 
 static unsigned int agilent_82357a_update_status(struct gpib_board *board,
-						unsigned int clear_mask);
+						 unsigned int clear_mask);
 
 static int agilent_82357a_take_control_internal(struct gpib_board *board, int synchronous);
 
@@ -34,16 +34,17 @@ static void agilent_82357a_bulk_complete(struct urb *urb)
 {
 	struct agilent_82357a_urb_ctx *context = urb->context;
 
-	up(&context->complete);
+	complete(&context->complete);
 }
 
 static void agilent_82357a_timeout_handler(struct timer_list *t)
 {
-	struct agilent_82357a_priv *a_priv = from_timer(a_priv, t, bulk_timer);
+	struct agilent_82357a_priv *a_priv = timer_container_of(a_priv, t,
+								bulk_timer);
 	struct agilent_82357a_urb_ctx *context = &a_priv->context;
 
 	context->timed_out = 1;
-	up(&context->complete);
+	complete(&context->complete);
 }
 
 static int agilent_82357a_send_bulk_msg(struct agilent_82357a_priv *a_priv, void *data,
@@ -74,7 +75,7 @@ static int agilent_82357a_send_bulk_msg(struct agilent_82357a_priv *a_priv, void
 	}
 	usb_dev = interface_to_usbdev(a_priv->bus_interface);
 	out_pipe = usb_sndbulkpipe(usb_dev, a_priv->bulk_out_endpoint);
-	sema_init(&context->complete, 0);
+	init_completion(&context->complete);
 	context->timed_out = 0;
 	usb_fill_bulk_urb(a_priv->bulk_urb, usb_dev, out_pipe, data, data_length,
 			  &agilent_82357a_bulk_complete, context);
@@ -89,7 +90,7 @@ static int agilent_82357a_send_bulk_msg(struct agilent_82357a_priv *a_priv, void
 		goto cleanup;
 	}
 	mutex_unlock(&a_priv->bulk_alloc_lock);
-	if (down_interruptible(&context->complete)) {
+	if (wait_for_completion_interruptible(&context->complete)) {
 		retval = -ERESTARTSYS;
 		goto cleanup;
 	}
@@ -142,7 +143,7 @@ static int agilent_82357a_receive_bulk_msg(struct agilent_82357a_priv *a_priv, v
 	}
 	usb_dev = interface_to_usbdev(a_priv->bus_interface);
 	in_pipe = usb_rcvbulkpipe(usb_dev, AGILENT_82357_BULK_IN_ENDPOINT);
-	sema_init(&context->complete, 0);
+	init_completion(&context->complete);
 	context->timed_out = 0;
 	usb_fill_bulk_urb(a_priv->bulk_urb, usb_dev, in_pipe, data, data_length,
 			  &agilent_82357a_bulk_complete, context);
@@ -157,7 +158,7 @@ static int agilent_82357a_receive_bulk_msg(struct agilent_82357a_priv *a_priv, v
 		goto cleanup;
 	}
 	mutex_unlock(&a_priv->bulk_alloc_lock);
-	if (down_interruptible(&context->complete)) {
+	if (wait_for_completion_interruptible(&context->complete)) {
 		retval = -ERESTARTSYS;
 		goto cleanup;
 	}
@@ -420,10 +421,10 @@ cleanup:
 }
 
 // interface functions
-int agilent_82357a_command(struct gpib_board *board, uint8_t *buffer, size_t length,
+int agilent_82357a_command(struct gpib_board *board, u8 *buffer, size_t length,
 			   size_t *bytes_written);
 
-static int agilent_82357a_read(struct gpib_board *board, uint8_t *buffer, size_t length, int *end,
+static int agilent_82357a_read(struct gpib_board *board, u8 *buffer, size_t length, int *end,
 			       size_t *nbytes)
 {
 	int retval;
@@ -448,8 +449,8 @@ static int agilent_82357a_read(struct gpib_board *board, uint8_t *buffer, size_t
 	if (!out_data)
 		return -ENOMEM;
 	out_data[i++] = DATA_PIPE_CMD_READ;
-	out_data[i++] = 0;	//primary address when ARF_NO_ADDR is not set
-	out_data[i++] = 0;	//secondary address when ARF_NO_ADDR is not set
+	out_data[i++] = 0;	// primary address when ARF_NO_ADDR is not set
+	out_data[i++] = 0;	// secondary address when ARF_NO_ADDR is not set
 	out_data[i] = ARF_NO_ADDRESS | ARF_END_ON_EOI;
 	if (a_priv->eos_mode & REOS)
 		out_data[i] |= ARF_END_ON_EOS_CHAR;
@@ -524,18 +525,19 @@ static int agilent_82357a_read(struct gpib_board *board, uint8_t *buffer, size_t
 	}
 	kfree(in_data);
 
-	/* Fix for a bug in 9914A that does not return the contents of ADSR
-	 *  when the board is in listener active state and ATN is not asserted.
-	 *  Set ATN here to obtain a valid board level ibsta
+	/*
+	 * Fix for a bug in 9914A that does not return the contents of ADSR
+	 * when the board is in listener active state and ATN is not asserted.
+	 * Set ATN here to obtain a valid board level ibsta
 	 */
 	agilent_82357a_take_control_internal(board, 0);
 
-	//FIXME check trailing flags for error
+	// FIXME check trailing flags for error
 	return retval;
 }
 
 static ssize_t agilent_82357a_generic_write(struct gpib_board *board,
-					    uint8_t *buffer, size_t length,
+					    u8 *buffer, size_t length,
 					    int send_commands, int send_eoi,
 					    size_t *bytes_written)
 {
@@ -675,13 +677,13 @@ static ssize_t agilent_82357a_generic_write(struct gpib_board *board,
 	return 0;
 }
 
-static int agilent_82357a_write(struct gpib_board *board, uint8_t *buffer,
+static int agilent_82357a_write(struct gpib_board *board, u8 *buffer,
 				size_t length, int send_eoi, size_t *bytes_written)
 {
 	return agilent_82357a_generic_write(board, buffer, length, 0, send_eoi, bytes_written);
 }
 
-int agilent_82357a_command(struct gpib_board *board, uint8_t *buffer, size_t length,
+int agilent_82357a_command(struct gpib_board *board, u8 *buffer, size_t length,
 			   size_t *bytes_written)
 {
 	return agilent_82357a_generic_write(board, buffer, length, 1, 0, bytes_written);
@@ -715,9 +717,10 @@ static int agilent_82357a_take_control(struct gpib_board *board, int synchronous
 	if (!a_priv->bus_interface)
 		return -ENODEV;
 
-/* It looks like the 9914 does not handle tcs properly.
- *  See comment above tms9914_take_control_workaround() in
- *  drivers/gpib/tms9914/tms9914_aux.c
+/*
+ * It looks like the 9914 does not handle tcs properly.
+ * See comment above tms9914_take_control_workaround() in
+ * drivers/gpib/tms9914/tms9914_aux.c
  */
 	if (synchronous)
 		return -ETIMEDOUT;
@@ -754,9 +757,7 @@ static int agilent_82357a_go_to_standby(struct gpib_board *board)
 	return 0;
 }
 
-//FIXME should change prototype to return int
-static void agilent_82357a_request_system_control(struct gpib_board *board,
-						  int request_control)
+static int agilent_82357a_request_system_control(struct gpib_board *board, int request_control)
 {
 	struct agilent_82357a_priv *a_priv = board->private_data;
 	struct usb_device *usb_dev;
@@ -765,7 +766,7 @@ static void agilent_82357a_request_system_control(struct gpib_board *board,
 	int i = 0;
 
 	if (!a_priv->bus_interface)
-		return; // -ENODEV;
+		return -ENODEV;
 
 	usb_dev = interface_to_usbdev(a_priv->bus_interface);
 	/* 82357B needs bit to be set in 9914 AUXCR register */
@@ -774,9 +775,7 @@ static void agilent_82357a_request_system_control(struct gpib_board *board,
 		writes[i].value = AUX_RQC;
 		a_priv->hw_control_bits |= SYSTEM_CONTROLLER;
 	} else {
-		writes[i].value = AUX_RLC;
-		a_priv->is_cic = 0;
-		a_priv->hw_control_bits &= ~SYSTEM_CONTROLLER;
+		return -EINVAL;
 	}
 	++i;
 	writes[i].address = HW_CONTROL;
@@ -785,7 +784,7 @@ static void agilent_82357a_request_system_control(struct gpib_board *board,
 	retval = agilent_82357a_write_registers(a_priv, writes, i);
 	if (retval)
 		dev_err(&usb_dev->dev, "write_registers() returned error\n");
-	return;// retval;
+	return retval;
 }
 
 static void agilent_82357a_interface_clear(struct gpib_board *board, int assert)
@@ -832,7 +831,7 @@ static void agilent_82357a_remote_enable(struct gpib_board *board, int enable)
 	return;// 0;
 }
 
-static int agilent_82357a_enable_eos(struct gpib_board *board, uint8_t eos_byte,
+static int agilent_82357a_enable_eos(struct gpib_board *board, u8 eos_byte,
 				     int compare_8_bits)
 {
 	struct agilent_82357a_priv *a_priv = board->private_data;
@@ -946,7 +945,7 @@ static int agilent_82357a_secondary_address(struct gpib_board *board,
 	return 0;
 }
 
-static int agilent_82357a_parallel_poll(struct gpib_board *board, uint8_t *result)
+static int agilent_82357a_parallel_poll(struct gpib_board *board, u8 *result)
 {
 	struct agilent_82357a_priv *a_priv = board->private_data;
 	struct usb_device *usb_dev;
@@ -967,7 +966,7 @@ static int agilent_82357a_parallel_poll(struct gpib_board *board, uint8_t *resul
 		dev_err(&usb_dev->dev, "write_registers() returned error\n");
 		return retval;
 	}
-	udelay(2);	//silly, since usb write will take way longer
+	udelay(2);	// silly, since usb write will take way longer
 	read.address = CPTR;
 	retval = agilent_82357a_read_registers(a_priv, &read, 1, 1);
 	if (retval) {
@@ -988,33 +987,33 @@ static int agilent_82357a_parallel_poll(struct gpib_board *board, uint8_t *resul
 	return 0;
 }
 
-static void agilent_82357a_parallel_poll_configure(struct gpib_board *board, uint8_t config)
+static void agilent_82357a_parallel_poll_configure(struct gpib_board *board, u8 config)
 {
-	//board can only be system controller
+	// board can only be system controller
 	return;// 0;
 }
 
 static void agilent_82357a_parallel_poll_response(struct gpib_board *board, int ist)
 {
-	//board can only be system controller
+	// board can only be system controller
 	return;// 0;
 }
 
-static void agilent_82357a_serial_poll_response(struct gpib_board *board, uint8_t status)
+static void agilent_82357a_serial_poll_response(struct gpib_board *board, u8 status)
 {
-	//board can only be system controller
+	// board can only be system controller
 	return;// 0;
 }
 
-static uint8_t agilent_82357a_serial_poll_status(struct gpib_board *board)
+static u8 agilent_82357a_serial_poll_status(struct gpib_board *board)
 {
-	//board can only be system controller
+	// board can only be system controller
 	return 0;
 }
 
 static void agilent_82357a_return_to_local(struct gpib_board *board)
 {
-	//board can only be system controller
+	// board can only be system controller
 	return;// 0;
 }
 
@@ -1292,7 +1291,7 @@ static int agilent_82357a_init(struct gpib_board *board)
 }
 
 static inline int agilent_82357a_device_match(struct usb_interface *interface,
-					      const gpib_board_config_t *config)
+					      const struct gpib_board_config *config)
 {
 	struct usb_device * const usbdev = interface_to_usbdev(interface);
 
@@ -1305,7 +1304,7 @@ static inline int agilent_82357a_device_match(struct usb_interface *interface,
 	return 1;
 }
 
-static int agilent_82357a_attach(struct gpib_board *board, const gpib_board_config_t *config)
+static int agilent_82357a_attach(struct gpib_board *board, const struct gpib_board_config *config)
 {
 	int retval;
 	int i;
@@ -1432,7 +1431,7 @@ static void agilent_82357a_detach(struct gpib_board *board)
 	mutex_unlock(&agilent_82357a_hotplug_lock);
 }
 
-static gpib_interface_t agilent_82357a_gpib_interface = {
+static struct gpib_interface agilent_82357a_gpib_interface = {
 	.name = "agilent_82357a",
 	.attach = agilent_82357a_attach,
 	.detach = agilent_82357a_detach,
@@ -1591,7 +1590,7 @@ static int agilent_82357a_driver_resume(struct usb_interface *interface)
 {
 	struct usb_device *usb_dev = interface_to_usbdev(interface);
 	struct gpib_board *board;
-	int i, retval;
+	int i, retval = 0;
 
 	mutex_lock(&agilent_82357a_hotplug_lock);
 
@@ -1602,8 +1601,10 @@ static int agilent_82357a_driver_resume(struct usb_interface *interface)
 				break;
 		}
 	}
-	if (i == MAX_NUM_82357A_INTERFACES)
+	if (i == MAX_NUM_82357A_INTERFACES) {
+		retval = -ENOENT;
 		goto resume_exit;
+	}
 
 	struct agilent_82357a_priv *a_priv = board->private_data;
 
@@ -1626,7 +1627,7 @@ static int agilent_82357a_driver_resume(struct usb_interface *interface)
 			return retval;
 		}
 		// set/unset system controller
-		agilent_82357a_request_system_control(board, board->master);
+		retval = agilent_82357a_request_system_control(board, board->master);
 		// toggle ifc if master
 		if (board->master) {
 			agilent_82357a_interface_clear(board, 1);
@@ -1644,7 +1645,7 @@ static int agilent_82357a_driver_resume(struct usb_interface *interface)
 resume_exit:
 	mutex_unlock(&agilent_82357a_hotplug_lock);
 
-	return 0;
+	return retval;
 }
 
 static struct usb_driver agilent_82357a_bus_driver = {

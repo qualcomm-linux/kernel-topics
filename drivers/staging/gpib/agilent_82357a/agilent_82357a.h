@@ -6,7 +6,7 @@
 
 #include <linux/kernel.h>
 #include <linux/mutex.h>
-#include <linux/semaphore.h>
+#include <linux/completion.h>
 #include <linux/usb.h>
 #include <linux/timer.h>
 #include <linux/compiler_attributes.h>
@@ -20,7 +20,7 @@ enum usb_vendor_ids {
 enum usb_device_ids {
 	USB_DEVICE_ID_AGILENT_82357A = 0x0107,
 	USB_DEVICE_ID_AGILENT_82357A_PREINIT = 0x0007,	// device id before firmware is loaded
-	USB_DEVICE_ID_AGILENT_82357B = 0x0718,	// device id before firmware is loaded
+	USB_DEVICE_ID_AGILENT_82357B = 0x0718,		// device id before firmware is loaded
 	USB_DEVICE_ID_AGILENT_82357B_PREINIT = 0x0518,	// device id before firmware is loaded
 };
 
@@ -115,7 +115,7 @@ enum xfer_abort_type {
 #define INTERRUPT_BUF_LEN 8
 
 struct agilent_82357a_urb_ctx {
-	struct semaphore complete;
+	struct completion complete;
 	unsigned timed_out : 1;
 };
 
@@ -129,10 +129,10 @@ struct agilent_82357a_priv {
 	struct urb *bulk_urb;
 	struct urb *interrupt_urb;
 	u8 *interrupt_buffer;
-	struct mutex bulk_transfer_lock; // bulk transfer lock
-	struct mutex bulk_alloc_lock;    // bulk transfer allocation lock
-	struct mutex interrupt_alloc_lock; // interrupt allocation lock
-	struct mutex control_alloc_lock;   // control message allocation lock
+	struct mutex bulk_transfer_lock;	// bulk transfer lock
+	struct mutex bulk_alloc_lock;		// bulk transfer allocation lock
+	struct mutex interrupt_alloc_lock;	// interrupt allocation lock
+	struct mutex control_alloc_lock;	// control message allocation lock
 	struct timer_list bulk_timer;
 	struct agilent_82357a_urb_ctx context;
 	unsigned int bulk_out_endpoint;

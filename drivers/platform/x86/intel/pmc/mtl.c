@@ -10,7 +10,6 @@
 
 #include <linux/pci.h>
 #include "core.h"
-#include "../pmt/telemetry.h"
 
 /* PMC SSRAM PMT Telemetry GUIDS */
 #define SOCP_LPM_REQ_GUID	0x2625030
@@ -947,23 +946,20 @@ static const struct pmc_reg_map mtl_ioem_reg_map = {
 	.lpm_reg_index = MTL_LPM_REG_INDEX,
 };
 
-#define PMC_DEVID_SOCM	0x7e7f
-#define PMC_DEVID_IOEP	0x7ecf
-#define PMC_DEVID_IOEM	0x7ebf
 static struct pmc_info mtl_pmc_info_list[] = {
 	{
 		.guid	= SOCP_LPM_REQ_GUID,
-		.devid	= PMC_DEVID_SOCM,
+		.devid	= PMC_DEVID_MTL_SOCM,
 		.map	= &mtl_socm_reg_map,
 	},
 	{
 		.guid	= IOEP_LPM_REQ_GUID,
-		.devid	= PMC_DEVID_IOEP,
+		.devid	= PMC_DEVID_MTL_IOEP,
 		.map	= &mtl_ioep_reg_map,
 	},
 	{
 		.guid	= IOEM_LPM_REQ_GUID,
-		.devid	= PMC_DEVID_IOEM,
+		.devid	= PMC_DEVID_MTL_IOEM,
 		.map	= &mtl_ioem_reg_map
 	},
 	{}
@@ -1001,7 +997,9 @@ struct pmc_dev_info mtl_pmc_dev = {
 	.dmu_guid = MTL_PMT_DMU_GUID,
 	.regmap_list = mtl_pmc_info_list,
 	.map = &mtl_socm_reg_map,
+	.sub_req_show = &pmc_core_substate_req_regs_fops,
 	.suspend = cnl_suspend,
 	.resume = mtl_resume,
 	.init = mtl_core_init,
+	.sub_req = pmc_core_pmt_get_lpm_req,
 };

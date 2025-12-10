@@ -2589,7 +2589,7 @@ static void ipr_process_error(struct ipr_cmnd *ipr_cmd)
  **/
 static void ipr_timeout(struct timer_list *t)
 {
-	struct ipr_cmnd *ipr_cmd = from_timer(ipr_cmd, t, timer);
+	struct ipr_cmnd *ipr_cmd = timer_container_of(ipr_cmd, t, timer);
 	unsigned long lock_flags = 0;
 	struct ipr_ioa_cfg *ioa_cfg = ipr_cmd->ioa_cfg;
 
@@ -2622,7 +2622,7 @@ static void ipr_timeout(struct timer_list *t)
  **/
 static void ipr_oper_timeout(struct timer_list *t)
 {
-	struct ipr_cmnd *ipr_cmd = from_timer(ipr_cmd, t, timer);
+	struct ipr_cmnd *ipr_cmd = timer_container_of(ipr_cmd, t, timer);
 	unsigned long lock_flags = 0;
 	struct ipr_ioa_cfg *ioa_cfg = ipr_cmd->ioa_cfg;
 
@@ -3389,7 +3389,7 @@ static const struct bin_attribute ipr_trace_attr = {
 		.mode = S_IRUGO,
 	},
 	.size = 0,
-	.read_new = ipr_read_trace,
+	.read = ipr_read_trace,
 };
 #endif
 
@@ -4140,8 +4140,8 @@ static const struct bin_attribute ipr_ioa_async_err_log = {
 		.mode =		S_IRUGO | S_IWUSR,
 	},
 	.size = 0,
-	.read_new = ipr_read_async_err_log,
-	.write_new = ipr_next_async_err_log
+	.read = ipr_read_async_err_log,
+	.write = ipr_next_async_err_log
 };
 
 static struct attribute *ipr_ioa_attrs[] = {
@@ -4281,11 +4281,11 @@ static int ipr_alloc_dump(struct ipr_ioa_cfg *ioa_cfg)
 	}
 
 	if (ioa_cfg->sis64)
-		ioa_data = vmalloc(array_size(IPR_FMT3_MAX_NUM_DUMP_PAGES,
-					      sizeof(__be32 *)));
+		ioa_data = vmalloc_array(IPR_FMT3_MAX_NUM_DUMP_PAGES,
+					 sizeof(__be32 *));
 	else
-		ioa_data = vmalloc(array_size(IPR_FMT2_MAX_NUM_DUMP_PAGES,
-					      sizeof(__be32 *)));
+		ioa_data = vmalloc_array(IPR_FMT2_MAX_NUM_DUMP_PAGES,
+					 sizeof(__be32 *));
 
 	if (!ioa_data) {
 		ipr_err("Dump memory allocation failed\n");
@@ -4391,8 +4391,8 @@ static const struct bin_attribute ipr_dump_attr = {
 		.mode = S_IRUSR | S_IWUSR,
 	},
 	.size = 0,
-	.read_new = ipr_read_dump,
-	.write_new = ipr_write_dump
+	.read = ipr_read_dump,
+	.write = ipr_write_dump
 };
 #else
 static int ipr_free_dump(struct ipr_ioa_cfg *ioa_cfg) { return 0; };
@@ -4644,10 +4644,10 @@ ATTRIBUTE_GROUPS(ipr_dev);
 
 /**
  * ipr_biosparam - Return the HSC mapping
- * @sdev:			scsi device struct
- * @block_device:	block device pointer
+ * @sdev:		scsi device struct
+ * @unused:		gendisk pointer
  * @capacity:		capacity of the device
- * @parm:			Array containing returned HSC values.
+ * @parm:		Array containing returned HSC values.
  *
  * This function generates the HSC parms that fdisk uses.
  * We want to make sure we return something that places partitions
@@ -4657,7 +4657,7 @@ ATTRIBUTE_GROUPS(ipr_dev);
  * 	0 on success
  **/
 static int ipr_biosparam(struct scsi_device *sdev,
-			 struct block_device *block_device,
+			 struct gendisk *unused,
 			 sector_t capacity, int *parm)
 {
 	int heads, sectors;
@@ -5151,7 +5151,7 @@ static void ipr_bus_reset_done(struct ipr_cmnd *ipr_cmd)
  **/
 static void ipr_abort_timeout(struct timer_list *t)
 {
-	struct ipr_cmnd *ipr_cmd = from_timer(ipr_cmd, t, timer);
+	struct ipr_cmnd *ipr_cmd = timer_container_of(ipr_cmd, t, timer);
 	struct ipr_cmnd *reset_cmd;
 	struct ipr_ioa_cfg *ioa_cfg = ipr_cmd->ioa_cfg;
 	struct ipr_cmd_pkt *cmd_pkt;
@@ -7476,7 +7476,7 @@ static int ipr_ioafp_identify_hrrq(struct ipr_cmnd *ipr_cmd)
  **/
 static void ipr_reset_timer_done(struct timer_list *t)
 {
-	struct ipr_cmnd *ipr_cmd = from_timer(ipr_cmd, t, timer);
+	struct ipr_cmnd *ipr_cmd = timer_container_of(ipr_cmd, t, timer);
 	struct ipr_ioa_cfg *ioa_cfg = ipr_cmd->ioa_cfg;
 	unsigned long lock_flags = 0;
 

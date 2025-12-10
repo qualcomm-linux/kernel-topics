@@ -238,6 +238,16 @@ properties:
       peak-to-peak specified in ANSI X3.263. When omitted, the PHYs default
       will be left as is.
 
+  mac-termination-ohms:
+    maximum: 200
+    description:
+      The xMII signals need series termination on the driver side to match both
+      the output driver impedance and the line characteristic impedance, to
+      prevent reflections and EMI problems. Select a resistance value which is
+      supported by the builtin resistors of the PHY, otherwise the resistors may
+      have to be placed on board. When omitted, the PHYs default will be left as
+      is.
+
   leds:
     type: object
 
@@ -256,7 +266,7 @@ properties:
           reg:
             maxItems: 1
             description:
-              This define the LED index in the PHY or the MAC. It's really
+              This defines the LED index in the PHY or the MAC. It's really
               driver dependent and required for ports that define multiple
               LED for the same port.
 

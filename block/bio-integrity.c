@@ -127,10 +127,11 @@ int bio_integrity_add_page(struct bio *bio, struct page *page,
 
 	if (bip->bip_vcnt > 0) {
 		struct bio_vec *bv = &bip->bip_vec[bip->bip_vcnt - 1];
-		bool same_page = false;
 
-		if (bvec_try_merge_hw_page(q, bv, page, len, offset,
-					   &same_page)) {
+		if (!zone_device_pages_have_same_pgmap(bv->bv_page, page))
+			return 0;
+
+		if (bvec_try_merge_hw_page(q, bv, page, len, offset)) {
 			bip->bip_iter.bi_size += len;
 			return len;
 		}
@@ -156,10 +157,9 @@ int bio_integrity_add_page(struct bio *bio, struct page *page,
 EXPORT_SYMBOL(bio_integrity_add_page);
 
 static int bio_integrity_copy_user(struct bio *bio, struct bio_vec *bvec,
-				   int nr_vecs, unsigned int len,
-				   unsigned int direction)
+				   int nr_vecs, unsigned int len)
 {
-	bool write = direction == ITER_SOURCE;
+	bool write = op_is_write(bio_op(bio));
 	struct bio_integrity_payload *bip;
 	struct iov_iter iter;
 	void *buf;
@@ -170,7 +170,7 @@ static int bio_integrity_copy_user(struct bio *bio, struct bio_vec *bvec,
 		return -ENOMEM;
 
 	if (write) {
-		iov_iter_bvec(&iter, direction, bvec, nr_vecs, len);
+		iov_iter_bvec(&iter, ITER_SOURCE, bvec, nr_vecs, len);
 		if (!copy_from_iter_full(buf, len, &iter)) {
 			ret = -EFAULT;
 			goto free_buf;
@@ -230,7 +230,8 @@ static int bio_integrity_init_user(struct bio *bio, struct bio_vec *bvec,
 }
 
 static unsigned int bvec_from_pages(struct bio_vec *bvec, struct page **pages,
-				    int nr_vecs, ssize_t bytes, ssize_t offset)
+				    int nr_vecs, ssize_t bytes, ssize_t offset,
+				    bool *is_p2p)
 {
 	unsigned int nr_bvecs = 0;
 	int i, j;
@@ -251,6 +252,9 @@ static unsigned int bvec_from_pages(struct bio_vec *bvec, struct page **pages,
 			bytes -= next;
 		}
 
+		if (is_pci_p2pdma_page(pages[i]))
+			*is_p2p = true;
+
 		bvec_set_page(&bvec[nr_bvecs], pages[i], size, offset);
 		offset = 0;
 		nr_bvecs++;
@@ -262,23 +266,18 @@ static unsigned int bvec_from_pages(struct bio_vec *bvec, struct page **pages,
 int bio_integrity_map_user(struct bio *bio, struct iov_iter *iter)
 {
 	struct request_queue *q = bdev_get_queue(bio->bi_bdev);
-	unsigned int align = blk_lim_dma_alignment_and_pad(&q->limits);
 	struct page *stack_pages[UIO_FASTIOV], **pages = stack_pages;
 	struct bio_vec stack_vec[UIO_FASTIOV], *bvec = stack_vec;
+	iov_iter_extraction_t extraction_flags = 0;
 	size_t offset, bytes = iter->count;
-	unsigned int direction, nr_bvecs;
+	bool copy, is_p2p = false;
+	unsigned int nr_bvecs;
 	int ret, nr_vecs;
-	bool copy;
 
 	if (bio_integrity(bio))
 		return -EINVAL;
 	if (bytes >> SECTOR_SHIFT > queue_max_hw_sectors(q))
 		return -E2BIG;
-
-	if (bio_data_dir(bio) == READ)
-		direction = ITER_DEST;
-	else
-		direction = ITER_SOURCE;
 
 	nr_vecs = iov_iter_npages(iter, BIO_MAX_VECS + 1);
 	if (nr_vecs > BIO_MAX_VECS)
@@ -290,20 +289,28 @@ int bio_integrity_map_user(struct bio *bio, struct iov_iter *iter)
 		pages = NULL;
 	}
 
-	copy = !iov_iter_is_aligned(iter, align, align);
-	ret = iov_iter_extract_pages(iter, &pages, bytes, nr_vecs, 0, &offset);
+	copy = iov_iter_alignment(iter) &
+			blk_lim_dma_alignment_and_pad(&q->limits);
+
+	if (blk_queue_pci_p2pdma(q))
+		extraction_flags |= ITER_ALLOW_P2PDMA;
+
+	ret = iov_iter_extract_pages(iter, &pages, bytes, nr_vecs,
+					extraction_flags, &offset);
 	if (unlikely(ret < 0))
 		goto free_bvec;
 
-	nr_bvecs = bvec_from_pages(bvec, pages, nr_vecs, bytes, offset);
+	nr_bvecs = bvec_from_pages(bvec, pages, nr_vecs, bytes, offset,
+				   &is_p2p);
 	if (pages != stack_pages)
 		kvfree(pages);
 	if (nr_bvecs > queue_max_integrity_segments(q))
 		copy = true;
+	if (is_p2p)
+		bio->bi_opf |= REQ_NOMERGE;
 
 	if (copy)
-		ret = bio_integrity_copy_user(bio, bvec, nr_bvecs, bytes,
-					      direction);
+		ret = bio_integrity_copy_user(bio, bvec, nr_bvecs, bytes);
 	else
 		ret = bio_integrity_init_user(bio, bvec, nr_bvecs, bytes);
 	if (ret)
