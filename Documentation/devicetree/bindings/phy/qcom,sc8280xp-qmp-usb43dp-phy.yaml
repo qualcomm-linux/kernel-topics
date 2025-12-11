@@ -21,6 +21,7 @@ properties:
               - qcom,kaanapali-qmp-usb3-dp-phy
           - const: qcom,sm8750-qmp-usb3-dp-phy
       - enum:
+          - qcom,glymur-qmp-usb3-dp-phy
           - qcom,sar2130p-qmp-usb3-dp-phy
           - qcom,sc7180-qmp-usb3-dp-phy
           - qcom,sc7280-qmp-usb3-dp-phy
@@ -67,6 +68,8 @@ properties:
   vdda-phy-supply: true
 
   vdda-pll-supply: true
+
+  refgen-supply: true
 
   "#clock-cells":
     const: 1
@@ -134,6 +137,7 @@ allOf:
         compatible:
           contains:
             enum:
+              - qcom,glymur-qmp-usb3-dp-phy
               - qcom,sar2130p-qmp-usb3-dp-phy
               - qcom,sc8280xp-qmp-usb43dp-phy
               - qcom,sm6350-qmp-usb3-dp-phy
@@ -147,6 +151,18 @@ allOf:
     else:
       properties:
         power-domains: false
+
+  - if:
+      properties:
+        compatible:
+          enum:
+            - qcom,glymur-qmp-usb3-dp-phy
+    then:
+      required:
+        - refgen-supply
+    else:
+      properties:
+        refgen-supply: false
 
 additionalProperties: false
 
