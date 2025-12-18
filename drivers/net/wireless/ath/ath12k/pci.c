@@ -23,6 +23,7 @@
 
 #define WINDOW_ENABLE_BIT		0x40000000
 #define WINDOW_REG_ADDRESS		0x310c
+#define WINDOW_REG_ADDRESS_QCC2072	0x3278
 #define WINDOW_VALUE_MASK		GENMASK(24, 19)
 #define WINDOW_START			0x80000
 #define WINDOW_RANGE_MASK		GENMASK(18, 0)
@@ -40,6 +41,7 @@
 
 #define QCN9274_DEVICE_ID		0x1109
 #define WCN7850_DEVICE_ID		0x1107
+#define QCC2072_DEVICE_ID		0x1112
 
 #define DOMAIN_NUMBER_MASK		GENMASK(7, 4)
 #define BUS_NUMBER_MASK			GENMASK(3, 0)
@@ -47,6 +49,7 @@
 static const struct pci_device_id ath12k_pci_id_table[] = {
 	{ PCI_VDEVICE(QCOM, QCN9274_DEVICE_ID) },
 	{ PCI_VDEVICE(QCOM, WCN7850_DEVICE_ID) },
+	{ PCI_VDEVICE(QCOM, QCC2072_DEVICE_ID) },
 	{}
 };
 
@@ -155,6 +158,11 @@ static const struct ath12k_pci_ops ath12k_pci_ops_qcn9274 = {
 };
 
 static const struct ath12k_pci_ops ath12k_pci_ops_wcn7850 = {
+	.wakeup = ath12k_pci_bus_wake_up,
+	.release = ath12k_pci_bus_release,
+};
+
+static const struct ath12k_pci_ops ath12k_pci_ops_qcc2027 = {
 	.wakeup = ath12k_pci_bus_wake_up,
 	.release = ath12k_pci_bus_release,
 };
@@ -1658,6 +1666,16 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 			ret = -EOPNOTSUPP;
 			goto err_pci_free_region;
 		}
+		break;
+	case QCC2072_DEVICE_ID:
+		ab->id.bdf_search = ATH12K_BDF_SEARCH_BUS_AND_BOARD;
+		ab_pci->msi_config = &ath12k_msi_config[0];
+		ab->static_window_map = false;
+		ab_pci->pci_ops = &ath12k_pci_ops_qcc2027;
+		ab_pci->window_reg_addr = WINDOW_REG_ADDRESS_QCC2072;
+		ab->hal_rx_ops = &hal_rx_qcc2072_ops;
+		/* there is only one version till now */
+		ab->hw_rev = ATH12K_HW_QCC2072_HW10;
 		break;
 
 	default:
