@@ -368,6 +368,8 @@ struct ath12k_hw_regs {
 	u32 hal_reo_status_ring_base;
 
 	u32 gcc_gcc_pcie_hot_rst;
+
+	u32 qrtr_node_id;
 };
 
 static inline const char *ath12k_bd_ie_type_str(enum ath12k_bd_ie_type type)
