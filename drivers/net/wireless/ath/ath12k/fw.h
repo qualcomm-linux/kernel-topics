@@ -15,6 +15,7 @@ enum ath12k_fw_ie_type {
 	ATH12K_FW_IE_AMSS_IMAGE = 2,
 	ATH12K_FW_IE_M3_IMAGE = 3,
 	ATH12K_FW_IE_AMSS_DUALMAC_IMAGE = 4,
+	ATH12K_FW_IE_AUX_UC_IMAGE = 5,
 };
 
 enum ath12k_fw_features {

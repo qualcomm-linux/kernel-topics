@@ -1412,6 +1412,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.cal_offset = 128 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_driver,
 			.std_elf_img = false,
+			.download_aux_ucode = false,
 		},
 		.max_radios = 1,
 		.single_pdev_only = false,
@@ -1499,6 +1500,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.cal_offset = 256 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_driver,
 			.std_elf_img = false,
+			.download_aux_ucode = false,
 		},
 
 		.max_radios = 1,
@@ -1588,6 +1590,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.cal_offset = 128 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_driver,
 			.std_elf_img = false,
+			.download_aux_ucode = false,
 		},
 		.max_radios = 2,
 		.single_pdev_only = false,
@@ -1754,6 +1757,7 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.cal_offset = 256 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_driver,
 			.std_elf_img = true,
+			.download_aux_ucode = true,
 		},
 
 		.max_radios = 1,
@@ -1804,7 +1808,8 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 		.hal_ops = &hal_wcn7850_ops,
 
 		.qmi_cnss_feature_bitmap = BIT(CNSS_QDSS_CFG_MISS_V01) |
-					   BIT(CNSS_PCIE_PERST_NO_PULL_V01),
+					   BIT(CNSS_PCIE_PERST_NO_PULL_V01) |
+					   BIT(CNSS_AUX_UC_SUPPORT_V01),
 
 		.rfkill_pin = 0,
 		.rfkill_cfg = 0,
