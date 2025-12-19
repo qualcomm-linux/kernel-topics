@@ -16,7 +16,6 @@
 #include <linux/pm_runtime.h>
 #include <linux/pm_clock.h>
 #include <linux/types.h>
-#include <crypto/algapi.h>
 #include <crypto/internal/hash.h>
 
 #include "core.h"
