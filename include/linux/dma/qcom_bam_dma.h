@@ -8,6 +8,8 @@
 
 #include <asm/byteorder.h>
 
+struct dma_chan;
+
 /*
  * This data type corresponds to the native Command Element
  * supported by BAM DMA Engine.
@@ -32,6 +34,16 @@ struct bam_cmd_element {
 enum bam_command_type {
 	BAM_WRITE_COMMAND = 0,
 	BAM_READ_COMMAND,
+};
+
+enum bam_desc_metadata_op {
+	BAM_META_CMD_LOCK = 1,
+	BAM_META_CMD_UNLOCK,
+};
+
+struct bam_desc_metadata {
+	enum bam_desc_metadata_op op;
+	struct dma_chan *chan;
 };
 
 /*
