@@ -104,7 +104,15 @@ properties:
       - 4 # Use GPIO2 for jack-detect
       - 5 # Use GPIO3 for jack-detect
       - 6 # Use GPIO4 for jack-detect
+<<<<<<< HEAD
       - 7 # Use HDA header for jack-detect
+=======
+<<<<<<< HEAD
+      - 7 # HDA?
+=======
+      - 7 # Use HDA header for jack-detect
+>>>>>>> 25b858474497 (ASoC: dt-bindings: realtek,rt5640: Update jack-detect)
+>>>>>>> ee7fc5dcefca (ASoC: dt-bindings: realtek,rt5640: Update jack-detect)
 
   realtek,jack-detect-not-inverted:
     description:
