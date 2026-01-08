@@ -137,8 +137,17 @@ properties:
       - 3 # Scale current by 1.5
 
   port:
+<<<<<<< HEAD
     $ref: audio-graph-port.yaml#
     unevaluatedProperties: false
+=======
+<<<<<<< HEAD
+    $ref: /schemas/graph.yaml#/properties/port
+=======
+    $ref: audio-graph-port.yaml#
+    unevaluatedProperties: false
+>>>>>>> b540b4e157c4 (ASoC: dt-bindings: realtek,rt5640: Document port node)
+>>>>>>> fbcd9bf1dcc7 (ASoC: dt-bindings: realtek,rt5640: Document port node)
 
 required:
   - compatible
