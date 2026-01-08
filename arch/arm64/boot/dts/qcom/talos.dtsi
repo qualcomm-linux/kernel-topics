@@ -1227,6 +1227,14 @@
 			};
 		};
 
+		dma@10a2000 {
+			compatible = "qcom,dcc-v1", "qcom,dcc";
+			reg = <0x0 0x010a2000 0x0 0x1000>,
+			      <0x0 0x010ae000 0x0 0x2000>;
+
+			qcom,dcc-offset = <0x6000>;
+		};
+
 		config_noc: interconnect@1500000 {
 			reg = <0x0 0x01500000 0x0 0x5080>;
 			compatible = "qcom,qcs615-config-noc";
