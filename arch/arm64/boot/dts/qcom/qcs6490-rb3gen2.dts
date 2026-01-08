@@ -1229,9 +1229,17 @@
 		reg = <0>;
 		interrupts-extended = <&tlmm 7 IRQ_TYPE_LEVEL_LOW>;
 		clocks = <&mcp2518fd_osc>;
-		spi-max-frequency = <14000000>;
+		spi-max-frequency = <10000000>;
 		vdd-supply = <&vreg_l11c_2p8>;
-		microchip,xstbyen;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		gpio0-hog {
+			gpio-hog;
+			gpios = <0 GPIO_ACTIVE_LOW>;
+			output-high;
+			line-name = "mcp251xfd-gpio0";
+		};
 	};
 };
 
