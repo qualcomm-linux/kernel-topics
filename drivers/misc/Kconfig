@@ -275,6 +275,14 @@ config QCOM_FASTRPC
 	  applications DSP processor. Say M if you want to enable this
 	  module.
 
+config QCOM_DCC
+	tristate "Qualcomm Technologies, Inc. Data Capture and Compare (DCC) engine driver"
+	depends on ARCH_QCOM || COMPILE_TEST
+	help
+	  This option enables the driver for the Data Capture and Compare engine. DCC
+	  driver provides interfaces to configure DCC block and read back the captured
+	  data from the DCC's internal SRAM. The module name for this is qcom-dcc.
+
 config APDS9802ALS
 	tristate "Medfield Avago APDS9802 ALS Sensor module"
 	depends on I2C
