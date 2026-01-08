@@ -71,4 +71,5 @@ obj-y				+= keba/
 obj-y				+= amd-sbi/
 obj-$(CONFIG_MISC_RP1)		+= rp1/
 obj-$(CONFIG_QCOM_DCC)		+= qcom-dcc.o
+obj-$(CONFIG_QCOM_DCC_DEV)	+= qcom-dcc-dev.o
 obj-$(CONFIG_INTEL_SSEI)	+= issei/
