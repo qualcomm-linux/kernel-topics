@@ -16,8 +16,18 @@ properties:
     const: gpio-backlight
 
   gpios:
-    description: The gpio that is used for enabling/disabling the backlight.
-    maxItems: 1
+    description: |
+      The gpio that is used for enabling/disabling the backlight.
+      Multiple GPIOs can be specified for panels that require several
+      enable signals. All GPIOs are controlled together.
+    type: array
+    minItems: 1
+    items:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        type: integer
 
   default-on:
     description: enable the backlight at boot.
@@ -36,6 +46,16 @@ examples:
         compatible = "gpio-backlight";
         gpios = <&gpio3 4 GPIO_ACTIVE_HIGH>;
         default-on;
+    };
+
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    backlight {
+      compatible = "gpio-backlight";
+      gpios = <&gpio3 4 GPIO_ACTIVE_HIGH>,
+              <&gpio3 5 GPIO_ACTIVE_HIGH>,
+              <&gpio3 6 GPIO_ACTIVE_HIGH>;
+      default-on;
     };
 
 ...
