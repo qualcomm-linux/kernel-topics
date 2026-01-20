@@ -14,17 +14,29 @@
 #include <linux/platform_device.h>
 #include <linux/property.h>
 #include <linux/slab.h>
+#include <linux/bitmap.h>
 
 struct gpio_backlight {
 	struct device *dev;
-	struct gpio_desc *gpiod;
+	struct gpio_descs *gpiods;
+	unsigned long *bitmap;
 };
 
 static int gpio_backlight_update_status(struct backlight_device *bl)
 {
 	struct gpio_backlight *gbl = bl_get_data(bl);
+	unsigned int n = gbl->gpiods->ndescs;
+	int br = backlight_get_brightness(bl);
 
-	gpiod_set_value_cansleep(gbl->gpiod, backlight_get_brightness(bl));
+	if (br)
+		bitmap_fill(gbl->bitmap, n);
+	else
+		bitmap_zero(gbl->bitmap, n);
+
+	gpiod_set_array_value_cansleep(n,
+				       gbl->gpiods->desc,
+				       gbl->gpiods->info,
+				       gbl->bitmap);
 
 	return 0;
 }
@@ -48,26 +60,43 @@ static int gpio_backlight_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct gpio_backlight_platform_data *pdata = dev_get_platdata(dev);
 	struct device_node *of_node = dev->of_node;
-	struct backlight_properties props;
+	struct backlight_properties props = { };
 	struct backlight_device *bl;
 	struct gpio_backlight *gbl;
-	int ret, init_brightness, def_value;
+	bool def_value;
+	enum gpiod_flags flags;
+	unsigned int n;
+	int words;
 
-	gbl = devm_kzalloc(dev, sizeof(*gbl), GFP_KERNEL);
-	if (gbl == NULL)
+	gbl = devm_kcalloc(dev, 1, sizeof(*gbl), GFP_KERNEL);
+	if (!gbl)
 		return -ENOMEM;
 
 	if (pdata)
 		gbl->dev = pdata->dev;
 
 	def_value = device_property_read_bool(dev, "default-on");
+	flags = def_value ? GPIOD_OUT_HIGH : GPIOD_OUT_LOW;
 
-	gbl->gpiod = devm_gpiod_get(dev, NULL, GPIOD_ASIS);
-	if (IS_ERR(gbl->gpiod))
-		return dev_err_probe(dev, PTR_ERR(gbl->gpiod),
-				     "The gpios parameter is missing or invalid\n");
+	gbl->gpiods = devm_gpiod_get_array(dev, NULL, flags);
+	if (IS_ERR(gbl->gpiods)) {
+		if (PTR_ERR(gbl->gpiods) == -ENODEV)
+			return dev_err_probe(dev, -EINVAL,
+			"The gpios parameter is missing or invalid\n");
+		return PTR_ERR(gbl->gpiods);
+	}
 
-	memset(&props, 0, sizeof(props));
+	n = gbl->gpiods->ndescs;
+	if (!n)
+		return dev_err_probe(dev, -EINVAL,
+			"No GPIOs provided\n");
+
+	words = BITS_TO_LONGS(n);
+	gbl->bitmap = devm_kcalloc(dev, words, sizeof(unsigned long),
+				   GFP_KERNEL);
+	if (!gbl->bitmap)
+		return -ENOMEM;
+
 	props.type = BACKLIGHT_RAW;
 	props.max_brightness = 1;
 	bl = devm_backlight_device_register(dev, dev_name(dev), dev, gbl,
@@ -81,20 +110,15 @@ static int gpio_backlight_probe(struct platform_device *pdev)
 	if (!of_node || !of_node->phandle)
 		/* Not booted with device tree or no phandle link to the node */
 		bl->props.power = def_value ? BACKLIGHT_POWER_ON
-					    : BACKLIGHT_POWER_OFF;
-	else if (gpiod_get_value_cansleep(gbl->gpiod) == 0)
+						    : BACKLIGHT_POWER_OFF;
+	else if (gpiod_get_value_cansleep(gbl->gpiods->desc[0]) == 0)
 		bl->props.power = BACKLIGHT_POWER_OFF;
 	else
 		bl->props.power = BACKLIGHT_POWER_ON;
 
-	bl->props.brightness = 1;
+	bl->props.brightness = def_value ? 1 : 0;
 
-	init_brightness = backlight_get_brightness(bl);
-	ret = gpiod_direction_output(gbl->gpiod, init_brightness);
-	if (ret) {
-		dev_err(dev, "failed to set initial brightness\n");
-		return ret;
-	}
+	gpio_backlight_update_status(bl);
 
 	platform_set_drvdata(pdev, bl);
 	return 0;
