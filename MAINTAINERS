@@ -338,7 +338,9 @@ M:	Ruidong Tian <tianruidond@linux.alibaba.com>
 L:	linux-acpi@vger.kernel.org
 L:	linux-arm-kernel@lists.infradead.org
 S:	Supported
+F:	arch/arm64/include/asm/ras.h
 F:	drivers/acpi/arm64/aest.c
+F:	drivers/ras/aest/
 F:	include/linux/acpi_aest.h
 
 ACPI FOR RISC-V (ACPI/riscv)

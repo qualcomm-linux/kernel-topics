@@ -15,6 +15,15 @@
 
 #define AEST_MAX_INTERRUPT_PER_NODE 2
 
+/* AEST interface */
+#define AEST_XFACE_FLAG_SHARED (1 << 0)
+#define AEST_XFACE_FLAG_CLEAR_MISC (1 << 1)
+#define AEST_XFACE_FLAG_ERROR_DEVICE (1 << 2)
+#define AEST_XFACE_FLAG_AFFINITY (1 << 3)
+#define AEST_XFACE_FLAG_ERROR_GROUP (1 << 4)
+#define AEST_XFACE_FLAG_FAULT_INJECT (1 << 5)
+#define AEST_XFACE_FLAG_INT_CONFIG (1 << 6)
+
 #define KB 1024
 #define MB (1024 * KB)
 #define GB (1024 * MB)
