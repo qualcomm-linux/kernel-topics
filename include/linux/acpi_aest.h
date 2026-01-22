@@ -10,6 +10,13 @@
 #define AEST_FHI_NAME "AEST:FHI"
 #define AEST_ERI_NAME "AEST:ERI"
 
+/* AEST component */
+#define ACPI_AEST_PROC_FLAG_GLOBAL	(1<<0)
+#define ACPI_AEST_PROC_FLAG_SHARED	(1<<1)
+
+#define AEST_ADDREESS_SPA	0
+#define AEST_ADDREESS_LA	1
+
 /* AEST interrupt */
 #define AEST_INTERRUPT_MODE BIT(0)
 

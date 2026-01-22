@@ -67,6 +67,34 @@
 
 #define GIC_ERRDEVARCH 0xFFBC
 
+struct aest_event {
+	struct llist_node llnode;
+	char *node_name;
+	u32 type;
+	/*
+	 * Different nodes have different meanings:
+	 *   - Processor node	: processor number.
+	 *   - Memory node	: SRAT proximity domain.
+	 *   - SMMU node	: IORT proximity domain.
+	 *   - GIC node		: interface type.
+	 */
+	u32 id0;
+	/*
+	 * Different nodes have different meanings:
+	 *   - Processor node	: processor resource type.
+	 *   - Memory node	: Non.
+	 *   - SMMU node	: subcomponent reference.
+	 *   - Vendor node	: Unique ID.
+	 *   - GIC node		: instance identifier.
+	 */
+	u32 id1;
+	/* Vendor node	: hardware ID. */
+	char *hid;
+	u32 index;
+	int addressing_mode;
+	struct ras_ext_regs regs;
+};
+
 struct aest_access {
 	u64 (*read)(void *base, u32 offset);
 	void (*write)(void *base, u32 offset, u64 val);
@@ -141,6 +169,7 @@ struct aest_node {
 	void *errgsr;
 	void *base;
 	void *inj;
+	void *irq_config;
 
 	/*
 	 * This bitmap indicates which of the error records within this error
@@ -172,6 +201,7 @@ struct aest_node {
 
 	int record_count;
 	struct aest_record *records;
+	struct aest_node __percpu *oncore_node;
 };
 
 struct aest_device {
@@ -180,6 +210,12 @@ struct aest_device {
 	int node_cnt;
 	struct aest_node *nodes;
 	u32 id;
+	int irq[MAX_GSI_PER_NODE];
+
+	struct work_struct aest_work;
+	struct gen_pool *pool;
+	struct llist_head event_list;
+	struct aest_device __percpu *adev_oncore;
 };
 
 static const char *const aest_node_name[] = {
@@ -283,3 +319,23 @@ static const struct aest_access aest_access[] = {
 	},
 	{ }
 };
+
+/*
+ * Each PE may has multi error record, you must selects an error
+ * record to be accessed through the Error Record System
+ * registers.
+ */
+static inline void aest_select_record(struct aest_node *node, int index)
+{
+	if (node->type == ACPI_AEST_PROCESSOR_ERROR_NODE) {
+		write_sysreg_s(index, SYS_ERRSELR_EL1);
+		isb();
+	}
+}
+
+/* Ensure all writes has taken effect. */
+static inline void aest_sync(struct aest_node *node)
+{
+	if (node->type == ACPI_AEST_PROCESSOR_ERROR_NODE)
+		isb();
+}
