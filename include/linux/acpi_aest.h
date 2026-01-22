@@ -13,6 +13,9 @@
 /* AEST interrupt */
 #define AEST_INTERRUPT_MODE BIT(0)
 
+#define AEST_INTERRUPT_FHI_UE_SUPPORT		BIT(0)
+#define AEST_INTERRUPT_FHI_UE_NO_SUPPORT		BIT(1)
+
 #define AEST_MAX_INTERRUPT_PER_NODE 2
 
 /* AEST interface */

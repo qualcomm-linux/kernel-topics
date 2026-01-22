@@ -9,6 +9,7 @@
 #include <asm/ras.h>
 
 #define MAX_GSI_PER_NODE 2
+#define DEFAULT_CE_THRESHOLD 1
 
 #define record_read(record, offset) \
 	record->access->read(record->regs_base, offset)
@@ -71,6 +72,19 @@ struct aest_access {
 	void (*write)(void *base, u32 offset, u64 val);
 };
 
+struct ce_threshold_info {
+	const u64 max_count;
+	const u64 mask;
+	const u64 shift;
+};
+
+struct ce_threshold {
+	const struct ce_threshold_info *info;
+	u64 count;
+	u64 threshold;
+	u64 reg_val;
+};
+
 struct aest_record {
 	char *name;
 	int index;
@@ -88,6 +102,9 @@ struct aest_record {
 	int addressing_mode;
 	struct aest_node *node;
 	const struct aest_access *access;
+
+	struct ce_threshold ce;
+	enum ras_ce_threshold threshold_type;
 };
 
 struct aest_group {
