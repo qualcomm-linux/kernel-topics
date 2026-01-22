@@ -152,6 +152,8 @@ static void init_aest_event(struct aest_event *event,
 	memcpy(&event->regs, regs, sizeof(*regs));
 	event->index = record->index;
 	event->addressing_mode = record->addressing_mode;
+	event->vendor_data_size = record->vendor_data_size;
+	event->vendor_data = record->vendor_data;
 }
 
 static int aest_node_gen_pool_add(struct aest_device *adev,
@@ -341,10 +343,9 @@ void aest_proc_record(struct aest_record *record, void *data, bool fake)
 	record_write(record, ERXSTATUS, regs.err_status);
 }
 
-static void aest_node_foreach_record(void (*func)(struct aest_record *, void *,
-						  bool),
-				     struct aest_node *node, void *data,
-				     unsigned long *bitmap)
+void aest_node_foreach_record(void (*func)(struct aest_record *, void *, bool),
+			      struct aest_node *node, void *data,
+			      unsigned long *bitmap)
 {
 	int i;
 
@@ -359,7 +360,7 @@ static void aest_node_foreach_record(void (*func)(struct aest_record *, void *,
 
 static int aest_proc(struct aest_node *node)
 {
-	int count = 0, i, j, size = node->record_count;
+	int count = 0, i, j, size = node->record_count, record_idx;
 	u64 err_group = 0;
 
 	aest_node_dbg(node, "Poll bitmap %*pb\n", size,
@@ -374,19 +375,21 @@ static int aest_proc(struct aest_node *node)
 		      node->status_reporting);
 	for (i = 0; i < BITS_TO_U64(size); i++) {
 		err_group = readq_relaxed((void *)node->errgsr + i * 8);
-		aest_node_dbg(node, "errgsr[%d]: 0x%llx\n", i, err_group);
-
 		for_each_set_bit(j, (unsigned long *)&err_group,
 				 BITS_PER_LONG) {
+			record_idx =
+				node->errgsr_mapping(i * BITS_PER_LONG + j);
+			aest_node_dbg(node, "errgsr[%d]: bit %d occur error\n",
+				      i, record_idx);
 			/*
 			 * Error group base is only valid in Memory Map node,
 			 * so driver do not need to write select register and
 			 * sync.
 			 */
-			if (test_bit(i * BITS_PER_LONG + j,
-				     node->status_reporting))
+			if (test_bit(record_idx, node->status_reporting))
 				continue;
-			aest_proc_record(&node->records[j], &count, false);
+			aest_proc_record(&node->records[record_idx], &count,
+					 false);
 		}
 	}
 
@@ -398,8 +401,11 @@ static irqreturn_t aest_irq_func(int irq, void *input)
 	struct aest_device *adev = input;
 	int i;
 
-	for (i = 0; i < adev->node_cnt; i++)
+	for (i = 0; i < adev->node_cnt; i++) {
+		if (!adev->nodes[i].record_count)
+			continue;
 		aest_proc(&adev->nodes[i]);
+	}
 
 	return IRQ_HANDLED;
 }
@@ -776,6 +782,7 @@ static int aest_init_node(struct aest_device *adev, struct aest_node *node,
 	node->info = anode;
 	node->type = anode->type;
 	node->version = get_aest_node_ver(node);
+	node->errgsr_mapping = default_errgsr_mapping;
 	node->name = alloc_aest_node_name(node);
 	if (!node->name)
 		return -ENOMEM;
@@ -828,6 +835,7 @@ static int aest_init_node(struct aest_device *adev, struct aest_node *node,
 	if (!node->records)
 		return -ENOMEM;
 
+	node->errgsr_num = DIV_ROUND_UP(node->record_count, BITS_PER_LONG);
 	for (i = 0; i < node->record_count; i++) {
 		ret = aest_init_record(&node->records[i], i, node);
 		if (ret)
@@ -923,11 +931,12 @@ static int aest_setup_irq(struct platform_device *pdev,
 }
 
 static struct aest_vendor_match vendor_match[] = {
-	{  },
+	{ "ARMHC700", &aest_cmn700_probe },
+	{},
 };
 
-static int
-aest_vendor_probe(struct aest_device *adev, struct aest_hnode *ahnode)
+static int aest_vendor_probe(struct aest_device *adev,
+			     struct aest_hnode *ahnode)
 {
 	int i;
 	struct acpi_aest_node *anode;
@@ -936,13 +945,14 @@ aest_vendor_probe(struct aest_device *adev, struct aest_hnode *ahnode)
 	if (!anode)
 		return -ENODEV;
 
-	aest_dev_dbg(adev, "Try to probe vendor node %s\n", anode->vendor->acpi_hid);
+	aest_dev_dbg(adev, "Try to probe vendor node %s\n",
+		     anode->vendor->acpi_hid);
 	for (i = 0; i < ARRAY_SIZE(vendor_match); i++) {
 		if (!strncmp(vendor_match[i].hid, anode->vendor->acpi_hid, 8))
 			return vendor_match[i].probe(adev, ahnode);
 	}
 
-	return -ENODEV;
+	return 0;
 }
 
 static int aest_device_probe(struct platform_device *pdev)

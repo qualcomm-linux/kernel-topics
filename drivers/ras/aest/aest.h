@@ -94,8 +94,16 @@ struct aest_event {
 	/* Vendor node	: hardware ID. */
 	char *hid;
 	u32 index;
+	u64 ce_threshold;
 	int addressing_mode;
 	struct ras_ext_regs regs;
+
+	/*
+	 * This field is used to store vendor specific data for decoding error
+	 * record by EDAC driver.
+	 */
+	void *vendor_data;
+	size_t vendor_data_size;
 };
 
 struct aest_access {
@@ -147,6 +155,9 @@ struct aest_record {
 	enum ras_ce_threshold threshold_type;
 	struct record_count count;
 	struct dentry *debugfs;
+
+	void *vendor_data;
+	size_t vendor_data_size;
 };
 
 struct aest_group {
@@ -208,6 +219,19 @@ struct aest_node {
 	 */
 	unsigned long *status_reporting;
 	int version;
+	/*
+	 * Usually bit[n] in errgsr indicates [n]th error record within this
+	 * error node report error. But some compoent may have different rules.
+	 * For example, CMN700 TRM 4.3.5.12 say:
+	 *	``` Error occurs when the index is even and Fault
+	 *	    occurs when the index is odd. ```
+	 *	Bit[n]: record[n] report ERROR.
+	 *	Bit[n + 1]: record[n] report FAULT.
+	 * errgsr_mapping function is used to map errgsr bit to record index
+	 * for various components.
+	 */
+	int (*errgsr_mapping)(int errgsr_bit);
+	int errgsr_num;
 
 	const struct aest_group *group;
 	struct aest_device *adev;
@@ -366,6 +390,21 @@ static inline bool aest_dev_is_oncore(struct aest_device *adev)
 	return adev->type == ACPI_AEST_PROCESSOR_ERROR_NODE;
 }
 
+static inline int default_errgsr_mapping(int errgsr_bit)
+{
+	return errgsr_bit;
+}
+
+static inline int cmn700_errgsr_mapping(int errgsr_bit)
+{
+	return errgsr_bit / 2;
+}
+
 void aest_dev_init_debugfs(struct aest_device *adev);
 void aest_inject_init_debugfs(struct aest_record *record);
 void aest_proc_record(struct aest_record *record, void *data, bool fake);
+void aest_node_foreach_record(void (*func)(struct aest_record *, void *, bool),
+			      struct aest_node *node, void *data,
+			      unsigned long *bitmap);
+
+int aest_cmn700_probe(struct aest_device *adev, struct aest_hnode *ahnode);
