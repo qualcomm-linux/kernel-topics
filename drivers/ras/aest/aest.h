@@ -61,6 +61,8 @@
 #define ERXMISC2 0x30
 #define ERXMISC3 0x38
 
+#define GIC_ERRDEVARCH 0xFFBC
+
 struct aest_access {
 	u64 (*read)(void *base, u32 offset);
 	void (*write)(void *base, u32 offset, u64 val);
@@ -141,6 +143,7 @@ struct aest_node {
 	 *              error events.
 	 */
 	unsigned long *status_reporting;
+	int version;
 
 	const struct aest_group *group;
 	struct aest_device *adev;

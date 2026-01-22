@@ -4,6 +4,9 @@
 
 #include <linux/types.h>
 
+/* ERRDEVARCH */
+#define ERRDEVARCH_REV GENMASK(19, 16)
+
 struct ras_ext_regs {
 	u64 err_fr;
 	u64 err_ctlr;

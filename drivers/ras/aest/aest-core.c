@@ -16,6 +16,27 @@ DEFINE_PER_CPU(struct aest_device, percpu_adev);
 #undef pr_fmt
 #define pr_fmt(fmt) "AEST: " fmt
 
+static int get_aest_node_ver(struct aest_node *node)
+{
+	u64 reg;
+	void *devarch_base;
+
+	if (node->type == ACPI_AEST_GIC_ERROR_NODE) {
+		devarch_base = ioremap(node->info->interface_hdr->address +
+					       GIC_ERRDEVARCH,
+				       PAGE_SIZE);
+		if (!devarch_base)
+			return 0;
+
+		reg = readl_relaxed(devarch_base);
+		iounmap(devarch_base);
+
+		return FIELD_GET(ERRDEVARCH_REV, reg);
+	}
+
+	return FIELD_GET(ID_AA64PFR0_EL1_RAS_MASK, read_cpuid(ID_AA64PFR0_EL1));
+}
+
 static int aest_init_record(struct aest_record *record, int i,
 			    struct aest_node *node)
 {
@@ -108,6 +129,7 @@ static int aest_init_node(struct aest_device *adev, struct aest_node *node,
 	node->adev = adev;
 	node->info = anode;
 	node->type = anode->type;
+	node->version = get_aest_node_ver(node);
 	node->name = alloc_aest_node_name(node);
 	if (!node->name)
 		return -ENOMEM;
