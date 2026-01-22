@@ -362,3 +362,5 @@ static inline bool aest_dev_is_oncore(struct aest_device *adev)
 }
 
 void aest_dev_init_debugfs(struct aest_device *adev);
+void aest_inject_init_debugfs(struct aest_record *record);
+void aest_proc_record(struct aest_record *record, void *data, bool fake);

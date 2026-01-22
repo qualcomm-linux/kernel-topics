@@ -273,7 +273,7 @@ static void aest_panic(struct aest_record *record, struct ras_ext_regs *regs,
 	panic(msg);
 }
 
-static void aest_proc_record(struct aest_record *record, void *data)
+void aest_proc_record(struct aest_record *record, void *data, bool fake)
 {
 	struct ras_ext_regs regs = { 0 };
 	int *count = data;
@@ -315,9 +315,15 @@ static void aest_proc_record(struct aest_record *record, void *data)
 	/* panic if unrecoverable and uncontainable error encountered */
 	ue = FIELD_GET(ERR_STATUS_UET, regs.err_status);
 	if ((regs.err_status & ERR_STATUS_UE) &&
-	    (ue == ERR_STATUS_UET_UC || ue == ERR_STATUS_UET_UEU))
-		aest_panic(record, &regs,
-			   "AEST: unrecoverable error encountered");
+	    (ue == ERR_STATUS_UET_UC || ue == ERR_STATUS_UET_UEU)) {
+		if (fake)
+			aest_record_info(
+				record,
+				"Simulated error! Skip panic due to fault injection\n");
+		else
+			aest_panic(record, &regs,
+				   "AEST: unrecoverable error encountered");
+	}
 
 	aest_log(record, &regs);
 
@@ -335,7 +341,8 @@ static void aest_proc_record(struct aest_record *record, void *data)
 	record_write(record, ERXSTATUS, regs.err_status);
 }
 
-static void aest_node_foreach_record(void (*func)(struct aest_record *, void *),
+static void aest_node_foreach_record(void (*func)(struct aest_record *, void *,
+						  bool),
 				     struct aest_node *node, void *data,
 				     unsigned long *bitmap)
 {
@@ -344,7 +351,7 @@ static void aest_node_foreach_record(void (*func)(struct aest_record *, void *),
 	for_each_clear_bit(i, bitmap, node->record_count) {
 		aest_select_record(node, i);
 
-		func(&node->records[i], data);
+		func(&node->records[i], data, false);
 
 		aest_sync(node);
 	}
@@ -379,7 +386,7 @@ static int aest_proc(struct aest_node *node)
 			if (test_bit(i * BITS_PER_LONG + j,
 				     node->status_reporting))
 				continue;
-			aest_proc_record(&node->records[j], &count);
+			aest_proc_record(&node->records[j], &count, false);
 		}
 	}
 
@@ -595,7 +602,8 @@ static int aest_init_record(struct aest_record *record, int i,
 	return 0;
 }
 
-static void aest_online_record(struct aest_record *record, void *data)
+static void aest_online_record(struct aest_record *record, void *data,
+			       bool __unused)
 {
 	if (record_read(record, ERXFR) & ERR_FR_CE)
 		aest_set_ce_threshold(record);
