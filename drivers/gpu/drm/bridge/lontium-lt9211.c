@@ -1447,7 +1447,6 @@ static void lt9211_delayed_work_func(struct work_struct *work)
 		if (ret)
 			return;
 
-
 		ret = lt9211c_configure_plls(ctx, mode);
 		if (ret)
 			return;
