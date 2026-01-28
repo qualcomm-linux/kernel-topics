@@ -728,7 +728,7 @@ static int lt9211_host_attach(struct lt9211 *ctx)
 			.type = (ctx->chip_type == LT9211C) ? "lt9211c" : "lt9211",
 			.channel = 0,
 			.node = NULL,
-    };
+	};
 
 	struct device *dev = ctx->dev;
 	struct device_node *host_node;
