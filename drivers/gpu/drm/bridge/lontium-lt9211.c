@@ -730,7 +730,7 @@ static int lt9211_host_attach(struct lt9211 *ctx)
 			.node = NULL,
 	};
 
-	if(ctx->chip_type == LT9211C)
+	if (ctx->chip_type == LT9211C)
 		strscpy(info.type, "lt9211c", sizeof(info.type));
 
 	struct device *dev = ctx->dev;
