@@ -724,11 +724,14 @@ static int lt9211_parse_dt(struct lt9211 *ctx)
 
 static int lt9211_host_attach(struct lt9211 *ctx)
 {
-	const struct mipi_dsi_device_info info = {
-			.type = (ctx->chip_type == LT9211C) ? "lt9211c" : "lt9211",
+	struct mipi_dsi_device_info info = {
+			.type = "lt9211",
 			.channel = 0,
 			.node = NULL,
 	};
+
+	if(ctx->chip_type == LT9211C)
+		strscpy(info.type, "lt9211c", sizeof(info.type));
 
 	struct device *dev = ctx->dev;
 	struct device_node *host_node;
