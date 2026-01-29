@@ -101,6 +101,12 @@ void ath12k_hal_reo_init_cmd_ring(struct ath12k_base *ab, struct hal_srng *srng)
 	ab->hal.ops->reo_init_cmd_ring(ab, srng);
 }
 
+void ath12k_hal_reo_shared_qaddr_cache_clear(struct ath12k_base *ab)
+{
+	ab->hal.ops->reo_shared_qaddr_cache_clear(ab);
+}
+EXPORT_SYMBOL(ath12k_hal_reo_shared_qaddr_cache_clear);
+
 void ath12k_hal_rx_buf_addr_info_set(struct ath12k_hal *hal,
 				     struct ath12k_buffer_addr *binfo,
 				     dma_addr_t paddr, u32 cookie, u8 manager)

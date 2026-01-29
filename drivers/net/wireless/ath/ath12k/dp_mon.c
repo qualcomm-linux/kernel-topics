@@ -511,6 +511,7 @@ void ath12k_dp_mon_rx_deliver_msdu(struct ath12k_pdev_dp *dp_pdev,
 	struct ieee80211_sta *pubsta = NULL;
 	struct ath12k_dp_link_peer *peer;
 	struct ath12k_skb_rxcb *rxcb = ATH12K_SKB_RXCB(msdu);
+	struct hal_rx_desc_data rx_info;
 	bool is_mcbc = rxcb->is_mcbc;
 	bool is_eapol_tkip = rxcb->is_eapol;
 	struct hal_rx_desc *rx_desc = (struct hal_rx_desc *)msdu->data;
@@ -529,7 +530,7 @@ void ath12k_dp_mon_rx_deliver_msdu(struct ath12k_pdev_dp *dp_pdev,
 
 	rcu_read_lock();
 	spin_lock_bh(&dp->dp_lock);
-	peer = ath12k_peer_find_by_id(ar->ab, ppduinfo->peer_id);
+	peer = ath12k_dp_rx_h_find_link_peer(dp_pdev, msdu, &rx_info);
 	if (peer && peer->sta) {
 		pubsta = peer->sta;
 		memcpy(addr, peer->addr, ETH_ALEN);
@@ -1010,34 +1011,6 @@ void ath12k_dp_mon_rx_process_ulofdma(struct hal_rx_mon_ppdu_info *ppdu_info)
 	ppdu_info->ldpc = 1;
 }
 EXPORT_SYMBOL(ath12k_dp_mon_rx_process_ulofdma);
-
-static void
-ath12k_parse_cmn_usr_info(const struct hal_phyrx_common_user_info *cmn_usr_info,
-			  struct hal_rx_mon_ppdu_info *ppdu_info)
-{
-	struct hal_rx_radiotap_eht *eht = &ppdu_info->eht_info.eht;
-	u32 known, data, cp_setting, ltf_size;
-
-	known = __le32_to_cpu(eht->known);
-	known |= IEEE80211_RADIOTAP_EHT_KNOWN_GI |
-		IEEE80211_RADIOTAP_EHT_KNOWN_EHT_LTF;
-	eht->known = cpu_to_le32(known);
-
-	cp_setting = le32_get_bits(cmn_usr_info->info0,
-				   HAL_RX_CMN_USR_INFO0_CP_SETTING);
-	ltf_size = le32_get_bits(cmn_usr_info->info0,
-				 HAL_RX_CMN_USR_INFO0_LTF_SIZE);
-
-	data = __le32_to_cpu(eht->data[0]);
-	data |= u32_encode_bits(cp_setting, IEEE80211_RADIOTAP_EHT_DATA0_GI);
-	data |= u32_encode_bits(ltf_size, IEEE80211_RADIOTAP_EHT_DATA0_LTF);
-	eht->data[0] = cpu_to_le32(data);
-
-	if (!ppdu_info->ltf_size)
-		ppdu_info->ltf_size = ltf_size;
-	if (!ppdu_info->gi)
-		ppdu_info->gi = cp_setting;
-}
 
 static void
 ath12k_dp_mon_rx_update_user_stats(struct ath12k_base *ab,

@@ -13396,8 +13396,10 @@ void ath12k_mac_op_link_sta_statistics(struct ieee80211_hw *hw,
 	}
 
 	link_sinfo->signal_avg = ewma_avg_rssi_read(&peer->avg_rssi);
+
 	if (!db2dbm)
 		link_sinfo->signal_avg += ATH12K_DEFAULT_NOISE_FLOOR;
+
 	link_sinfo->filled |= BIT_ULL(NL80211_STA_INFO_SIGNAL_AVG);
 
 	link_sinfo->tx_retries = peer->tx_retry_count;

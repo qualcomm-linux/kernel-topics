@@ -95,28 +95,13 @@ void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab,
 void ath12k_wifi7_dp_rx_peer_tid_delete(struct ath12k_base *ab,
 					struct ath12k_dp_link_peer *peer, u8 tid)
 {
-	struct ath12k_dp_rx_tid *rx_tid = &peer->dp_peer->rx_tid[tid];
-	struct ath12k_base *ab = ar->ab;
-	struct ath12k_dp *dp = &ab->dp;
+	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
 
 	if (!(peer->rx_tid_active_bitmask & (1 << tid)))
 		return;
 
-	ath12k_dp_init_rx_tid_rxq(&rx_tid_rxq, rx_tid);
-
-	ret = ath12k_dp_rx_tid_delete_handler(ar->ab, &rx_tid_rxq);
-	if (ret) {
-		ath12k_err(ab, "failed to send HAL_REO_CMD_UPDATE_RX_QUEUE cmd, tid %d (%d)\n",
-			   tid, ret);
-		ath12k_dp_rx_tid_cleanup(ar->ab, &rx_tid->qbuf);
-	}
-
-	if (peer->mlo)
-		ath12k_wifi7_peer_rx_tid_qref_reset(ab, peer->ml_id, tid);
-	else
-		ath12k_wifi7_peer_rx_tid_qref_reset(ab, peer->peer_id, tid);
-
-	peer->rx_tid_active_bitmask &= ~(1 << tid);
+	ath12k_dp_mark_tid_as_inactive(dp, peer->peer_id, tid);
+	ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(dp);
 }
 
 int ath12k_wifi7_dp_rx_link_desc_return(struct ath12k_dp *dp,
@@ -151,7 +136,7 @@ exit:
 }
 
 int ath12k_wifi7_dp_reo_cmd_send(struct ath12k_base *ab,
-				 struct ath12k_dp_rx_tid *rx_tid,
+				 struct ath12k_dp_rx_tid_rxq *rx_tid,
 				 enum hal_reo_cmd_type type,
 				 struct ath12k_hal_reo_cmd *cmd,
 				 void (*cb)(struct ath12k_dp *dp, void *ctx,
@@ -207,7 +192,8 @@ int ath12k_wifi7_peer_rx_tid_reo_update(struct ath12k_dp *dp,
 	int ret;
 	struct ath12k_dp_rx_tid_rxq rx_tid_rxq;
 
-	ath12k_dp_init_rx_tid_rxq(&rx_tid_rxq, rx_tid);
+	ath12k_dp_init_rx_tid_rxq(&rx_tid_rxq, rx_tid,
+				  (peer->rx_tid_active_bitmask & (1 << rx_tid->tid)));
 
 	cmd.addr_lo = lower_32_bits(rx_tid_rxq.qbuf.paddr_aligned);
 	cmd.addr_hi = upper_32_bits(rx_tid_rxq.qbuf.paddr_aligned);
@@ -311,6 +297,23 @@ int ath12k_wifi7_dp_rx_assign_reoq(struct ath12k_base *ab, struct ath12k_dp_peer
 	rx_tid->qbuf = *buf;
 
 	return 0;
+}
+
+int ath12k_wifi7_dp_rx_tid_delete_handler(struct ath12k_base *ab,
+					  struct ath12k_dp_rx_tid_rxq *rx_tid)
+{
+	struct ath12k_hal_reo_cmd cmd = {};
+
+	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
+	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
+	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
+	cmd.upd0 |= HAL_REO_CMD_UPD0_VLD;
+	/* Observed flush cache failure, to avoid that set vld bit during delete */
+	cmd.upd1 |= HAL_REO_CMD_UPD1_VLD;
+
+	return ath12k_wifi7_dp_reo_cmd_send(ab, rx_tid,
+					    HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
+					    ath12k_dp_rx_tid_del_func);
 }
 
 static void ath12k_wifi7_dp_rx_h_csum_offload(struct sk_buff *msdu,
@@ -1342,7 +1345,7 @@ exit:
 	return 0;
 }
 
-static int ath12k_dp_h_msdu_buffer_type(struct ath12k_base *ab,
+static int ath12k_dp_h_msdu_buffer_type(struct ath12k_dp *dp,
 					struct list_head *list,
 					struct hal_reo_dest_ring *desc)
 {
@@ -1351,7 +1354,7 @@ static int ath12k_dp_h_msdu_buffer_type(struct ath12k_base *ab,
 	struct sk_buff *msdu;
 	u64 desc_va;
 
-	ab->device_stats.reo_excep_msdu_buf_type++;
+	dp->device_stats.reo_excep_msdu_buf_type++;
 
 	desc_va = (u64)le32_to_cpu(desc->buf_va_hi) << 32 |
 		  le32_to_cpu(desc->buf_va_lo);
@@ -1361,16 +1364,16 @@ static int ath12k_dp_h_msdu_buffer_type(struct ath12k_base *ab,
 
 		cookie = le32_get_bits(desc->buf_addr_info.info1,
 				       BUFFER_ADDR_INFO1_SW_COOKIE);
-		desc_info = ath12k_dp_get_rx_desc(ab, cookie);
+		desc_info = ath12k_dp_get_rx_desc(dp, cookie);
 		if (!desc_info) {
-			ath12k_warn(ab, "Invalid cookie in manual descriptor retrieval: 0x%x\n",
+			ath12k_warn(dp->ab, "Invalid cookie in manual descriptor retrieval: 0x%x\n",
 				    cookie);
 			return -EINVAL;
 		}
 	}
 
 	if (desc_info->magic != ATH12K_DP_RX_DESC_MAGIC) {
-		ath12k_warn(ab, "rx exception, magic check failed with value: %u\n",
+		ath12k_warn(dp->ab, "rx exception, magic check failed with value: %u\n",
 			    desc_info->magic);
 		return -EINVAL;
 	}
@@ -1379,7 +1382,7 @@ static int ath12k_dp_h_msdu_buffer_type(struct ath12k_base *ab,
 	desc_info->skb = NULL;
 	list_add_tail(&desc_info->list, list);
 	rxcb = ATH12K_SKB_RXCB(msdu);
-	dma_unmap_single(ab->dev, rxcb->paddr, msdu->len + skb_tailroom(msdu),
+	dma_unmap_single(dp->dev, rxcb->paddr, msdu->len + skb_tailroom(msdu),
 			 DMA_FROM_DEVICE);
 	dev_kfree_skb_any(msdu);
 
@@ -1438,7 +1441,7 @@ int ath12k_wifi7_dp_rx_process_err(struct ath12k_dp *dp, struct napi_struct *nap
 		hw_link_id = le32_get_bits(reo_desc->info0,
 					   HAL_REO_DEST_RING_INFO0_SRC_LINK_ID);
 		device_id = hw_links[hw_link_id].device_id;
-		partner_ab = ath12k_ag_to_ab(ag, device_id);
+		partner_dp = ath12k_dp_hw_grp_to_dp(dp_hw_grp, device_id);
 
 		/* Below case is added to handle data packet from un-associated clients.
 		 * As it is expected that AST lookup will fail for
@@ -1446,7 +1449,7 @@ int ath12k_wifi7_dp_rx_process_err(struct ath12k_dp *dp, struct napi_struct *nap
 		 */
 		if (le32_get_bits(reo_desc->info0, HAL_REO_DEST_RING_INFO0_BUFFER_TYPE) ==
 		    HAL_REO_DEST_RING_BUFFER_TYPE_MSDU) {
-			if (!ath12k_dp_h_msdu_buffer_type(partner_ab,
+			if (!ath12k_dp_h_msdu_buffer_type(partner_dp,
 							  &rx_desc_used_list[device_id],
 							  reo_desc)) {
 				num_buffs_reaped[device_id]++;

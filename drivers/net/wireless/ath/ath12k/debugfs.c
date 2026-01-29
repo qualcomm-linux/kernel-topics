@@ -1157,6 +1157,7 @@ static ssize_t ath12k_debugfs_dump_device_dp_stats(struct file *file,
 
 	len += scnprintf(buf + len, size - len, "\n");
 
+	rcu_read_lock();
 	for (i = 0; i < ab->num_radios; i++) {
 		ar = ath12k_mac_get_ar_by_pdev_id(ab, DP_SW2HW_MACID(i));
 		if (ar) {
@@ -1165,6 +1166,7 @@ static ssize_t ath12k_debugfs_dump_device_dp_stats(struct file *file,
 					atomic_read(&ar->dp.num_tx_pending));
 		}
 	}
+	rcu_read_unlock();
 
 	len += scnprintf(buf + len, size - len, "\nREO Rx Received:\n");
 

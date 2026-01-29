@@ -260,4 +260,9 @@ void ath12k_dp_reo_cmd_free(struct ath12k_dp *dp, void *ctx,
 			    enum hal_reo_cmd_status status);
 void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 			       enum hal_reo_cmd_status status);
+void ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(struct ath12k_dp *dp);
+void ath12k_dp_init_rx_tid_rxq(struct ath12k_dp_rx_tid_rxq *rx_tid_rxq,
+			       struct ath12k_dp_rx_tid *rx_tid,
+			       bool active);
+void ath12k_dp_mark_tid_as_inactive(struct ath12k_dp *dp, int peer_id, u8 tid);
 #endif /* ATH12K_DP_RX_H */
