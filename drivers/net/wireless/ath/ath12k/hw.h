@@ -78,7 +78,6 @@
 #define ATH12K_DEFAULT_CAL_FILE		"caldata.bin"
 #define ATH12K_AMSS_FILE		"amss.bin"
 #define ATH12K_M3_FILE			"m3.bin"
-#define ATH12K_AUX_UC_FILE		"aux_ucode.bin"
 #define ATH12K_REGDB_FILE_NAME		"regdb.bin"
 
 #define ATH12K_PCIE_MAX_PAYLOAD_SIZE	128
@@ -148,8 +147,6 @@ struct ath12k_hw_params {
 		size_t board_size;
 		size_t cal_offset;
 		enum ath12k_m3_fw_loaders m3_loader;
-		bool std_elf_img:1;
-		bool download_aux_ucode:1;
 	} fw;
 
 	u8 max_radios;
@@ -288,8 +285,6 @@ enum ath12k_bd_ie_type {
 	ATH12K_BD_IE_REGDB = 1,
 };
 
-#define ATH12K_HW_REG_UNDEFINED	0xdeadbeaf
-
 struct ath12k_hw_regs {
 	u32 hal_tcl1_ring_id;
 	u32 hal_tcl1_ring_misc;
@@ -368,8 +363,6 @@ struct ath12k_hw_regs {
 	u32 hal_reo_status_ring_base;
 
 	u32 gcc_gcc_pcie_hot_rst;
-
-	u32 qrtr_node_id;
 };
 
 static inline const char *ath12k_bd_ie_type_str(enum ath12k_bd_ie_type type)

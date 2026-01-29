@@ -58,11 +58,6 @@
 #define QCN9274_QFPROM_RAW_RFA_PDET_ROW13_LSB	0x1E20338
 #define OTP_BOARD_ID_MASK			GENMASK(15, 0)
 
-#define PCIE_LOCAL_REG_QRTR_NODE_ID(ab) \
-	((ab)->hw_params->regs->qrtr_node_id)
-#define DOMAIN_NUMBER_MASK                      GENMASK(7, 4)
-#define BUS_NUMBER_MASK                         GENMASK(3, 0)
-
 #define PCI_BAR_WINDOW0_BASE	0x1E00000
 #define PCI_BAR_WINDOW0_END	0x1E7FFFC
 #define PCI_SOC_RANGE_MASK	0x3FFF
@@ -124,8 +119,6 @@ struct ath12k_pci {
 	const struct ath12k_pci_ops *pci_ops;
 	u32 qmi_instance;
 	u64 dma_mask;
-
-	u32 window_reg_addr;
 };
 
 static inline struct ath12k_pci *ath12k_pci_priv(struct ath12k_base *ab)

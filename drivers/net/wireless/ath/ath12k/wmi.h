@@ -2782,8 +2782,6 @@ enum wmi_channel_width {
 #define WMI_EHT_MCS_NSS_10_11  GENMASK(11, 8)
 #define WMI_EHT_MCS_NSS_12_13  GENMASK(15, 12)
 
-#define WMI_TARGET_CAP_FLAGS_RX_PEER_METADATA_VERSION	GENMASK(1, 0)
-
 struct wmi_service_ready_ext2_event {
 	__le32 reg_db_version;
 	__le32 hw_min_max_tx_power_2ghz;
@@ -5233,8 +5231,6 @@ struct ath12k_wmi_base {
 	struct ath12k_svc_ext_info svc_ext_info;
 	u32 sbs_lower_band_end_freq;
 	struct ath12k_hw_mode_info hw_mode_info;
-
-	u8 dp_peer_meta_data_ver;
 };
 
 struct wmi_pdev_set_bios_interface_cmd {
@@ -6326,9 +6322,6 @@ struct ath12k_wmi_rssi_dbm_conv_info_arg {
 	bool nf_dbm_present;
 	s8 min_nf_dbm;
 };
-
-/* each WMI cmd can hold 58 channel entries at most */
-#define ATH12K_WMI_MAX_NUM_CHAN_PER_CMD	58
 
 void ath12k_wmi_init_qcn9274(struct ath12k_base *ab,
 			     struct ath12k_wmi_resource_config_arg *config);

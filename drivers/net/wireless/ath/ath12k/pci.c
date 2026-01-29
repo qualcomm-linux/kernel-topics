@@ -23,7 +23,6 @@
 
 #define WINDOW_ENABLE_BIT		0x40000000
 #define WINDOW_REG_ADDRESS		0x310c
-#define WINDOW_REG_ADDRESS_QCC2072	0x3278
 #define WINDOW_VALUE_MASK		GENMASK(24, 19)
 #define WINDOW_START			0x80000
 #define WINDOW_RANGE_MASK		GENMASK(18, 0)
@@ -41,15 +40,14 @@
 
 #define QCN9274_DEVICE_ID		0x1109
 #define WCN7850_DEVICE_ID		0x1107
-#define QCC2072_DEVICE_ID		0x1112
 
+#define PCIE_LOCAL_REG_QRTR_NODE_ID	0x1E03164
 #define DOMAIN_NUMBER_MASK		GENMASK(7, 4)
 #define BUS_NUMBER_MASK			GENMASK(3, 0)
 
 static const struct pci_device_id ath12k_pci_id_table[] = {
 	{ PCI_VDEVICE(QCOM, QCN9274_DEVICE_ID) },
 	{ PCI_VDEVICE(QCOM, WCN7850_DEVICE_ID) },
-	{ PCI_VDEVICE(QCOM, QCC2072_DEVICE_ID) },
 	{}
 };
 
@@ -162,11 +160,6 @@ static const struct ath12k_pci_ops ath12k_pci_ops_wcn7850 = {
 	.release = ath12k_pci_bus_release,
 };
 
-static const struct ath12k_pci_ops ath12k_pci_ops_qcc2027 = {
-	.wakeup = ath12k_pci_bus_wake_up,
-	.release = ath12k_pci_bus_release,
-};
-
 static void ath12k_pci_select_window(struct ath12k_pci *ab_pci, u32 offset)
 {
 	struct ath12k_base *ab = ab_pci->ab;
@@ -182,8 +175,8 @@ static void ath12k_pci_select_window(struct ath12k_pci *ab_pci, u32 offset)
 
 	if (window != ab_pci->register_window) {
 		iowrite32(WINDOW_ENABLE_BIT | window,
-			  ab->mem + ab_pci->window_reg_addr);
-		ioread32(ab->mem + ab_pci->window_reg_addr);
+			  ab->mem + WINDOW_REG_ADDRESS);
+		ioread32(ab->mem + WINDOW_REG_ADDRESS);
 		ab_pci->register_window = window;
 	}
 }
@@ -200,7 +193,7 @@ static void ath12k_pci_select_static_window(struct ath12k_pci *ab_pci)
 	ab_pci->register_window = window;
 	spin_unlock_bh(&ab_pci->window_lock);
 
-	iowrite32(WINDOW_ENABLE_BIT | window, ab_pci->ab->mem + ab_pci->window_reg_addr);
+	iowrite32(WINDOW_ENABLE_BIT | window, ab_pci->ab->mem + WINDOW_REG_ADDRESS);
 }
 
 static u32 ath12k_pci_get_window_start(struct ath12k_base *ab,
@@ -972,7 +965,7 @@ static void ath12k_pci_update_qrtr_node_id(struct ath12k_base *ab)
 	 * writes to the given register, it is available for firmware when the QMI service
 	 * is spawned.
 	 */
-	reg = PCIE_LOCAL_REG_QRTR_NODE_ID(ab) & WINDOW_RANGE_MASK;
+	reg = PCIE_LOCAL_REG_QRTR_NODE_ID & WINDOW_RANGE_MASK;
 	ath12k_pci_write32(ab, reg, ab_pci->qmi_instance);
 
 	ath12k_dbg(ab, ATH12K_DBG_PCI, "pci reg 0x%x instance 0x%x read val 0x%x\n",
@@ -1618,11 +1611,6 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 		ab->static_window_map = true;
 		ab_pci->pci_ops = &ath12k_pci_ops_qcn9274;
 		ab->hal_rx_ops = &hal_rx_qcn9274_ops;
-		/*
-		 * init window reg addr before reading hardware version
-		 * as it will be used there
-		 */
-		ab_pci->window_reg_addr = WINDOW_REG_ADDRESS;
 		ath12k_pci_read_hw_version(ab, &soc_hw_version_major,
 					   &soc_hw_version_minor);
 		ab->target_mem_mode = ath12k_core_get_memory_mode(ab);
@@ -1647,11 +1635,6 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 		ab->static_window_map = false;
 		ab_pci->pci_ops = &ath12k_pci_ops_wcn7850;
 		ab->hal_rx_ops = &hal_rx_wcn7850_ops;
-		/*
-		 * init window reg addr before reading hardware version
-		 * as it will be used there
-		 */
-		ab_pci->window_reg_addr = WINDOW_REG_ADDRESS;
 		ath12k_pci_read_hw_version(ab, &soc_hw_version_major,
 					   &soc_hw_version_minor);
 		ab->target_mem_mode = ATH12K_QMI_MEMORY_MODE_DEFAULT;
@@ -1666,16 +1649,6 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 			ret = -EOPNOTSUPP;
 			goto err_pci_free_region;
 		}
-		break;
-	case QCC2072_DEVICE_ID:
-		ab->id.bdf_search = ATH12K_BDF_SEARCH_BUS_AND_BOARD;
-		ab_pci->msi_config = &ath12k_msi_config[0];
-		ab->static_window_map = false;
-		ab_pci->pci_ops = &ath12k_pci_ops_qcc2027;
-		ab_pci->window_reg_addr = WINDOW_REG_ADDRESS_QCC2072;
-		ab->hal_rx_ops = &hal_rx_qcc2072_ops;
-		/* there is only one version till now */
-		ab->hw_rev = ATH12K_HW_QCC2072_HW10;
 		break;
 
 	default:

@@ -1106,21 +1106,15 @@ struct hal_ops {
 	u16 (*rxdma_ring_wmask_rx_mpdu_start)(void);
 	u32 (*rxdma_ring_wmask_rx_msdu_end)(void);
 	const struct hal_rx_ops *(*get_hal_rx_compact_ops)(void);
-	void (*reo_init_cmd_ring)(void *entry, int cmd_num);
-	void *(*reo_cmd_encode_hdr)(void *reo_desc,
-				    u64 tag, u64 len);
-	u16 (*reo_status_decode_hdr)(void *reo_desc, void **desc);
 	const struct ath12k_hal_tcl_to_wbm_rbm_map *tcl_to_wbm_rbm_map;
 };
 
 extern const struct hal_ops hal_qcn9274_ops;
 extern const struct hal_ops hal_wcn7850_ops;
-extern const struct hal_ops hal_qcc2072_ops;
 
 extern const struct hal_rx_ops hal_rx_qcn9274_ops;
 extern const struct hal_rx_ops hal_rx_qcn9274_compact_ops;
 extern const struct hal_rx_ops hal_rx_wcn7850_ops;
-extern const struct hal_rx_ops hal_rx_qcc2072_ops;
 
 u32 ath12k_hal_reo_qdesc_size(u32 ba_window_size, u8 tid);
 void ath12k_hal_reo_qdesc_setup(struct hal_rx_reo_queue *qdesc,

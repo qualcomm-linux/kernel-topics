@@ -147,15 +147,6 @@ static const struct ath12k_hw_ops wcn7850_ops = {
 	.is_frame_link_agnostic = ath12k_is_frame_link_agnostic_wcn7850,
 };
 
-static const struct ath12k_hw_ops qcc2072_ops = {
-	.get_hw_mac_from_pdev_id = ath12k_hw_qcn9274_mac_from_pdev_id,
-	.mac_id_to_pdev_id = ath12k_hw_mac_id_to_pdev_id_wcn7850,
-	.mac_id_to_srng_id = ath12k_hw_mac_id_to_srng_id_wcn7850,
-	.rxdma_ring_sel_config = ath12k_dp_rxdma_ring_sel_config_qcc2072,
-	.get_ring_selector = ath12k_hw_get_ring_selector_wcn7850,
-	.dp_srng_is_tx_comp_ring = ath12k_dp_srng_is_comp_ring_wcn7850,
-};
-
 #define ATH12K_TX_RING_MASK_0 0x1
 #define ATH12K_TX_RING_MASK_1 0x2
 #define ATH12K_TX_RING_MASK_2 0x4
@@ -1017,8 +1008,6 @@ static const struct ath12k_hw_regs qcn9274_v1_regs = {
 	.hal_umac_ce1_dest_reg_base = 0x01b83000,
 
 	.gcc_gcc_pcie_hot_rst = 0x1e38338,
-
-	.qrtr_node_id = 0x1e03164,
 };
 
 static const struct ath12k_hw_regs qcn9274_v2_regs = {
@@ -1112,8 +1101,6 @@ static const struct ath12k_hw_regs qcn9274_v2_regs = {
 	.hal_umac_ce1_dest_reg_base = 0x01b83000,
 
 	.gcc_gcc_pcie_hot_rst = 0x1e38338,
-
-	.qrtr_node_id = 0x1e03164,
 };
 
 static const struct ath12k_hw_regs ipq5332_regs = {
@@ -1289,97 +1276,6 @@ static const struct ath12k_hw_regs wcn7850_regs = {
 	.hal_umac_ce1_dest_reg_base = 0x01b83000,
 
 	.gcc_gcc_pcie_hot_rst = 0x1e40304,
-
-	.qrtr_node_id = 0x1e03164,
-};
-
-static const struct ath12k_hw_regs qcc2072_regs = {
-	/* SW2TCL(x) R0 ring configuration address */
-	.hal_tcl1_ring_id = 0x00000920,
-	.hal_tcl1_ring_misc = 0x00000928,
-	.hal_tcl1_ring_tp_addr_lsb = 0x00000934,
-	.hal_tcl1_ring_tp_addr_msb = 0x00000938,
-	.hal_tcl1_ring_consumer_int_setup_ix0 = 0x00000948,
-	.hal_tcl1_ring_consumer_int_setup_ix1 = 0x0000094c,
-	.hal_tcl1_ring_msi1_base_lsb = 0x00000960,
-	.hal_tcl1_ring_msi1_base_msb = 0x00000964,
-	.hal_tcl1_ring_msi1_data = 0x00000968,
-	.hal_tcl_ring_base_lsb = 0x00000b70,
-	.hal_tcl1_ring_base_lsb = 0x00000918,
-	.hal_tcl1_ring_base_msb = 0x0000091c,
-	.hal_tcl2_ring_base_lsb = 0x00000990,
-
-	/* TCL STATUS ring address */
-	.hal_tcl_status_ring_base_lsb = 0x00000d50,
-
-	.hal_wbm_idle_ring_base_lsb = 0x00000d3c,
-	.hal_wbm_idle_ring_misc_addr = 0x00000d4c,
-	.hal_wbm_r0_idle_list_cntl_addr = 0x00000240,
-	.hal_wbm_r0_idle_list_size_addr = 0x00000244,
-	.hal_wbm_scattered_ring_base_lsb = 0x00000250,
-	.hal_wbm_scattered_ring_base_msb = 0x00000254,
-	.hal_wbm_scattered_desc_head_info_ix0 = 0x00000260,
-	.hal_wbm_scattered_desc_head_info_ix1 = 0x00000264,
-	.hal_wbm_scattered_desc_tail_info_ix0 = 0x00000270,
-	.hal_wbm_scattered_desc_tail_info_ix1 = 0x00000274,
-	.hal_wbm_scattered_desc_ptr_hp_addr = 0x00000027c,
-
-	.hal_wbm_sw_release_ring_base_lsb = 0x0000037c,
-	.hal_wbm_sw1_release_ring_base_lsb = ATH12K_HW_REG_UNDEFINED,
-	.hal_wbm0_release_ring_base_lsb = 0x00000e08,
-	.hal_wbm1_release_ring_base_lsb = 0x00000e80,
-
-	/* PCIe base address */
-	.pcie_qserdes_sysclk_en_sel = 0x01e0c0ac,
-	.pcie_pcs_osc_dtct_config_base = 0x01e0d45c,
-
-	/* PPE release ring address */
-	.hal_ppe_rel_ring_base = 0x0000046c,
-
-	/* REO DEST ring address */
-	.hal_reo2_ring_base = 0x00000578,
-	.hal_reo1_misc_ctrl_addr = 0x00000ba0,
-	.hal_reo1_sw_cookie_cfg0 = 0x0000006c,
-	.hal_reo1_sw_cookie_cfg1 = 0x00000070,
-	.hal_reo1_qdesc_lut_base0 = ATH12K_HW_REG_UNDEFINED,
-	.hal_reo1_qdesc_lut_base1 = ATH12K_HW_REG_UNDEFINED,
-	.hal_reo1_ring_base_lsb = 0x00000500,
-	.hal_reo1_ring_base_msb = 0x00000504,
-	.hal_reo1_ring_id = 0x00000508,
-	.hal_reo1_ring_misc = 0x00000510,
-	.hal_reo1_ring_hp_addr_lsb = 0x00000514,
-	.hal_reo1_ring_hp_addr_msb = 0x00000518,
-	.hal_reo1_ring_producer_int_setup = 0x00000524,
-	.hal_reo1_ring_msi1_base_lsb = 0x00000548,
-	.hal_reo1_ring_msi1_base_msb = 0x0000054c,
-	.hal_reo1_ring_msi1_data = 0x00000550,
-	.hal_reo1_aging_thres_ix0 = 0x00000b2c,
-	.hal_reo1_aging_thres_ix1 = 0x00000b30,
-	.hal_reo1_aging_thres_ix2 = 0x00000b34,
-	.hal_reo1_aging_thres_ix3 = 0x00000b38,
-
-	/* REO Exception ring address */
-	.hal_reo2_sw0_ring_base = 0x000008c0,
-
-	/* REO Reinject ring address */
-	.hal_sw2reo_ring_base = 0x00000320,
-	.hal_sw2reo1_ring_base = 0x00000398,
-
-	/* REO cmd ring address */
-	.hal_reo_cmd_ring_base = 0x000002a8,
-
-	/* REO status ring address */
-	.hal_reo_status_ring_base = 0x00000aa0,
-
-	/* CE base address */
-	.hal_umac_ce0_src_reg_base = 0x01b80000,
-	.hal_umac_ce0_dest_reg_base = 0x01b81000,
-	.hal_umac_ce1_src_reg_base = 0x01b82000,
-	.hal_umac_ce1_dest_reg_base = 0x01b83000,
-
-	.gcc_gcc_pcie_hot_rst = 0x1e65304,
-
-	.qrtr_node_id = 0x1e03300,
 };
 
 static const struct ath12k_hw_hal_params ath12k_hw_hal_params_qcn9274 = {
@@ -1428,8 +1324,6 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.board_size = 256 * 1024,
 			.cal_offset = 128 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_driver,
-			.std_elf_img = false,
-			.download_aux_ucode = false,
 		},
 		.max_radios = 1,
 		.single_pdev_only = false,
@@ -1516,8 +1410,6 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.board_size = 256 * 1024,
 			.cal_offset = 256 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_driver,
-			.std_elf_img = false,
-			.download_aux_ucode = false,
 		},
 
 		.max_radios = 1,
@@ -1606,8 +1498,6 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.board_size = 256 * 1024,
 			.cal_offset = 128 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_driver,
-			.std_elf_img = false,
-			.download_aux_ucode = false,
 		},
 		.max_radios = 2,
 		.single_pdev_only = false,
@@ -1693,7 +1583,6 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 			.board_size = 256 * 1024,
 			.cal_offset = 128 * 1024,
 			.m3_loader = ath12k_m3_fw_loader_remoteproc,
-			.std_elf_img = false,
 		},
 		.max_radios = 1,
 		.single_pdev_only = false,
@@ -1764,99 +1653,6 @@ static const struct ath12k_hw_params ath12k_hw_params[] = {
 
 		.dp_primary_link_only = true,
 	},
-	{
-		.name = "qcc2072 hw1.0",
-		.hw_rev = ATH12K_HW_QCC2072_HW10,
-
-		.fw = {
-			.dir = "QCC2072/hw1.0",
-			.board_size = 256 * 1024,
-			.cal_offset = 256 * 1024,
-			.m3_loader = ath12k_m3_fw_loader_driver,
-			.std_elf_img = true,
-			.download_aux_ucode = true,
-		},
-
-		.max_radios = 1,
-		.single_pdev_only = true,
-		.qmi_service_ins_id = ATH12K_QMI_WLFW_SERVICE_INS_ID_V01_WCN7850,
-		.internal_sleep_clock = true,
-
-		.hw_ops = &qcc2072_ops,
-		.ring_mask = &ath12k_hw_ring_mask_wcn7850,
-		.regs = &qcc2072_regs,
-
-		.host_ce_config = ath12k_host_ce_config_wcn7850,
-		.ce_count = 9,
-		.target_ce_config = ath12k_target_ce_config_wlan_wcn7850,
-		.target_ce_count = 9,
-		.svc_to_ce_map = ath12k_target_service_to_ce_map_wlan_wcn7850,
-		.svc_to_ce_map_len = 14,
-
-		.hal_params = &ath12k_hw_hal_params_wcn7850,
-
-		.rxdma1_enable = false,
-		.num_rxdma_per_pdev = 2,
-		.num_rxdma_dst_ring = 1,
-		.rx_mac_buf_ring = true,
-		.vdev_start_delay = true,
-
-		.interface_modes = BIT(NL80211_IFTYPE_STATION) |
-				   BIT(NL80211_IFTYPE_AP) |
-				   BIT(NL80211_IFTYPE_P2P_DEVICE) |
-				   BIT(NL80211_IFTYPE_P2P_CLIENT) |
-				   BIT(NL80211_IFTYPE_P2P_GO),
-		.supports_monitor = true,
-
-		.idle_ps = true,
-		.download_calib = false,
-		.supports_suspend = true,
-		.tcl_ring_retry = false,
-		.reoq_lut_support = false,
-		.supports_shadow_regs = true,
-
-		.num_tcl_banks = 7,
-		.max_tx_ring = 3,
-
-		.mhi_config = &ath12k_mhi_config_wcn7850,
-
-		.wmi_init = ath12k_wmi_init_wcn7850,
-
-		.hal_ops = &hal_qcc2072_ops,
-
-		.qmi_cnss_feature_bitmap = BIT(CNSS_QDSS_CFG_MISS_V01) |
-					   BIT(CNSS_PCIE_PERST_NO_PULL_V01) |
-					   BIT(CNSS_AUX_UC_SUPPORT_V01),
-
-		.rfkill_pin = 0,
-		.rfkill_cfg = 0,
-		.rfkill_on_level = 0,
-
-		.rddm_size = 0x780000,
-
-		.def_num_link = 2,
-		.max_mlo_peer = 32,
-
-		.otp_board_id_register = 0,
-
-		.supports_sta_ps = true,
-
-		.acpi_guid = &wcn7850_uuid,
-		.supports_dynamic_smps_6ghz = false,
-
-		.iova_mask = 0,
-
-		.supports_aspm = true,
-
-		.ce_ie_addr = NULL,
-		.ce_remap = NULL,
-		.bdf_addr_offset = 0,
-
-		.current_cc_support = true,
-
-		.dp_primary_link_only = true,
-	},
-
 };
 
 int ath12k_hw_init(struct ath12k_base *ab)

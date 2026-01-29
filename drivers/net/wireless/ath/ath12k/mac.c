@@ -9172,10 +9172,7 @@ static void ath12k_mac_op_tx(struct ieee80211_hw *hw,
 			return;
 		}
 	} else {
-		if (vif->type == NL80211_IFTYPE_P2P_DEVICE)
-			link_id = ATH12K_FIRST_SCAN_LINK;
-		else
-			link_id = 0;
+		link_id = 0;
 	}
 
 	arvif = rcu_dereference(ahvif->link[link_id]);
@@ -13346,7 +13343,7 @@ static int ath12k_mac_op_cancel_remain_on_channel(struct ieee80211_hw *hw,
 	ath12k_scan_abort(ar);
 
 	cancel_delayed_work_sync(&ar->scan.timeout);
-	wiphy_work_flush(hw->wiphy, &ar->scan.vdev_clean_wk);
+	wiphy_work_cancel(hw->wiphy, &ar->scan.vdev_clean_wk);
 
 	return 0;
 }
