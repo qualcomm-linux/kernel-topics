@@ -74,11 +74,16 @@ struct lt9211 {
 };
 
 static const struct regmap_range lt9211_rw_ranges[] = {
-	regmap_reg_range(0xff, 0xff),	  regmap_reg_range(0x8100, 0x816b),
-	regmap_reg_range(0x8200, 0x82aa), regmap_reg_range(0x8500, 0x85ff),
-	regmap_reg_range(0x8600, 0x86a0), regmap_reg_range(0x8700, 0x8746),
-	regmap_reg_range(0xd000, 0xd0a7), regmap_reg_range(0xd400, 0xd42c),
-	regmap_reg_range(0xd800, 0xd838), regmap_reg_range(0xd9c0, 0xd9d5),
+	regmap_reg_range(0xff, 0xff),
+	regmap_reg_range(0x8100, 0x816b),
+	regmap_reg_range(0x8200, 0x82aa),
+	regmap_reg_range(0x8500, 0x85ff),
+	regmap_reg_range(0x8600, 0x86a0),
+	regmap_reg_range(0x8700, 0x8746),
+	regmap_reg_range(0xd000, 0xd0a7),
+	regmap_reg_range(0xd400, 0xd42c),
+	regmap_reg_range(0xd800, 0xd838),
+	regmap_reg_range(0xd9c0, 0xd9d5),
 };
 
 static const struct regmap_access_table lt9211_rw_table = {
@@ -110,11 +115,16 @@ static const struct regmap_config lt9211_regmap_config = {
 };
 
 static const struct regmap_range lt9211c_rw_ranges[] = {
-	regmap_reg_range(0xff, 0xff),	  regmap_reg_range(0x8100, 0x8182),
-	regmap_reg_range(0x8200, 0x82aa), regmap_reg_range(0x8500, 0x85ff),
-	regmap_reg_range(0x8600, 0x86a0), regmap_reg_range(0x8700, 0x8746),
-	regmap_reg_range(0xd000, 0xd0a7), regmap_reg_range(0xd400, 0xd42c),
-	regmap_reg_range(0xd800, 0xd838), regmap_reg_range(0xd9c0, 0xd9d5),
+	regmap_reg_range(0xff, 0xff),
+	regmap_reg_range(0x8100, 0x8182),
+	regmap_reg_range(0x8200, 0x82aa),
+	regmap_reg_range(0x8500, 0x85ff),
+	regmap_reg_range(0x8600, 0x86a0),
+	regmap_reg_range(0x8700, 0x8746),
+	regmap_reg_range(0xd000, 0xd0a7),
+	regmap_reg_range(0xd400, 0xd42c),
+	regmap_reg_range(0xd800, 0xd838),
+	regmap_reg_range(0xd9c0, 0xd9d5),
 };
 
 static const struct regmap_access_table lt9211c_rw_table = {
@@ -197,9 +207,15 @@ static int lt9211_read_chipid(struct lt9211 *ctx)
 static int lt9211_system_init(struct lt9211 *ctx)
 {
 	const struct reg_sequence lt9211_system_init_seq[] = {
-		{ 0x8201, 0x18 }, { 0x8606, 0x61 }, { 0x8607, 0xa8 },
-		{ 0x8714, 0x08 }, { 0x8715, 0x00 }, { 0x8718, 0x0f },
-		{ 0x8722, 0x08 }, { 0x8723, 0x00 }, { 0x8726, 0x0f },
+		{ 0x8201, 0x18 },
+		{ 0x8606, 0x61 },
+		{ 0x8607, 0xa8 },
+		{ 0x8714, 0x08 },
+		{ 0x8715, 0x00 },
+		{ 0x8718, 0x0f },
+		{ 0x8722, 0x08 },
+		{ 0x8723, 0x00 },
+		{ 0x8726, 0x0f },
 		{ 0x810b, 0xfe },
 	};
 
@@ -332,8 +348,8 @@ static int lt9211_autodetect_rx(struct lt9211 *ctx,
 		return -EINVAL;
 	}
 
-	dev_dbg(ctx->dev, "RX: %dx%d format=0x%01x byteclock=%d kHz\n", width,
-		height, format, byteclk);
+	dev_dbg(ctx->dev, "RX: %dx%d format=0x%01x byteclock=%d kHz\n",
+		width, height, format, byteclk);
 
 	return 0;
 }
@@ -366,11 +382,20 @@ static int lt9211_configure_plls(struct lt9211 *ctx,
 				 const struct drm_display_mode *mode)
 {
 	const struct reg_sequence lt9211_pcr_seq[] = {
-		{ 0xd026, 0x17 }, { 0xd027, 0xc3 }, { 0xd02d, 0x30 },
-		{ 0xd031, 0x10 }, { 0xd023, 0x20 }, { 0xd038, 0x02 },
-		{ 0xd039, 0x10 }, { 0xd03a, 0x20 }, { 0xd03b, 0x60 },
-		{ 0xd03f, 0x04 }, { 0xd040, 0x08 }, { 0xd041, 0x10 },
-		{ 0x810b, 0xee }, { 0x810b, 0xfe },
+		{ 0xd026, 0x17 },
+		{ 0xd027, 0xc3 },
+		{ 0xd02d, 0x30 },
+		{ 0xd031, 0x10 },
+		{ 0xd023, 0x20 },
+		{ 0xd038, 0x02 },
+		{ 0xd039, 0x10 },
+		{ 0xd03a, 0x20 },
+		{ 0xd03b, 0x60 },
+		{ 0xd03f, 0x04 },
+		{ 0xd040, 0x08 },
+		{ 0xd041, 0x10 },
+		{ 0x810b, 0xee },
+		{ 0x810b, 0xfe },
 	};
 
 	unsigned int pval;
@@ -414,8 +439,8 @@ static int lt9211_configure_plls(struct lt9211 *ctx,
 	return ret;
 }
 
-static int lt9211_configure_tx(struct lt9211 *ctx, bool jeida, bool bpp24,
-			       bool de)
+static int lt9211_configure_tx(struct lt9211 *ctx, bool jeida,
+			       bool bpp24, bool de)
 {
 	const struct reg_sequence system_lt9211_tx_phy_seq[] = {
 		/* DPI output disable */
@@ -442,8 +467,8 @@ static int lt9211_configure_tx(struct lt9211 *ctx, bool jeida, bool bpp24,
 	};
 
 	const struct reg_sequence system_lt9211_tx_dig_seq[] = {
-		{ 0x8559, 0x40 | (jeida ? BIT(7) : 0) | (de ? BIT(5) : 0) |
-				  (bpp24 ? BIT(4) : 0) },
+		{ 0x8559, 0x40 | (jeida ? BIT(7) : 0) |
+			  (de ? BIT(5) : 0) | (bpp24 ? BIT(4) : 0) },
 		{ 0x855a, 0xaa },
 		{ 0x855b, 0xaa },
 		{ 0x855c, ctx->lvds_dual_link ? BIT(0) : 0 },
@@ -458,11 +483,14 @@ static int lt9211_configure_tx(struct lt9211 *ctx, bool jeida, bool bpp24,
 
 	const struct reg_sequence system_lt9211_tx_pll_seq[] = {
 		/* TX PLL power down */
-		{ 0x8236, 0x01 }, { 0x8237, ctx->lvds_dual_link ? 0x2a : 0x29 },
-		{ 0x8238, 0x06 }, { 0x8239, 0x30 },
-		{ 0x823a, 0x8e }, { 0x8737, 0x14 },
-		{ 0x8713, 0x00 }, { 0x8713, 0x80 },
-
+		{ 0x8236, 0x01 },
+		{ 0x8237, ctx->lvds_dual_link ? 0x2a : 0x29 },
+		{ 0x8238, 0x06 },
+		{ 0x8239, 0x30 },
+		{ 0x823a, 0x8e },
+		{ 0x8737, 0x14 },
+		{ 0x8713, 0x00 },
+		{ 0x8713, 0x80 },
 	};
 
 	unsigned int pval;
@@ -573,7 +601,9 @@ static void lt9211_atomic_enable(struct drm_bridge *bridge,
 		/* LT9211C must enable after mipi clock enable */
 		queue_delayed_work(ctx->wq, &ctx->lt9211_dw,
 				   msecs_to_jiffies(100));
-	} else if (ctx->chip_type == LT9211) {
+		dev_dbg(ctx->dev, "LT9211C enabled.\n");
+		return;
+	}
 		ret = lt9211_system_init(ctx);
 		if (ret)
 			return;
@@ -594,12 +624,10 @@ static void lt9211_atomic_enable(struct drm_bridge *bridge,
 		if (ret)
 			return;
 
-		ret = lt9211_configure_tx(ctx, lvds_format_jeida,
-					  lvds_format_24bpp,
+	ret = lt9211_configure_tx(ctx, lvds_format_jeida, lvds_format_24bpp,
 					  bus_flags & DRM_BUS_FLAG_DE_HIGH);
 		if (ret)
 			return;
-	}
 
 	dev_dbg(ctx->dev, "LT9211 enabled.\n");
 }
@@ -645,14 +673,15 @@ lt9211_atomic_get_input_bus_fmts(struct drm_bridge *bridge,
 				 struct drm_bridge_state *bridge_state,
 				 struct drm_crtc_state *crtc_state,
 				 struct drm_connector_state *conn_state,
-				 u32 output_fmt, unsigned int *num_input_fmts)
+				 u32 output_fmt,
+				 unsigned int *num_input_fmts)
 {
 	u32 *input_fmts;
 
 	*num_input_fmts = 0;
 
-	input_fmts =
-		kcalloc(MAX_INPUT_SEL_FORMATS, sizeof(*input_fmts), GFP_KERNEL);
+	input_fmts = kcalloc(MAX_INPUT_SEL_FORMATS, sizeof(*input_fmts),
+			     GFP_KERNEL);
 	if (!input_fmts)
 		return NULL;
 
@@ -707,8 +736,7 @@ static int lt9211_parse_dt(struct lt9211 *ctx)
 		ctx->lvds_dual_link_even_odd_swap = true;
 	}
 
-	ret = drm_of_find_panel_or_bridge(dev->of_node, 2, 0, &panel,
-					  &panel_bridge);
+	ret = drm_of_find_panel_or_bridge(dev->of_node, 2, 0, &panel, &panel_bridge);
 	if (ret < 0)
 		return ret;
 	if (panel) {
@@ -724,14 +752,14 @@ static int lt9211_parse_dt(struct lt9211 *ctx)
 
 static int lt9211_host_attach(struct lt9211 *ctx)
 {
-	struct mipi_dsi_device_info info = {
-			.type = "lt9211",
-			.channel = 0,
-			.node = NULL,
-	};
+	// struct mipi_dsi_device_info info = {
+	// 		.type = "lt9211",
+	// 		.channel = 0,
+	// 		.node = NULL,
+	// };
 
-	if (ctx->chip_type == LT9211C)
-		strscpy(info.type, "lt9211c", sizeof(info.type));
+	// if (ctx->chip_type == LT9211C)
+	// 	strscpy(info.type, "lt9211c", sizeof(info.type));
 
 	struct device *dev = ctx->dev;
 	struct device_node *host_node;
@@ -756,7 +784,24 @@ static int lt9211_host_attach(struct lt9211 *ctx)
 	if (dsi_lanes < 0)
 		return dsi_lanes;
 
-	dsi = devm_mipi_dsi_device_register_full(dev, host, &info);
+	// dsi = devm_mipi_dsi_device_register_full(dev, host, &info);
+
+	if (ctx->chip_type == LT9211C) {
+		const struct mipi_dsi_device_info info = {
+			.type = "lt9211c",
+			.channel = 0,
+			.node = NULL,
+		};
+		dsi = devm_mipi_dsi_device_register_full(dev, host, &info);
+	} else {
+		const struct mipi_dsi_device_info info = {
+			.type = "lt9211",
+			.channel = 0,
+			.node = NULL,
+		};
+		dsi = devm_mipi_dsi_device_register_full(dev, host, &info);
+	}
+
 	if (IS_ERR(dsi))
 		return dev_err_probe(dev, PTR_ERR(dsi),
 				     "failed to create dsi device\n");
@@ -772,8 +817,7 @@ static int lt9211_host_attach(struct lt9211 *ctx)
 		dsi->mode_flags =
 			MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
 			MIPI_DSI_MODE_VIDEO_HSE | MIPI_DSI_MODE_VIDEO_NO_HSA |
-			MIPI_DSI_MODE_VIDEO_NO_HFP |
-			MIPI_DSI_MODE_VIDEO_NO_HBP |
+			MIPI_DSI_MODE_VIDEO_NO_HFP | MIPI_DSI_MODE_VIDEO_NO_HBP |
 			MIPI_DSI_MODE_NO_EOT_PACKET;
 	}
 
@@ -803,8 +847,8 @@ static int lt9211_probe(struct i2c_client *client)
 	 * Put the chip in reset, pull nRST line low,
 	 * and assure lengthy 10ms reset low timing.
 	 */
-	ctx->reset_gpio =
-		devm_gpiod_get_optional(ctx->dev, "reset", GPIOD_OUT_LOW);
+	ctx->reset_gpio = devm_gpiod_get_optional(ctx->dev, "reset",
+						  GPIOD_OUT_LOW);
 	if (IS_ERR(ctx->reset_gpio))
 		return PTR_ERR(ctx->reset_gpio);
 
@@ -899,10 +943,17 @@ static int lt9211c_configure_rx(struct lt9211 *ctx)
 	};
 
 	const struct reg_sequence lt9211c_rx_dig_seq[] = {
-		{ 0x853f, 0x08 }, { 0x8540, 0x04 }, { 0x8541, 0x03 },
-		{ 0x8542, 0x02 }, { 0x8543, 0x01 }, { 0x8545, 0x04 },
-		{ 0x8546, 0x03 }, { 0x8547, 0x02 }, { 0x8548, 0x01 },
-		{ 0x8544, 0x00 }, { 0x8549, 0x00 },
+		{ 0x853f, 0x08 },
+		{ 0x8540, 0x04 },
+		{ 0x8541, 0x03 },
+		{ 0x8542, 0x02 },
+		{ 0x8543, 0x01 },
+		{ 0x8545, 0x04 },
+		{ 0x8546, 0x03 },
+		{ 0x8547, 0x02 },
+		{ 0x8548, 0x01 },
+		{ 0x8544, 0x00 },
+		{ 0x8549, 0x00 },
 	};
 
 	int ret;
@@ -1062,12 +1113,23 @@ static int lt9211c_configure_plls(struct lt9211 *ctx,
 	};
 
 	const struct reg_sequence lt9211c_pcr_cali_seq[] = {
-		{ 0xd00a, 0x5f }, { 0xd01e, 0x51 }, { 0xd023, 0x80 },
-		{ 0xd024, 0x70 }, { 0xd025, 0x80 }, { 0xd02a, 0x10 },
-		{ 0xd021, 0x4f }, { 0xd022, 0xf0 }, { 0xd038, 0x04 },
-		{ 0xd039, 0x08 }, { 0xd03a, 0x10 }, { 0xd03b, 0x20 },
-		{ 0xd03f, 0x04 }, { 0xd040, 0x08 }, { 0xd041, 0x10 },
-		{ 0xd042, 0x20 }, { 0xd02b, 0xA0 },
+		{ 0xd00a, 0x5f },
+		{ 0xd01e, 0x51 },
+		{ 0xd023, 0x80 },
+		{ 0xd024, 0x70 },
+		{ 0xd025, 0x80 },
+		{ 0xd02a, 0x10 },
+		{ 0xd021, 0x4f },
+		{ 0xd022, 0xf0 },
+		{ 0xd038, 0x04 },
+		{ 0xd039, 0x08 },
+		{ 0xd03a, 0x10 },
+		{ 0xd03b, 0x20 },
+		{ 0xd03f, 0x04 },
+		{ 0xd040, 0x08 },
+		{ 0xd041, 0x10 },
+		{ 0xd042, 0x20 },
+		{ 0xd02b, 0xA0 },
 	};
 
 	const struct reg_sequence lt9211c_pcr_reset_seq[] = {
@@ -1221,12 +1283,24 @@ static int lt9211c_configure_tx(struct lt9211 *ctx,
 	};
 
 	const struct reg_sequence lt9211c_tx_phy_seq[] = {
-		{ 0x8236, 0x03 }, { 0x8237, 0x44 }, { 0x8238, 0x14 },
-		{ 0x8239, 0x31 }, { 0x823a, 0xc8 }, { 0x823b, 0x00 },
-		{ 0x823c, 0x0f }, { 0x8246, 0x40 }, { 0x8247, 0x40 },
-		{ 0x8248, 0x40 }, { 0x8249, 0x40 }, { 0x824a, 0x40 },
-		{ 0x824b, 0x40 }, { 0x824c, 0x40 }, { 0x824d, 0x40 },
-		{ 0x824e, 0x40 }, { 0x824f, 0x40 }, { 0x8250, 0x40 },
+		{ 0x8236, 0x03 },
+		{ 0x8237, 0x44 },
+		{ 0x8238, 0x14 },
+		{ 0x8239, 0x31 },
+		{ 0x823a, 0xc8 },
+		{ 0x823b, 0x00 },
+		{ 0x823c, 0x0f },
+		{ 0x8246, 0x40 },
+		{ 0x8247, 0x40 },
+		{ 0x8248, 0x40 },
+		{ 0x8249, 0x40 },
+		{ 0x824a, 0x40 },
+		{ 0x824b, 0x40 },
+		{ 0x824c, 0x40 },
+		{ 0x824d, 0x40 },
+		{ 0x824e, 0x40 },
+		{ 0x824f, 0x40 },
+		{ 0x8250, 0x40 },
 		{ 0x8251, 0x40 },
 	};
 
@@ -1258,11 +1332,21 @@ static int lt9211c_configure_tx(struct lt9211 *ctx,
 	};
 
 	const struct reg_sequence lt9211c_tx_ssc_seq[] = {
-		{ 0x8234, 0x00 }, { 0x856e, 0x10 }, { 0x8181, 0x15 },
-		{ 0x871e, 0x00 }, { 0x8717, 0x02 }, { 0x8718, 0x04 },
-		{ 0x8719, 0xd4 }, { 0x871A, 0x00 }, { 0x871B, 0x12 },
-		{ 0x871C, 0x00 }, { 0x871D, 0x24 }, { 0x871F, 0x1c },
-		{ 0x8720, 0x00 }, { 0x8721, 0x00 }, { 0x871e, 0x02 },
+		{ 0x8234, 0x00 },
+		{ 0x856e, 0x10 },
+		{ 0x8181, 0x15 },
+		{ 0x871e, 0x00 },
+		{ 0x8717, 0x02 },
+		{ 0x8718, 0x04 },
+		{ 0x8719, 0xd4 },
+		{ 0x871A, 0x00 },
+		{ 0x871B, 0x12 },
+		{ 0x871C, 0x00 },
+		{ 0x871D, 0x24 },
+		{ 0x871F, 0x1c },
+		{ 0x8720, 0x00 },
+		{ 0x8721, 0x00 },
+		{ 0x871e, 0x02 },
 	};
 
 	const struct reg_sequence lt9211c_tx_pll_reset_seq[] = {
