@@ -752,15 +752,6 @@ static int lt9211_parse_dt(struct lt9211 *ctx)
 
 static int lt9211_host_attach(struct lt9211 *ctx)
 {
-	// struct mipi_dsi_device_info info = {
-	// 		.type = "lt9211",
-	// 		.channel = 0,
-	// 		.node = NULL,
-	// };
-
-	// if (ctx->chip_type == LT9211C)
-	// 	strscpy(info.type, "lt9211c", sizeof(info.type));
-
 	struct device *dev = ctx->dev;
 	struct device_node *host_node;
 	struct device_node *endpoint;
@@ -783,8 +774,6 @@ static int lt9211_host_attach(struct lt9211 *ctx)
 
 	if (dsi_lanes < 0)
 		return dsi_lanes;
-
-	// dsi = devm_mipi_dsi_device_register_full(dev, host, &info);
 
 	if (ctx->chip_type == LT9211C) {
 		const struct mipi_dsi_device_info info = {
@@ -1521,7 +1510,10 @@ static void lt9211_delayed_work_func(struct work_struct *work)
 	const struct drm_display_mode *mode = &ctx->mode;
 
 	/* For LT9211C */
-	if (ctx->chip_type == LT9211C) {
+	if (ctx->chip_type != LT9211C) {
+		dev_err(ctx->dev, "LT9211: Delayed work called for non-LT9211C chip\n");
+		return;
+	}
 		ret = lt9211c_configure_rx(ctx);
 		if (ret)
 			return;
@@ -1542,9 +1534,6 @@ static void lt9211_delayed_work_func(struct work_struct *work)
 		if (ret)
 			return;
 
-	} else {
-		dev_err(ctx->dev, "LT9211: Delayed work called for non-LT9211C chip\n");
-	}
 }
 
 static const struct i2c_device_id lt9211_id[] = {
