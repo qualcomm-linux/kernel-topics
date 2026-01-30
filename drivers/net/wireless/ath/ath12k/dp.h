@@ -21,6 +21,7 @@ struct ath12k_vif;
 struct ath12k_link_vif;
 struct ath12k_ext_irq_grp;
 struct ath12k_dp_rx_tid;
+struct ath12k_dp_rx_tid_rxq;
 
 #define DP_MON_PURGE_TIMEOUT_MS     100
 #define DP_MON_SERVICE_BUDGET       128
@@ -392,7 +393,7 @@ struct ath12k_dp_arch_ops {
 	u32 (*tx_get_vdev_bank_config)(struct ath12k_base *ab,
 				       struct ath12k_link_vif *arvif);
 	int (*reo_cmd_send)(struct ath12k_base *ab,
-			    struct ath12k_dp_rx_tid *rx_tid,
+			    struct ath12k_dp_rx_tid_rxq *rx_tid,
 			    enum hal_reo_cmd_type type,
 			    struct ath12k_hal_reo_cmd *cmd,
 			    void (*cb)(struct ath12k_dp *dp, void *ctx,
@@ -402,8 +403,8 @@ struct ath12k_dp_arch_ops {
 				       u32 cipher, enum set_key_cmd key_cmd);
 	void (*rx_peer_tid_delete)(struct ath12k_base *ab,
 				   struct ath12k_dp_link_peer *peer, u8 tid);
-	void (*reo_cache_flush)(struct ath12k_base *ab,
-				struct ath12k_dp_rx_tid *rx_tid);
+	int (*reo_cache_flush)(struct ath12k_base *ab,
+			       struct ath12k_dp_rx_tid_rxq *rx_tid);
 	int (*rx_link_desc_return)(struct ath12k_dp *dp,
 				   struct ath12k_buffer_addr *buf_addr_info,
 				   enum hal_wbm_rel_bm_act action);
@@ -419,6 +420,9 @@ struct ath12k_dp_arch_ops {
 			      u16 ssn, enum hal_pn_type pn_type);
 	void (*peer_rx_tid_qref_setup)(struct ath12k_base *ab, u16 peer_id, u16 tid,
 				       dma_addr_t paddr);
+	void (*peer_rx_tid_qref_reset)(struct ath12k_base *ab, u16 peer_id, u16 tid);
+	int (*rx_tid_delete_handler)(struct ath12k_base *ab,
+				     struct ath12k_dp_rx_tid_rxq *rx_tid);
 };
 
 struct ath12k_device_dp_tx_err_stats {
@@ -444,6 +448,7 @@ struct ath12k_device_dp_stats {
 	u32 tx_wbm_rel_source[HAL_WBM_REL_SRC_MODULE_MAX];
 	u32 tx_enqueued[DP_TCL_NUM_RING_MAX];
 	u32 tx_completed[DP_TCL_NUM_RING_MAX];
+	u32 reo_excep_msdu_buf_type;
 };
 
 struct ath12k_dp {
@@ -554,7 +559,7 @@ static inline u32 ath12k_dp_arch_tx_get_vdev_bank_config(struct ath12k_dp *dp,
 }
 
 static inline int ath12k_dp_arch_reo_cmd_send(struct ath12k_dp *dp,
-					      struct ath12k_dp_rx_tid *rx_tid,
+					      struct ath12k_dp_rx_tid_rxq *rx_tid,
 					      enum hal_reo_cmd_type type,
 					      struct ath12k_hal_reo_cmd *cmd,
 					      void (*cb)(struct ath12k_dp *dp, void *ctx,
@@ -563,11 +568,12 @@ static inline int ath12k_dp_arch_reo_cmd_send(struct ath12k_dp *dp,
 	return dp->ops->reo_cmd_send(dp->ab, rx_tid, type, cmd, cb);
 }
 
-static inline void ath12k_dp_arch_setup_pn_check_reo_cmd(struct ath12k_dp *dp,
-							 struct ath12k_hal_reo_cmd *cmd,
-							 struct ath12k_dp_rx_tid *rx_tid,
-							 u32 cipher,
-							 enum set_key_cmd key_cmd)
+static inline
+void ath12k_dp_arch_setup_pn_check_reo_cmd(struct ath12k_dp *dp,
+					   struct ath12k_hal_reo_cmd *cmd,
+					   struct ath12k_dp_rx_tid *rx_tid,
+					   u32 cipher,
+					   enum set_key_cmd key_cmd)
 {
 	dp->ops->setup_pn_check_reo_cmd(cmd, rx_tid, cipher, key_cmd);
 }
@@ -579,10 +585,10 @@ static inline void ath12k_dp_arch_rx_peer_tid_delete(struct ath12k_dp *dp,
 	dp->ops->rx_peer_tid_delete(dp->ab, peer, tid);
 }
 
-static inline void ath12k_dp_arch_reo_cache_flush(struct ath12k_dp *dp,
-						  struct ath12k_dp_rx_tid *rx_tid)
+static inline int ath12k_dp_arch_reo_cache_flush(struct ath12k_dp *dp,
+						 struct ath12k_dp_rx_tid_rxq *rx_tid)
 {
-	dp->ops->reo_cache_flush(dp->ab, rx_tid);
+	return dp->ops->reo_cache_flush(dp->ab, rx_tid);
 }
 
 static inline
@@ -624,6 +630,19 @@ static inline void ath12k_dp_arch_peer_rx_tid_qref_setup(struct ath12k_dp *dp,
 							 dma_addr_t paddr)
 {
 	dp->ops->peer_rx_tid_qref_setup(dp->ab, peer_id, tid, paddr);
+}
+
+static inline void ath12k_dp_arch_peer_rx_tid_qref_reset(struct ath12k_dp *dp,
+							 u16 peer_id, u16 tid)
+{
+	dp->ops->peer_rx_tid_qref_reset(dp->ab, peer_id, tid);
+}
+
+static inline
+int ath12k_dp_arch_rx_tid_delete_handler(struct ath12k_dp *dp,
+					 struct ath12k_dp_rx_tid_rxq *rx_tid)
+{
+	return dp->ops->rx_tid_delete_handler(dp->ab, rx_tid);
 }
 
 static inline void ath12k_dp_get_mac_addr(u32 addr_l32, u16 addr_h16, u8 *addr)

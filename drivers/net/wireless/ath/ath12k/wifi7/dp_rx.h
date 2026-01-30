@@ -37,19 +37,23 @@ void ath12k_wifi7_peer_rx_tid_qref_setup(struct ath12k_base *ab, u16 peer_id, u1
 					 dma_addr_t paddr);
 void ath12k_wifi7_dp_rx_peer_tid_delete(struct ath12k_base *ab,
 					struct ath12k_dp_link_peer *peer, u8 tid);
-int ath12k_wifi7_dp_reo_cmd_send(struct ath12k_base *ab, struct ath12k_dp_rx_tid *rx_tid,
+int ath12k_wifi7_dp_reo_cmd_send(struct ath12k_base *ab,
+				 struct ath12k_dp_rx_tid_rxq *rx_tid,
 				 enum hal_reo_cmd_type type,
 				 struct ath12k_hal_reo_cmd *cmd,
 				 void (*cb)(struct ath12k_dp *dp, void *ctx,
 					    enum hal_reo_cmd_status status));
-void ath12k_wifi7_dp_reo_cache_flush(struct ath12k_base *ab,
-				     struct ath12k_dp_rx_tid *rx_tid);
+int ath12k_wifi7_dp_reo_cache_flush(struct ath12k_base *ab,
+				    struct ath12k_dp_rx_tid_rxq *rx_tid);
 int ath12k_wifi7_peer_rx_tid_reo_update(struct ath12k_dp *dp,
 					struct ath12k_dp_link_peer *peer,
 					struct ath12k_dp_rx_tid *rx_tid,
 					u32 ba_win_sz, u16 ssn,
 					bool update_ssn);
+void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab, u16 peer_id, u16 tid);
 bool
 ath12k_wifi7_dp_rxdesc_mpdu_valid(struct ath12k_base *ab,
 				  struct hal_rx_desc *rx_desc);
+int ath12k_wifi7_dp_rx_tid_delete_handler(struct ath12k_base *ab,
+					  struct ath12k_dp_rx_tid_rxq *rx_tid);
 #endif

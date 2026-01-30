@@ -13209,6 +13209,7 @@ int ath12k_mac_op_get_survey(struct ieee80211_hw *hw, int idx,
 
 	return 0;
 }
+EXPORT_SYMBOL(ath12k_mac_op_get_survey);
 
 static void ath12k_mac_put_chain_rssi(struct station_info *sinfo,
 				      struct ath12k_link_sta *arsta)
@@ -13230,7 +13231,6 @@ static void ath12k_mac_put_chain_rssi(struct station_info *sinfo,
 		}
 	}
 }
-EXPORT_SYMBOL(ath12k_mac_op_get_survey);
 
 void ath12k_mac_op_sta_statistics(struct ieee80211_hw *hw,
 				  struct ieee80211_vif *vif,
@@ -13397,8 +13397,10 @@ void ath12k_mac_op_link_sta_statistics(struct ieee80211_hw *hw,
 	}
 
 	link_sinfo->signal_avg = ewma_avg_rssi_read(&peer->avg_rssi);
+
 	if (!db2dbm)
 		link_sinfo->signal_avg += ATH12K_DEFAULT_NOISE_FLOOR;
+
 	link_sinfo->filled |= BIT_ULL(NL80211_STA_INFO_SIGNAL_AVG);
 
 	link_sinfo->tx_retries = peer->tx_retry_count;
@@ -13416,8 +13418,10 @@ void ath12k_mac_op_link_sta_statistics(struct ieee80211_hw *hw,
 		params.vdev_id = 0;
 		params.stats_id = WMI_REQUEST_VDEV_STAT;
 
-		if (!ath12k_mac_get_fw_stats(ar, &params))
+		if (!ath12k_mac_get_fw_stats(ar, &params)) {
 			signal = arsta->rssi_beacon;
+			ath12k_fw_stats_reset(ar);
+		}
 	}
 
 	if (signal) {

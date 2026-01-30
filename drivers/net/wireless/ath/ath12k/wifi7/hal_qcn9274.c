@@ -1022,6 +1022,7 @@ const struct hal_ops hal_qcn9274_ops = {
 	.setup_link_idle_list = ath12k_wifi7_hal_setup_link_idle_list,
 	.reo_init_cmd_ring = ath12k_wifi7_hal_reo_init_cmd_ring,
 	.reo_hw_setup = ath12k_wifi7_hal_reo_hw_setup,
+	.reo_shared_qaddr_cache_clear = ath12k_wifi7_hal_reo_shared_qaddr_cache_clear,
 	.rx_buf_addr_info_set = ath12k_wifi7_hal_rx_buf_addr_info_set,
 	.rx_buf_addr_info_get = ath12k_wifi7_hal_rx_buf_addr_info_get,
 	.cc_config = ath12k_wifi7_hal_cc_config,

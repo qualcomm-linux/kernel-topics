@@ -954,7 +954,7 @@ void ath12k_wifi7_hal_reo_hw_setup(struct ath12k_base *ab, u32 ring_hash_map)
 			   ring_hash_map);
 }
 
-void ath12k_hal_reo_shared_qaddr_cache_clear(struct ath12k_base *ab)
+void ath12k_wifi7_hal_reo_shared_qaddr_cache_clear(struct ath12k_base *ab)
 {
 	u32 val;
 	struct ath12k_hal *hal = &ab->hal;

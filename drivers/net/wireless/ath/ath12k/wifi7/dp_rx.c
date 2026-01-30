@@ -64,8 +64,8 @@ void ath12k_wifi7_peer_rx_tid_qref_setup(struct ath12k_base *ab, u16 peer_id, u1
 	ath12k_hal_reo_shared_qaddr_cache_clear(ab);
 }
 
-static void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab,
-						u16 peer_id, u16 tid)
+void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab,
+					 u16 peer_id, u16 tid)
 {
 	struct ath12k_reo_queue_ref *qref;
 	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
@@ -94,35 +94,13 @@ static void ath12k_wifi7_peer_rx_tid_qref_reset(struct ath12k_base *ab,
 void ath12k_wifi7_dp_rx_peer_tid_delete(struct ath12k_base *ab,
 					struct ath12k_dp_link_peer *peer, u8 tid)
 {
-	struct ath12k_hal_reo_cmd cmd = {};
-	struct ath12k_dp_rx_tid *rx_tid = &peer->dp_peer->rx_tid[tid];
-	int ret;
+	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
 
 	if (!(peer->rx_tid_active_bitmask & (1 << tid)))
 		return;
 
-	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
-	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.upd0 = HAL_REO_CMD_UPD0_VLD;
-	ret = ath12k_wifi7_dp_reo_cmd_send(ab, rx_tid,
-					   HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
-					   ath12k_dp_rx_tid_del_func);
-	if (ret) {
-		ath12k_err(ab, "failed to send HAL_REO_CMD_UPDATE_RX_QUEUE cmd, tid %d (%d)\n",
-			   tid, ret);
-		dma_unmap_single(ab->dev, rx_tid->qbuf.paddr_aligned,
-				 rx_tid->qbuf.size, DMA_BIDIRECTIONAL);
-		kfree(rx_tid->qbuf.vaddr);
-		rx_tid->qbuf.vaddr = NULL;
-	}
-
-	if (peer->mlo)
-		ath12k_wifi7_peer_rx_tid_qref_reset(ab, peer->ml_id, tid);
-	else
-		ath12k_wifi7_peer_rx_tid_qref_reset(ab, peer->peer_id, tid);
-
-	peer->rx_tid_active_bitmask &= ~(1 << tid);
+	ath12k_dp_mark_tid_as_inactive(dp, peer->peer_id, tid);
+	ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(dp);
 }
 
 int ath12k_wifi7_dp_rx_link_desc_return(struct ath12k_dp *dp,
@@ -157,7 +135,7 @@ exit:
 }
 
 int ath12k_wifi7_dp_reo_cmd_send(struct ath12k_base *ab,
-				 struct ath12k_dp_rx_tid *rx_tid,
+				 struct ath12k_dp_rx_tid_rxq *rx_tid,
 				 enum hal_reo_cmd_type type,
 				 struct ath12k_hal_reo_cmd *cmd,
 				 void (*cb)(struct ath12k_dp *dp, void *ctx,
@@ -211,9 +189,13 @@ int ath12k_wifi7_peer_rx_tid_reo_update(struct ath12k_dp *dp,
 	struct ath12k_hal_reo_cmd cmd = {};
 	struct ath12k_base *ab = dp->ab;
 	int ret;
+	struct ath12k_dp_rx_tid_rxq rx_tid_rxq;
 
-	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
+	ath12k_dp_init_rx_tid_rxq(&rx_tid_rxq, rx_tid,
+				  (peer->rx_tid_active_bitmask & (1 << rx_tid->tid)));
+
+	cmd.addr_lo = lower_32_bits(rx_tid_rxq.qbuf.paddr_aligned);
+	cmd.addr_hi = upper_32_bits(rx_tid_rxq.qbuf.paddr_aligned);
 	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
 	cmd.upd0 = HAL_REO_CMD_UPD0_BA_WINDOW_SIZE;
 	cmd.ba_window_size = ba_win_sz;
@@ -223,12 +205,12 @@ int ath12k_wifi7_peer_rx_tid_reo_update(struct ath12k_dp *dp,
 		cmd.upd2 = u32_encode_bits(ssn, HAL_REO_CMD_UPD2_SSN);
 	}
 
-	ret = ath12k_wifi7_dp_reo_cmd_send(ab, rx_tid,
+	ret = ath12k_wifi7_dp_reo_cmd_send(ab, &rx_tid_rxq,
 					   HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
 					   NULL);
 	if (ret) {
 		ath12k_warn(ab, "failed to update rx tid queue, tid %d (%d)\n",
-			    rx_tid->tid, ret);
+			    rx_tid_rxq.tid, ret);
 		return ret;
 	}
 
@@ -237,44 +219,33 @@ int ath12k_wifi7_peer_rx_tid_reo_update(struct ath12k_dp *dp,
 	return 0;
 }
 
-void ath12k_wifi7_dp_reo_cache_flush(struct ath12k_base *ab,
-				     struct ath12k_dp_rx_tid *rx_tid)
+int ath12k_wifi7_dp_reo_cache_flush(struct ath12k_base *ab,
+				    struct ath12k_dp_rx_tid_rxq *rx_tid)
 {
 	struct ath12k_hal_reo_cmd cmd = {};
-	unsigned long tot_desc_sz, desc_sz;
 	int ret;
 
-	tot_desc_sz = rx_tid->qbuf.size;
-	desc_sz = ath12k_wifi7_hal_reo_qdesc_size(0, HAL_DESC_REO_NON_QOS_TID);
-
-	while (tot_desc_sz > desc_sz) {
-		tot_desc_sz -= desc_sz;
-		cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned + tot_desc_sz);
-		cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
-		ret = ath12k_wifi7_dp_reo_cmd_send(ab, rx_tid,
-						   HAL_REO_CMD_FLUSH_CACHE, &cmd,
-						   NULL);
-		if (ret)
-			ath12k_warn(ab,
-				    "failed to send HAL_REO_CMD_FLUSH_CACHE, tid %d (%d)\n",
-				    rx_tid->tid, ret);
-	}
-
-	memset(&cmd, 0, sizeof(cmd));
 	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
 	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
+	/* HAL_REO_CMD_FLG_FLUSH_FWD_ALL_MPDUS - all pending MPDUs
+	 *in the bitmap will be forwarded/flushed to REO output rings
+	 */
+	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS |
+		   HAL_REO_CMD_FLG_FLUSH_FWD_ALL_MPDUS;
+
+	/* For all QoS TIDs (except NON_QOS), the driver allocates a maximum
+	 * window size of 1024. In such cases, the driver can issue a single
+	 * 1KB descriptor flush command instead of sending multiple 128-byte
+	 * flush commands for each QoS TID, improving efficiency.
+	 */
+
+	if (rx_tid->tid != HAL_DESC_REO_NON_QOS_TID)
+		cmd.flag |= HAL_REO_CMD_FLG_FLUSH_QUEUE_1K_DESC;
+
 	ret = ath12k_wifi7_dp_reo_cmd_send(ab, rx_tid,
 					   HAL_REO_CMD_FLUSH_CACHE,
 					   &cmd, ath12k_dp_reo_cmd_free);
-	if (ret) {
-		ath12k_err(ab, "failed to send HAL_REO_CMD_FLUSH_CACHE cmd, tid %d (%d)\n",
-			   rx_tid->tid, ret);
-		dma_unmap_single(ab->dev, rx_tid->qbuf.paddr_aligned, rx_tid->qbuf.size,
-				 DMA_BIDIRECTIONAL);
-		kfree(rx_tid->qbuf.vaddr);
-		rx_tid->qbuf.vaddr = NULL;
-	}
+	return ret;
 }
 
 int ath12k_wifi7_dp_rx_assign_reoq(struct ath12k_base *ab, struct ath12k_dp_peer *dp_peer,
@@ -325,6 +296,23 @@ int ath12k_wifi7_dp_rx_assign_reoq(struct ath12k_base *ab, struct ath12k_dp_peer
 	rx_tid->qbuf = *buf;
 
 	return 0;
+}
+
+int ath12k_wifi7_dp_rx_tid_delete_handler(struct ath12k_base *ab,
+					  struct ath12k_dp_rx_tid_rxq *rx_tid)
+{
+	struct ath12k_hal_reo_cmd cmd = {};
+
+	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
+	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
+	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
+	cmd.upd0 |= HAL_REO_CMD_UPD0_VLD;
+	/* Observed flush cache failure, to avoid that set vld bit during delete */
+	cmd.upd1 |= HAL_REO_CMD_UPD1_VLD;
+
+	return ath12k_wifi7_dp_reo_cmd_send(ab, rx_tid,
+					    HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
+					    ath12k_dp_rx_tid_del_func);
 }
 
 static void ath12k_wifi7_dp_rx_h_csum_offload(struct sk_buff *msdu,
@@ -1356,6 +1344,50 @@ exit:
 	return 0;
 }
 
+static int ath12k_dp_h_msdu_buffer_type(struct ath12k_dp *dp,
+					struct list_head *list,
+					struct hal_reo_dest_ring *desc)
+{
+	struct ath12k_rx_desc_info *desc_info;
+	struct ath12k_skb_rxcb *rxcb;
+	struct sk_buff *msdu;
+	u64 desc_va;
+
+	dp->device_stats.reo_excep_msdu_buf_type++;
+
+	desc_va = (u64)le32_to_cpu(desc->buf_va_hi) << 32 |
+		  le32_to_cpu(desc->buf_va_lo);
+	desc_info = (struct ath12k_rx_desc_info *)(uintptr_t)desc_va;
+	if (!desc_info) {
+		u32 cookie;
+
+		cookie = le32_get_bits(desc->buf_addr_info.info1,
+				       BUFFER_ADDR_INFO1_SW_COOKIE);
+		desc_info = ath12k_dp_get_rx_desc(dp, cookie);
+		if (!desc_info) {
+			ath12k_warn(dp->ab, "Invalid cookie in manual descriptor retrieval: 0x%x\n",
+				    cookie);
+			return -EINVAL;
+		}
+	}
+
+	if (desc_info->magic != ATH12K_DP_RX_DESC_MAGIC) {
+		ath12k_warn(dp->ab, "rx exception, magic check failed with value: %u\n",
+			    desc_info->magic);
+		return -EINVAL;
+	}
+
+	msdu = desc_info->skb;
+	desc_info->skb = NULL;
+	list_add_tail(&desc_info->list, list);
+	rxcb = ATH12K_SKB_RXCB(msdu);
+	dma_unmap_single(dp->dev, rxcb->paddr, msdu->len + skb_tailroom(msdu),
+			 DMA_FROM_DEVICE);
+	dev_kfree_skb_any(msdu);
+
+	return 0;
+}
+
 int ath12k_wifi7_dp_rx_process_err(struct ath12k_dp *dp, struct napi_struct *napi,
 				   int budget)
 {
@@ -1405,6 +1437,26 @@ int ath12k_wifi7_dp_rx_process_err(struct ath12k_dp *dp, struct napi_struct *nap
 		drop = false;
 		dp->device_stats.err_ring_pkts++;
 
+		hw_link_id = le32_get_bits(reo_desc->info0,
+					   HAL_REO_DEST_RING_INFO0_SRC_LINK_ID);
+		device_id = hw_links[hw_link_id].device_id;
+		partner_dp = ath12k_dp_hw_grp_to_dp(dp_hw_grp, device_id);
+
+		/* Below case is added to handle data packet from un-associated clients.
+		 * As it is expected that AST lookup will fail for
+		 * un-associated station's data packets.
+		 */
+		if (le32_get_bits(reo_desc->info0, HAL_REO_DEST_RING_INFO0_BUFFER_TYPE) ==
+		    HAL_REO_DEST_RING_BUFFER_TYPE_MSDU) {
+			if (!ath12k_dp_h_msdu_buffer_type(partner_dp,
+							  &rx_desc_used_list[device_id],
+							  reo_desc)) {
+				num_buffs_reaped[device_id]++;
+				tot_n_bufs_reaped++;
+			}
+			goto next_desc;
+		}
+
 		ret = ath12k_wifi7_hal_desc_reo_parse_err(dp, reo_desc, &paddr,
 							  &desc_bank);
 		if (ret) {
@@ -1412,11 +1464,6 @@ int ath12k_wifi7_dp_rx_process_err(struct ath12k_dp *dp, struct napi_struct *nap
 				    ret);
 			continue;
 		}
-
-		hw_link_id = le32_get_bits(reo_desc->info0,
-					   HAL_REO_DEST_RING_INFO0_SRC_LINK_ID);
-		device_id = hw_links[hw_link_id].device_id;
-		partner_dp = ath12k_dp_hw_grp_to_dp(dp_hw_grp, device_id);
 
 		pdev_idx = ath12k_hw_mac_id_to_pdev_id(partner_dp->hw_params,
 						       hw_links[hw_link_id].pdev_idx);
@@ -1479,6 +1526,7 @@ int ath12k_wifi7_dp_rx_process_err(struct ath12k_dp *dp, struct napi_struct *nap
 
 		rcu_read_unlock();
 
+next_desc:
 		if (tot_n_bufs_reaped >= quota) {
 			tot_n_bufs_reaped = quota;
 			goto exit;

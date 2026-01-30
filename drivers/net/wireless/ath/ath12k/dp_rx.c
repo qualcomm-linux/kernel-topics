@@ -345,13 +345,15 @@ static int ath12k_dp_rx_pdev_srng_alloc(struct ath12k *ar)
 	return 0;
 }
 
-static void ath12k_dp_init_rx_tid_rxq(struct ath12k_dp_rx_tid_rxq *rx_tid_rxq,
-				      struct ath12k_dp_rx_tid *rx_tid)
+void ath12k_dp_init_rx_tid_rxq(struct ath12k_dp_rx_tid_rxq *rx_tid_rxq,
+			       struct ath12k_dp_rx_tid *rx_tid,
+			       bool active)
 {
 	rx_tid_rxq->tid = rx_tid->tid;
-	rx_tid_rxq->active = rx_tid->active;
+	rx_tid_rxq->active = active;
 	rx_tid_rxq->qbuf = rx_tid->qbuf;
 }
+EXPORT_SYMBOL(ath12k_dp_init_rx_tid_rxq);
 
 static void ath12k_dp_rx_tid_cleanup(struct ath12k_base *ab,
 				     struct ath12k_reoq_buf *tid_qbuf)
@@ -395,7 +397,6 @@ void ath12k_dp_rx_reo_cmd_list_cleanup(struct ath12k_base *ab)
 	}
 	spin_unlock_bh(&dp->reo_cmd_lock);
 }
-EXPORT_SYMBOL(ath12k_dp_reo_cmd_free);
 
 void ath12k_dp_reo_cmd_free(struct ath12k_dp *dp, void *ctx,
 			    enum hal_reo_cmd_status status)
@@ -408,8 +409,9 @@ void ath12k_dp_reo_cmd_free(struct ath12k_dp *dp, void *ctx,
 
 	ath12k_dp_rx_tid_cleanup(dp->ab, &rx_tid->qbuf);
 }
+EXPORT_SYMBOL(ath12k_dp_reo_cmd_free);
 
-static void ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(struct ath12k_dp *dp)
+void ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(struct ath12k_dp *dp)
 {
 	struct ath12k_base *ab = dp->ab;
 	struct dp_reo_update_rx_queue_elem *elem, *tmp;
@@ -423,10 +425,10 @@ static void ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(struct ath12k_dp *
 		if (ath12k_dp_rx_tid_delete_handler(ab, &elem->rx_tid))
 			break;
 
-		ath12k_peer_rx_tid_qref_reset(ab,
-					      elem->is_ml_peer ? elem->ml_peer_id :
-					      elem->peer_id,
-					      elem->rx_tid.tid);
+		ath12k_dp_arch_peer_rx_tid_qref_reset(dp,
+						      elem->is_ml_peer ?
+						      elem->ml_peer_id : elem->peer_id,
+						      elem->rx_tid.tid);
 
 		if (ab->hw_params->reoq_lut_support)
 			ath12k_hal_reo_shared_qaddr_cache_clear(ab);
@@ -437,7 +439,7 @@ static void ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(struct ath12k_dp *
 
 	spin_unlock_bh(&dp->reo_rxq_flush_lock);
 }
-EXPORT_SYMBOL(ath12k_dp_rx_tid_del_func);
+EXPORT_SYMBOL(ath12k_dp_rx_process_reo_cmd_update_rx_queue_list);
 
 void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 			       enum hal_reo_cmd_status status)
@@ -458,9 +460,9 @@ void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 	/* Retry the HAL_REO_CMD_UPDATE_RX_QUEUE command for entries
 	 * in the pending queue list marked TID as inactive
 	 */
-	spin_lock_bh(&dp->ab->base_lock);
+	spin_lock_bh(&dp->dp_lock);
 	ath12k_dp_rx_process_reo_cmd_update_rx_queue_list(dp);
-	spin_unlock_bh(&dp->ab->base_lock);
+	spin_unlock_bh(&dp->dp_lock);
 
 	elem = kzalloc(sizeof(*elem), GFP_ATOMIC);
 	if (!elem)
@@ -492,6 +494,7 @@ void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 
 			list_del(&elem->list);
 			dp->reo_cmd_cache_flush_count--;
+
 			kfree(elem);
 		}
 	}
@@ -501,25 +504,17 @@ void ath12k_dp_rx_tid_del_func(struct ath12k_dp *dp, void *ctx,
 free_desc:
 	ath12k_dp_rx_tid_cleanup(ab, &rx_tid->qbuf);
 }
+EXPORT_SYMBOL(ath12k_dp_rx_tid_del_func);
 
 static int ath12k_dp_rx_tid_delete_handler(struct ath12k_base *ab,
 					   struct ath12k_dp_rx_tid_rxq *rx_tid)
 {
-	struct ath12k_hal_reo_cmd cmd = {};
+	struct ath12k_dp *dp = ath12k_ab_to_dp(ab);
 
-	cmd.flag = HAL_REO_CMD_FLG_NEED_STATUS;
-	cmd.addr_lo = lower_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.addr_hi = upper_32_bits(rx_tid->qbuf.paddr_aligned);
-	cmd.upd0 |= HAL_REO_CMD_UPD0_VLD;
-	/* Observed flush cache failure, to avoid that set vld bit during delete */
-	cmd.upd1 |= HAL_REO_CMD_UPD1_VLD;
-
-	return ath12k_dp_reo_cmd_send(ab, rx_tid,
-				      HAL_REO_CMD_UPDATE_RX_QUEUE, &cmd,
-				      ath12k_dp_rx_tid_del_func);
+	return ath12k_dp_arch_rx_tid_delete_handler(dp, rx_tid);
 }
 
-static void ath12k_dp_mark_tid_as_inactive(struct ath12k_dp *dp, int peer_id, u8 tid)
+void ath12k_dp_mark_tid_as_inactive(struct ath12k_dp *dp, int peer_id, u8 tid)
 {
 	struct dp_reo_update_rx_queue_elem *elem;
 	struct ath12k_dp_rx_tid_rxq *rx_tid;
@@ -536,6 +531,7 @@ static void ath12k_dp_mark_tid_as_inactive(struct ath12k_dp *dp, int peer_id, u8
 	}
 	spin_unlock_bh(&dp->reo_rxq_flush_lock);
 }
+EXPORT_SYMBOL(ath12k_dp_mark_tid_as_inactive);
 
 void ath12k_dp_rx_peer_tid_cleanup(struct ath12k *ar, struct ath12k_dp_link_peer *peer)
 {
@@ -562,12 +558,12 @@ void ath12k_dp_rx_peer_tid_cleanup(struct ath12k *ar, struct ath12k_dp_link_peer
 }
 
 static int ath12k_dp_prepare_reo_update_elem(struct ath12k_dp *dp,
-					     struct ath12k_peer *peer,
+					     struct ath12k_dp_link_peer *peer,
 					     struct ath12k_dp_rx_tid *rx_tid)
 {
 	struct dp_reo_update_rx_queue_elem *elem;
 
-	lockdep_assert_held(&dp->ab->base_lock);
+	lockdep_assert_held(&dp->dp_lock);
 
 	elem = kzalloc(sizeof(*elem), GFP_ATOMIC);
 	if (!elem)
@@ -577,7 +573,8 @@ static int ath12k_dp_prepare_reo_update_elem(struct ath12k_dp *dp,
 	elem->is_ml_peer = peer->mlo;
 	elem->ml_peer_id = peer->ml_id;
 
-	ath12k_dp_init_rx_tid_rxq(&elem->rx_tid, rx_tid);
+	ath12k_dp_init_rx_tid_rxq(&elem->rx_tid, rx_tid,
+				  (peer->rx_tid_active_bitmask & (1 << rx_tid->tid)));
 
 	spin_lock_bh(&dp->reo_rxq_flush_lock);
 	list_add_tail(&elem->list, &dp->reo_cmd_update_rx_queue_list);
@@ -675,7 +672,7 @@ int ath12k_dp_rx_peer_tid_setup(struct ath12k *ar, const u8 *peer_mac, int vdev_
 	if (ret) {
 		ath12k_warn(ab, "failed to alloc update_rxq_list for rx tid %u\n", tid);
 		ath12k_dp_rx_tid_cleanup(ab, &rx_tid->qbuf);
-		spin_unlock_bh(&ab->base_lock);
+		spin_unlock_bh(&dp->dp_lock);
 		return ret;
 	}
 
@@ -823,12 +820,11 @@ int ath12k_dp_rx_peer_pn_replay_config(struct ath12k_link_vif *arvif,
 			continue;
 
 		rx_tid = &peer->dp_peer->rx_tid[tid];
-
-		ath12k_dp_init_rx_tid_rxq(&rx_tid_rxq, rx_tid);
-
+		ath12k_dp_init_rx_tid_rxq(&rx_tid_rxq, rx_tid,
+					  (peer->rx_tid_active_bitmask & (1 << tid)));
 		ath12k_dp_arch_setup_pn_check_reo_cmd(dp, &cmd, rx_tid, key->cipher,
 						      key_cmd);
-		ret = ath12k_dp_arch_reo_cmd_send(dp, rx_tid,
+		ret = ath12k_dp_arch_reo_cmd_send(dp, &rx_tid_rxq,
 						  HAL_REO_CMD_UPDATE_RX_QUEUE,
 						  &cmd, NULL);
 		if (ret) {
@@ -1296,7 +1292,7 @@ void ath12k_dp_rx_h_ppdu(struct ath12k_pdev_dp *dp_pdev,
 	}
 
 	if (unlikely(rx_status->band == NUM_NL80211_BANDS ||
-		     !ath12k_ar_to_hw(ar)->wiphy->bands[rx_status->band])) {
+		     !ath12k_pdev_dp_to_hw(dp_pdev)->wiphy->bands[rx_status->band])) {
 		struct ath12k *ar = ath12k_pdev_dp_to_ar(dp_pdev);
 
 		ath12k_warn(ar->ab, "sband is NULL for status band %d channel_num %d center_freq %d pdev_id %d\n",
@@ -1601,50 +1597,6 @@ u64 ath12k_dp_rx_h_get_pn(struct ath12k_dp *dp, struct sk_buff *skb)
 	return pn;
 }
 EXPORT_SYMBOL(ath12k_dp_rx_h_get_pn);
-
-static int ath12k_dp_h_msdu_buffer_type(struct ath12k_base *ab,
-					struct list_head *list,
-					struct hal_reo_dest_ring *desc)
-{
-	struct ath12k_rx_desc_info *desc_info;
-	struct ath12k_skb_rxcb *rxcb;
-	struct sk_buff *msdu;
-	u64 desc_va;
-
-	ab->device_stats.reo_excep_msdu_buf_type++;
-
-	desc_va = (u64)le32_to_cpu(desc->buf_va_hi) << 32 |
-		  le32_to_cpu(desc->buf_va_lo);
-	desc_info = (struct ath12k_rx_desc_info *)(uintptr_t)desc_va;
-	if (!desc_info) {
-		u32 cookie;
-
-		cookie = le32_get_bits(desc->buf_addr_info.info1,
-				       BUFFER_ADDR_INFO1_SW_COOKIE);
-		desc_info = ath12k_dp_get_rx_desc(ab, cookie);
-		if (!desc_info) {
-			ath12k_warn(ab, "Invalid cookie in manual descriptor retrieval: 0x%x\n",
-				    cookie);
-			return -EINVAL;
-		}
-	}
-
-	if (desc_info->magic != ATH12K_DP_RX_DESC_MAGIC) {
-		ath12k_warn(ab, "rx exception, magic check failed with value: %u\n",
-			    desc_info->magic);
-		return -EINVAL;
-	}
-
-	msdu = desc_info->skb;
-	desc_info->skb = NULL;
-	list_add_tail(&desc_info->list, list);
-	rxcb = ATH12K_SKB_RXCB(msdu);
-	dma_unmap_single(ab->dev, rxcb->paddr, msdu->len + skb_tailroom(msdu),
-			 DMA_FROM_DEVICE);
-	dev_kfree_skb_any(msdu);
-
-	return 0;
-}
 
 void ath12k_dp_rx_free(struct ath12k_base *ab)
 {
