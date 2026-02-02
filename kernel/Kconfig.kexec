@@ -5,6 +5,9 @@ menu "Kexec and crash features"
 config CRASH_RESERVE
 	bool
 
+config MEMORY_DUMP_RESERVE
+	bool
+
 config VMCORE_INFO
 	bool
 

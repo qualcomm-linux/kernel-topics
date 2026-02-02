@@ -75,8 +75,10 @@ config QCOM_QSEECOM_UEFISECAPP
 	  platforms.
 
 config QCOM_MEMORY_DUMP_V2
-	tristate "QCOM Memory Dump V2 Support"
+	bool "QCOM Memory Dump V2 Support"
 	depends on QCOM_TZMEM
+	depends on CMA
+	select MEMORY_DUMP_RESERVE
 	help
 	  This enables memory dump feature. It allows various client
 	  subsystems to register respective dump regions. At the time
