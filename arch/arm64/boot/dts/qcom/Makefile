@@ -38,15 +38,7 @@ lemans-evk-camera-dtbs	:= lemans-evk.dtb lemans-evk-camera.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera-csi1-imx577.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera.dtb
 
-lemans-evk-camx-dtbs	:= lemans-evk.dtb lemans-evk-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camx.dtb
-
 dtb-$(CONFIG_ARCH_QCOM)	+= monaco-evk.dtb
-
-monaco-evk-camx-dtbs   := monaco-evk.dtb monaco-evk-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM) += monaco-evk-camx.dtb
 
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8216-samsung-fortuna3g.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8916-acer-a1-724.dtb
@@ -141,9 +133,6 @@ dtb-$(CONFIG_ARCH_QCOM)	+= qcs404-evb-1000.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs404-evb-4000.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs615-ride.dtb
 
-qcs615-ride-camx-dtbs	:= qcs615-ride.dtb qcs615-ride-camx.dtbo
-dtb-$(CONFIG_ARCH_QCOM)	+= qcs615-ride-camx.dtb
-
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs6490-radxa-dragon-q6a.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs6490-rb3gen2.dtb
 
@@ -153,30 +142,10 @@ qcs6490-rb3gen2-industrial-mezzanine-dtbs := qcs6490-rb3gen2.dtb qcs6490-rb3gen2
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs6490-rb3gen2-industrial-mezzanine.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs6490-rb3gen2-vision-mezzanine.dtb
 
-qcs6490-rb3gen2-vision-mezzanine-camx-dtbs := qcs6490-rb3gen2-vision-mezzanine.dtb \
-					      qcs6490-rb3gen2-vision-mezzanine-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM) += qcs6490-rb3gen2-vision-mezzanine-camx.dtb
-
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs8300-ride.dtb
-
-qcs8300-ride-camx-dtbs:= qcs8300-ride.dtb qcs8300-ride-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM) += qcs8300-ride-camx.dtb
-
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs8550-aim300-aiot.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-ride.dtb
-
-qcs9100-ride-camx-dtbs:= qcs9100-ride.dtb sa8775p-ride-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-ride-camx.dtb
-
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-ride-r3.dtb
-
-qcs9100-ride-r3-camx-dtbs:= qcs9100-ride-r3.dtb sa8775p-ride-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-ride-r3-camx.dtb
-
 dtb-$(CONFIG_ARCH_QCOM)	+= qdu1000-idp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qrb2210-rb1.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= qrb4210-rb2.dtb
@@ -191,15 +160,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sa8295p-adp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= sa8540p-ride.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= sa8775p-ride.dtb
 
-sa8775p-ride-camx-dtbs:= sa8775p-ride.dtb sa8775p-ride-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM)	+= sa8775p-ride-camx.dtb
-
 dtb-$(CONFIG_ARCH_QCOM)	+= sa8775p-ride-r3.dtb
-
-sa8775p-ride-r3-camx-dtbs:= sa8775p-ride-r3.dtb sa8775p-ride-camx.dtbo
-
-dtb-$(CONFIG_ARCH_QCOM)	+= sa8775p-ride-r3-camx.dtb
 
 sc7180-acer-aspire1-el2-dtbs	:= sc7180-acer-aspire1.dtb sc7180-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= sc7180-acer-aspire1.dtb sc7180-acer-aspire1-el2.dtb
@@ -407,3 +368,39 @@ x1p42100-hp-omnibook-x14-el2-dtbs := x1p42100-hp-omnibook-x14.dtb x1-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= x1p42100-hp-omnibook-x14.dtb x1p42100-hp-omnibook-x14-el2.dtb
 x1p42100-lenovo-thinkbook-16-el2-dtbs	:= x1p42100-lenovo-thinkbook-16.dtb x1-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= x1p42100-lenovo-thinkbook-16.dtb x1p42100-lenovo-thinkbook-16-el2.dtb
+
+lemans-evk-camx-dtbs	:= lemans-evk.dtb lemans-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camx.dtb
+
+monaco-evk-camx-dtbs   := monaco-evk.dtb monaco-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += monaco-evk-camx.dtb
+
+qcs615-ride-camx-dtbs	:= qcs615-ride.dtb qcs615-ride-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= qcs615-ride-camx.dtb
+
+qcs6490-rb3gen2-vision-mezzanine-camx-dtbs := qcs6490-rb3gen2-vision-mezzanine.dtb \
+					      qcs6490-rb3gen2-vision-mezzanine-camx.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += qcs6490-rb3gen2-vision-mezzanine-camx.dtb
+
+qcs8300-ride-camx-dtbs:= qcs8300-ride.dtb qcs8300-ride-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += qcs8300-ride-camx.dtb
+
+qcs9100-ride-camx-dtbs:= qcs9100-ride.dtb sa8775p-ride-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-ride-camx.dtb
+
+qcs9100-ride-r3-camx-dtbs:= qcs9100-ride-r3.dtb sa8775p-ride-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= qcs9100-ride-r3-camx.dtb
+
+sa8775p-ride-camx-dtbs:= sa8775p-ride.dtb sa8775p-ride-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= sa8775p-ride-camx.dtb
+
+sa8775p-ride-r3-camx-dtbs:= sa8775p-ride-r3.dtb sa8775p-ride-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= sa8775p-ride-r3-camx.dtb
