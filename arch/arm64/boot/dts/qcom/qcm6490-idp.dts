@@ -771,6 +771,39 @@
 	};
 };
 
+&qup_uart7_cts {
+	/*
+	 * Configure a bias-bus-hold on CTS to lower power
+	 * usage when Bluetooth is turned off. Bus hold will
+	 * maintain a low power state regardless of whether
+	 * the Bluetooth module drives the pin in either
+	 * direction or leaves the pin fully unpowered.
+	 */
+	bias-bus-hold;
+};
+
+&qup_uart7_rts {
+	/* We'll drive RTS, so no pull */
+	drive-strength = <2>;
+	bias-disable;
+};
+
+&qup_uart7_rx {
+	/*
+	 * Configure a pull-up on RX. This is needed to avoid
+	 * garbage data when the TX pin of the Bluetooth module is
+	 * in tri-state (module powered off or not driving the
+	 * signal yet).
+	 */
+	bias-pull-up;
+};
+
+&qup_uart7_tx {
+	/* We'll drive TX, so no pull */
+	drive-strength = <2>;
+	bias-disable;
+};
+
 &qupv3_id_0 {
 	status = "okay";
 };
@@ -1048,22 +1081,6 @@
 		 */
 		bias-pull-up;
 	};
-
-	pcie1_reset_n: pcie1-reset-n-state {
-		pins = "gpio2";
-		function = "gpio";
-		drive-strength = <16>;
-		output-low;
-		bias-disable;
-		};
-
-	pcie1_wake_n: pcie1-wake-n-state {
-		pins = "gpio3";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-pull-up;
-	};
-
 
 	sd_cd: sd-cd-state {
 		pins = "gpio91";
