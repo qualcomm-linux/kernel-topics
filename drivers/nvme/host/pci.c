@@ -695,7 +695,6 @@ static void nvme_free_prps(struct request *req)
 		dma_unmap_page(nvmeq->dev->dev, iod->dma_vecs[i].addr,
 				iod->dma_vecs[i].len, rq_dma_dir(req));
 	mempool_free(iod->dma_vecs, nvmeq->dev->dmavec_mempool);
-	iod->dma_vecs = NULL;
 }
 
 static void nvme_free_sgls(struct request *req, struct nvme_sgl_desc *sge,
@@ -781,7 +780,7 @@ static bool nvme_pci_prp_iter_next(struct request *req, struct device *dma_dev,
 		return true;
 	if (!blk_rq_dma_map_iter_next(req, dma_dev, &iod->dma_state, iter))
 		return false;
-	if (iod->dma_vecs && !dma_use_iova(&iod->dma_state) && dma_need_unmap(dma_dev)) {
+	if (!dma_use_iova(&iod->dma_state) && dma_need_unmap(dma_dev)) {
 		iod->dma_vecs[iod->nr_dma_vecs].addr = iter->addr;
 		iod->dma_vecs[iod->nr_dma_vecs].len = iter->len;
 		iod->nr_dma_vecs++;
