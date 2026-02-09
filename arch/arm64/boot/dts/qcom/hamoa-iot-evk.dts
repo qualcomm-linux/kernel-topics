@@ -616,6 +616,38 @@
 				sound-dai = <&q6apm>;
 			};
 		};
+
+		dp0-dai-link {
+			link-name = "DP0 Playback";
+
+			codec {
+				sound-dai = <&mdss_dp0>;
+			};
+
+			cpu {
+				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_0>;
+			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
+		};
+
+		dp1-dai-link {
+			link-name = "DP1 Playback";
+
+			codec {
+				sound-dai = <&mdss_dp1>;
+			};
+
+			cpu {
+				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_1>;
+			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
+		};
 	};
 
 	usb-1-ss0-sbu-mux {
@@ -902,6 +934,7 @@
 
 &mdss_dp0 {
 	status = "okay";
+	sound-name-prefix = "Display Port0";
 };
 
 &mdss_dp0_out {
@@ -910,6 +943,7 @@
 
 &mdss_dp1 {
 	status = "okay";
+	sound-name-prefix = "Display Port1";
 };
 
 &mdss_dp1_out {
