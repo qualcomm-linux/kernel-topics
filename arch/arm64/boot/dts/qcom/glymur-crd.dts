@@ -700,6 +700,10 @@
 &pcie3b_phy {
 	vdda-phy-supply = <&vreg_l3c_e1_0p89>;
 	vdda-pll-supply = <&vreg_l2c_e1_1p14>;
+	vdda-qref-supply = <&vreg_l1f_e1_0p82>;
+	vdda-qref2-supply = <&vreg_l2f_e1_0p83>;
+	vdda-refgen0p9-supply = <&vreg_l1c_e1_0p82>;
+	vdda-refgen1p2-supply = <&vreg_l4f_e1_1p08>;
 
 	status = "okay";
 };
@@ -722,6 +726,8 @@
 	vdda-phy-supply = <&vreg_l1c_e1_0p82>;
 	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
 
+	vdda-qref-supply = <&vreg_l1f_e1_0p82>;
+	vdda-qref2-supply = <&vreg_l2f_e1_0p83>;
 	status = "okay";
 };
 
@@ -743,6 +749,7 @@
 	vdda-phy-supply = <&vreg_l2f_e0_0p82>;
 	vdda-pll-supply = <&vreg_l4h_e0_1p2>;
 
+	vdda-qref-supply = <&vreg_l3f_e0_0p72>;
 	status = "okay";
 };
 
@@ -764,6 +771,8 @@
 	vdda-phy-supply = <&vreg_l1c_e1_0p82>;
 	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
 
+	vdda-qref-supply = <&vreg_l1f_e1_0p82>;
+	vdda-qref2-supply = <&vreg_l2f_e1_0p83>;
 	status = "okay";
 };
 
