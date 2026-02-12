@@ -4199,7 +4199,6 @@
 
 			qcom,dll-config = <0x000f64ee>;
 			qcom,ddr-config = <0x80040868>;
-			supports-cqe;
 			dma-coherent;
 
 			status = "disabled";
