@@ -661,14 +661,14 @@
 	pinctrl-0 = <&pcie4_default>;
 	pinctrl-names = "default";
 
-	status = "okay";
+	//status = "okay";
 };
 
 &pcie4_phy {
 	vdda-phy-supply = <&vreg_l1c_e1_0p82>;
 	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
 
-	status = "okay";
+	//status = "okay";
 };
 
 &pcie4_port0 {
@@ -703,14 +703,14 @@
 	pinctrl-0 = <&pcie6_default>;
 	pinctrl-names = "default";
 
-	status = "okay";
+	//status = "okay";
 };
 
 &pcie6_phy {
 	vdda-phy-supply = <&vreg_l1c_e1_0p82>;
 	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
 
-	status = "okay";
+	//status = "okay";
 };
 
 &pcie6_port0 {
