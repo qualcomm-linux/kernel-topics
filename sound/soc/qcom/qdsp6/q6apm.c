@@ -785,6 +785,11 @@ static void apm_remove(gpr_device_t *gdev)
 	snd_soc_unregister_component(&gdev->dev);
 }
 
+static void apm_remove(gpr_device_t *gdev)
+{
+	snd_soc_unregister_component(&gdev->dev);
+}
+
 struct audioreach_module *q6apm_find_module_by_mid(struct q6apm_graph *graph, uint32_t mid)
 {
 	struct audioreach_graph_info *info = graph->info;
