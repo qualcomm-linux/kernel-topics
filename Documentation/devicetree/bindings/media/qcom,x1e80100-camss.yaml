@@ -126,6 +126,16 @@ properties:
     description:
       1.2V supply to a PHY.
 
+  phys:
+    maxItems: 4
+
+  phy-names:
+    items:
+      - const: csiphy0
+      - const: csiphy1
+      - const: csiphy2
+      - const: csiphy4
+
   ports:
     $ref: /schemas/graph.yaml#/properties/ports
 
@@ -350,6 +360,11 @@ examples:
 
             vdd-csiphy-0p8-supply = <&csiphy_0p8_supply>;
             vdd-csiphy-1p2-supply = <&csiphy_1p2_supply>;
+
+            phys = <&csiphy0>, <&csiphy1>,
+                   <&csiphy2>, <&csiphy4>;
+            phy-names = "csiphy0", "csiphy1",
+                        "csiphy2", "csiphy4";
 
             ports {
                 #address-cells = <1>;
