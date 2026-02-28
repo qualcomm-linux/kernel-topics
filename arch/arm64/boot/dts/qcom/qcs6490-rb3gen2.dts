@@ -49,8 +49,6 @@
 		label = "DP";
 		type = "mini";
 
-		hpd-gpios = <&tlmm 60 GPIO_ACTIVE_HIGH>;
-
 		port {
 			dp_connector_in: endpoint {
 				remote-endpoint = <&mdss_edp_out>;
@@ -1714,7 +1712,6 @@
 /* PINCTRL - ADDITIONS TO NODES IN PARENT DEVICE TREE FILES */
 
 &edp_hot_plug_det {
-	function = "gpio";
 	bias-disable;
 };
 
