@@ -468,11 +468,18 @@ static int __init mem_dump_dev_init(void)
 			goto fail;
 
 		break;
+	/* Hamoa chip IDs */
 	case 555:
 	case 615:
 	case 616:
 	case 709:
 	case 710:
+	/* Glymur chip IDs */
+	case 662:
+	case 698:
+	case 699:
+	case 718:
+	case 719:
 		ret = platform_device_add_data(mem_dump_pdev,
 				&hamoa_dump_table, sizeof(hamoa_dump_table));
 		if (ret)
