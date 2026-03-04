@@ -17,6 +17,7 @@
 #include <linux/phy/pcie.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
+#include <linux/pm_domain.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
@@ -3334,6 +3335,8 @@ struct qmp_pcie {
 
 	struct clk_fixed_rate pipe_clk_fixed;
 	struct clk_fixed_rate aux_clk_fixed;
+
+	struct dev_pm_domain_list *pd_list;
 };
 
 static bool qphy_checkbits(const void __iomem *base, u32 offset, u32 val)
@@ -5347,6 +5350,16 @@ static int qmp_pcie_probe(struct platform_device *pdev)
 
 	WARN_ON_ONCE(!qmp->cfg->pwrdn_ctrl);
 	WARN_ON_ONCE(!qmp->cfg->phy_status);
+
+	ret = devm_pm_domain_attach_list(dev, NULL, &qmp->pd_list);
+	if (ret < 0 && ret != -EEXIST) {
+		dev_err(dev, "Failed to attach power domain\n");
+		return ret;
+	}
+
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
 
 	ret = qmp_pcie_clk_init(qmp);
 	if (ret)
