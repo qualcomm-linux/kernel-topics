@@ -78,7 +78,7 @@ struct ddr_freq_table {
 
 /* V3 */
 struct ddr_freq_plan_v3 {
-	struct ddr_freq_table ddr_freq[MAX_DDR_FREQ_NUM_V3]; /* NOTE: some have 14 like v5 */
+	struct ddr_freq_table ddr_freq[MAX_DDR_FREQ_NUM_V3];
 	u8 num_ddr_freqs;
 	phys_addr_t clk_period_address;
 };
@@ -88,6 +88,21 @@ struct ddr_details_v3 {
 	u8 device_type;
 	struct ddr_part_details ddr_params[MAX_CHAN_NUM];
 	struct ddr_freq_plan_v3 ddr_freq_tbl;
+	u8 num_channels;
+};
+
+/* Some V3 structs have an additional frequency level */
+struct ddr_freq_plan_v3_14freqs {
+	struct ddr_freq_table ddr_freq[MAX_DDR_FREQ_NUM_V3 + 1];
+	u8 num_ddr_freqs;
+	phys_addr_t clk_period_address;
+};
+
+struct ddr_details_v3_14freqs {
+	u8 manufacturer_id;
+	u8 device_type;
+	struct ddr_part_details ddr_params[MAX_CHAN_NUM];
+	struct ddr_freq_plan_v3_14freqs ddr_freq_tbl;
 	u8 num_channels;
 };
 
@@ -201,20 +216,27 @@ int qcom_smem_dram_get_hbb(void)
 }
 EXPORT_SYMBOL_GPL(qcom_smem_dram_get_hbb);
 
-static void smem_dram_parse_v3_data(struct smem_dram *dram, void *data, bool additional_freq_entry)
+static void smem_dram_parse_v3_data(struct smem_dram *dram, void *data)
 {
-	/* This may be 13 or 14 */
-	int num_freq_entries = MAX_DDR_FREQ_NUM_V3;
 	struct ddr_details_v3 *details = data;
 
-	if (additional_freq_entry)
-		num_freq_entries++;
-
-	for (int i = 0; i < num_freq_entries; i++) {
+	for (int i = 0; i < MAX_DDR_FREQ_NUM_V3; i++) {
 		struct ddr_freq_table *freq_entry = &details->ddr_freq_tbl.ddr_freq[i];
 
 		if (freq_entry->freq_khz && freq_entry->enabled)
 			dram->frequencies[dram->num_frequencies++] = 1000 * freq_entry->freq_khz;
+	}
+}
+
+static void smem_dram_parse_v3_14freqs_data(struct smem_dram *dram, void *data)
+{
+	struct ddr_details_v3_14freqs *details = data;
+
+	for (int i = 0; i < MAX_DDR_FREQ_NUM_V3 + 1; i++) {
+		struct ddr_freq_table *freq_entry = &details->ddr_freq_tbl.ddr_freq[i];
+
+	if (freq_entry->freq_khz && freq_entry->enabled)
+		dram->frequencies[dram->num_frequencies++] = 1000 * freq_entry->freq_khz;
 	}
 }
 
@@ -273,8 +295,7 @@ static int smem_dram_infer_struct_version(size_t size)
 	if (size == sizeof(struct ddr_details_v3))
 		return INFO_V3;
 
-	if (size == sizeof(struct ddr_details_v3)
-		 + sizeof(struct ddr_freq_table))
+	if (size == sizeof(struct ddr_details_v3_14freqs))
 		return INFO_V3_WITH_14_FREQS;
 
 	if (size == sizeof(struct ddr_details_v4))
@@ -374,10 +395,10 @@ struct dentry *smem_dram_parse(struct device *dev)
 
 	switch (ver) {
 	case INFO_V3:
-		smem_dram_parse_v3_data(dram, data, false);
+		smem_dram_parse_v3_data(dram, data);
 		break;
 	case INFO_V3_WITH_14_FREQS:
-		smem_dram_parse_v3_data(dram, data, true);
+		smem_dram_parse_v3_14freqs_data(dram, data);
 		break;
 	case INFO_V4:
 		smem_dram_parse_v4_data(dram, data);
