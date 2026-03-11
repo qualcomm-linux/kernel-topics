@@ -78,13 +78,13 @@ static noinstr void fred_intx(struct pt_regs *regs)
 static __always_inline void fred_other(struct pt_regs *regs)
 {
 	/* The compiler can fold these conditions into a single test */
-	if (likely(regs->fred_ss.vector == FRED_SYSCALL && regs->fred_ss.lm)) {
+	if (likely(regs->fred_ss.vector == FRED_SYSCALL && regs->fred_ss.l)) {
 		regs->orig_ax = regs->ax;
 		regs->ax = -ENOSYS;
 		do_syscall_64(regs, regs->orig_ax);
 		return;
 	} else if (ia32_enabled() &&
-		   likely(regs->fred_ss.vector == FRED_SYSENTER && !regs->fred_ss.lm)) {
+		   likely(regs->fred_ss.vector == FRED_SYSENTER && !regs->fred_ss.l)) {
 		regs->orig_ax = regs->ax;
 		regs->ax = -ENOSYS;
 		do_fast_syscall_32(regs);
@@ -114,6 +114,7 @@ static idtentry_t sysvec_table[NR_SYSTEM_VECTORS] __ro_after_init = {
 
 	SYSVEC(IRQ_WORK_VECTOR,			irq_work),
 
+	SYSVEC(PERF_GUEST_MEDIATED_PMI_VECTOR,	perf_guest_mediated_pmi_handler),
 	SYSVEC(POSTED_INTR_VECTOR,		kvm_posted_intr_ipi),
 	SYSVEC(POSTED_INTR_WAKEUP_VECTOR,	kvm_posted_intr_wakeup_ipi),
 	SYSVEC(POSTED_INTR_NESTED_VECTOR,	kvm_posted_intr_nested_ipi),

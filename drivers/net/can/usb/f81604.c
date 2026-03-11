@@ -678,7 +678,7 @@ static int f81604_register_urbs(struct f81604_port_priv *priv)
 			break;
 		}
 
-		frame = kmalloc(sizeof(*frame), GFP_KERNEL);
+		frame = kmalloc_obj(*frame);
 		if (!frame) {
 			usb_free_urb(rx_urb);
 			ret = -ENOMEM;
@@ -717,7 +717,7 @@ static int f81604_register_urbs(struct f81604_port_priv *priv)
 		goto error;
 	}
 
-	int_data = kmalloc(sizeof(*int_data), GFP_KERNEL);
+	int_data = kmalloc_obj(*int_data);
 	if (!int_data) {
 		usb_free_urb(int_urb);
 		ret = -ENOMEM;
@@ -919,7 +919,7 @@ static netdev_tx_t f81604_start_xmit(struct sk_buff *skb,
 	if (!write_urb)
 		goto nomem_urb;
 
-	frame = kzalloc(sizeof(*frame), GFP_ATOMIC);
+	frame = kzalloc_obj(*frame, GFP_ATOMIC);
 	if (!frame)
 		goto nomem_buf;
 
@@ -1052,7 +1052,6 @@ static const struct net_device_ops f81604_netdev_ops = {
 	.ndo_open = f81604_open,
 	.ndo_stop = f81604_close,
 	.ndo_start_xmit = f81604_start_xmit,
-	.ndo_change_mtu = can_change_mtu,
 };
 
 static const struct can_bittiming_const f81604_bittiming_const = {

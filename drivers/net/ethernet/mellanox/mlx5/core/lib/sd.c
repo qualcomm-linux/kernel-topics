@@ -187,7 +187,7 @@ static int sd_init(struct mlx5_core_dev *dev)
 		return 0;
 	}
 
-	sd = kzalloc(sizeof(*sd), GFP_KERNEL);
+	sd = kzalloc_obj(*sd);
 	if (!sd)
 		return -ENOMEM;
 
@@ -221,8 +221,8 @@ static int sd_register(struct mlx5_core_dev *dev)
 	attr.net = mlx5_core_net(dev);
 	devcom = mlx5_devcom_register_component(dev->priv.devc, MLX5_DEVCOM_SD_GROUP,
 						&attr, NULL, dev);
-	if (IS_ERR(devcom))
-		return PTR_ERR(devcom);
+	if (!devcom)
+		return -EINVAL;
 
 	sd->devcom = devcom;
 

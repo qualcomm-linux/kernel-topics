@@ -126,7 +126,7 @@ properties:
 
   vdda-pll-supply:
     description:
-      Phandle to 1.8V regulator supply to PHY refclk pll block.
+      Phandle to 1.2V regulator supply to CSI PHYs pll block.
 
   ports:
     $ref: /schemas/graph.yaml#/properties/ports

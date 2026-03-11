@@ -69,17 +69,15 @@ nouveau_job_init(struct nouveau_job *job,
 			goto err_free_in_sync;
 		}
 
-		job->out_sync.objs = kcalloc(job->out_sync.count,
-					     sizeof(*job->out_sync.objs),
-					     GFP_KERNEL);
+		job->out_sync.objs = kzalloc_objs(*job->out_sync.objs,
+						  job->out_sync.count);
 		if (!job->out_sync.objs) {
 			ret = -ENOMEM;
 			goto err_free_out_sync;
 		}
 
-		job->out_sync.chains = kcalloc(job->out_sync.count,
-					       sizeof(*job->out_sync.chains),
-					       GFP_KERNEL);
+		job->out_sync.chains = kzalloc_objs(*job->out_sync.chains,
+						    job->out_sync.count);
 		if (!job->out_sync.chains) {
 			ret = -ENOMEM;
 			goto err_free_objs;
@@ -467,7 +465,7 @@ nouveau_sched_create(struct nouveau_sched **psched, struct nouveau_drm *drm,
 	struct nouveau_sched *sched;
 	int ret;
 
-	sched = kzalloc(sizeof(*sched), GFP_KERNEL);
+	sched = kzalloc_obj(*sched);
 	if (!sched)
 		return -ENOMEM;
 
@@ -482,6 +480,17 @@ nouveau_sched_create(struct nouveau_sched **psched, struct nouveau_drm *drm,
 	return 0;
 }
 
+static bool
+nouveau_sched_job_list_empty(struct nouveau_sched *sched)
+{
+	bool empty;
+
+	spin_lock(&sched->job.list.lock);
+	empty = list_empty(&sched->job.list.head);
+	spin_unlock(&sched->job.list.lock);
+
+	return empty;
+}
 
 static void
 nouveau_sched_fini(struct nouveau_sched *sched)
@@ -489,8 +498,7 @@ nouveau_sched_fini(struct nouveau_sched *sched)
 	struct drm_gpu_scheduler *drm_sched = &sched->base;
 	struct drm_sched_entity *entity = &sched->entity;
 
-	rmb(); /* for list_empty to work without lock */
-	wait_event(sched->job.wq, list_empty(&sched->job.list.head));
+	wait_event(sched->job.wq, nouveau_sched_job_list_empty(sched));
 
 	drm_sched_entity_fini(entity);
 	drm_sched_fini(drm_sched);

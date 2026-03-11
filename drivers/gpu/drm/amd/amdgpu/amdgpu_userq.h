@@ -37,6 +37,7 @@ enum amdgpu_userq_state {
 	AMDGPU_USERQ_STATE_MAPPED,
 	AMDGPU_USERQ_STATE_PREEMPTED,
 	AMDGPU_USERQ_STATE_HUNG,
+	AMDGPU_USERQ_STATE_INVALID_VA,
 };
 
 struct amdgpu_mqd_prop;
@@ -45,6 +46,11 @@ struct amdgpu_userq_obj {
 	void		 *cpu_ptr;
 	uint64_t	 gpu_addr;
 	struct amdgpu_bo *obj;
+};
+
+struct amdgpu_userq_va_cursor {
+	u64			gpu_addr;
+	struct list_head	list;
 };
 
 struct amdgpu_usermode_queue {
@@ -66,34 +72,37 @@ struct amdgpu_usermode_queue {
 	u32			xcp_id;
 	int			priority;
 	struct dentry		*debugfs_queue;
+	struct delayed_work hang_detect_work;
+	struct dma_fence *hang_detect_fence;
+
+	struct list_head	userq_va_list;
 };
 
 struct amdgpu_userq_funcs {
-	int (*mqd_create)(struct amdgpu_userq_mgr *uq_mgr,
-			  struct drm_amdgpu_userq_in *args,
-			  struct amdgpu_usermode_queue *queue);
-	void (*mqd_destroy)(struct amdgpu_userq_mgr *uq_mgr,
-			    struct amdgpu_usermode_queue *uq);
-	int (*unmap)(struct amdgpu_userq_mgr *uq_mgr,
-		     struct amdgpu_usermode_queue *queue);
-	int (*map)(struct amdgpu_userq_mgr *uq_mgr,
-		   struct amdgpu_usermode_queue *queue);
-	int (*preempt)(struct amdgpu_userq_mgr *uq_mgr,
-		   struct amdgpu_usermode_queue *queue);
-	int (*restore)(struct amdgpu_userq_mgr *uq_mgr,
-		   struct amdgpu_usermode_queue *queue);
+	int (*mqd_create)(struct amdgpu_usermode_queue *queue,
+			  struct drm_amdgpu_userq_in *args);
+	void (*mqd_destroy)(struct amdgpu_usermode_queue *uq);
+	int (*unmap)(struct amdgpu_usermode_queue *queue);
+	int (*map)(struct amdgpu_usermode_queue *queue);
+	int (*preempt)(struct amdgpu_usermode_queue *queue);
+	int (*restore)(struct amdgpu_usermode_queue *queue);
 	int (*detect_and_reset)(struct amdgpu_device *adev,
 		  int queue_type);
 };
 
 /* Usermode queues for gfx */
 struct amdgpu_userq_mgr {
-	struct idr			userq_idr;
+	/**
+	 * @userq_xa: Per-process user queue map (queue ID → queue)
+	 * Key: queue_id (unique ID within the process's userq manager)
+	 * Value: struct amdgpu_usermode_queue
+	 */
+	struct xarray			userq_xa;
 	struct mutex			userq_mutex;
 	struct amdgpu_device		*adev;
 	struct delayed_work		resume_work;
-	struct list_head		list;
 	struct drm_file			*file;
+	atomic_t                        userq_count[AMDGPU_RING_TYPE_MAX];
 };
 
 struct amdgpu_db_info {
@@ -128,6 +137,7 @@ uint64_t amdgpu_userq_get_doorbell_index(struct amdgpu_userq_mgr *uq_mgr,
 					     struct drm_file *filp);
 
 u32 amdgpu_userq_get_supported_ip_mask(struct amdgpu_device *adev);
+bool amdgpu_userq_enabled(struct drm_device *dev);
 
 int amdgpu_userq_suspend(struct amdgpu_device *adev);
 int amdgpu_userq_resume(struct amdgpu_device *adev);
@@ -136,7 +146,15 @@ int amdgpu_userq_stop_sched_for_enforce_isolation(struct amdgpu_device *adev,
 						  u32 idx);
 int amdgpu_userq_start_sched_for_enforce_isolation(struct amdgpu_device *adev,
 						   u32 idx);
+void amdgpu_userq_reset_work(struct work_struct *work);
+void amdgpu_userq_pre_reset(struct amdgpu_device *adev);
+int amdgpu_userq_post_reset(struct amdgpu_device *adev, bool vram_lost);
+void amdgpu_userq_start_hang_detect_work(struct amdgpu_usermode_queue *queue);
 
-int amdgpu_userq_input_va_validate(struct amdgpu_vm *vm, u64 addr,
-				   u64 expected_size);
+int amdgpu_userq_input_va_validate(struct amdgpu_device *adev,
+				   struct amdgpu_usermode_queue *queue,
+				   u64 addr, u64 expected_size);
+int amdgpu_userq_gem_va_unmap_validate(struct amdgpu_device *adev,
+				       struct amdgpu_bo_va_mapping *mapping,
+				       uint64_t saddr);
 #endif

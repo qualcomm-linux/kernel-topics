@@ -2050,10 +2050,8 @@ void e1000e_set_interrupt_capability(struct e1000_adapter *adapter)
 	case E1000E_INT_MODE_MSIX:
 		if (adapter->flags & FLAG_HAS_MSIX) {
 			adapter->num_vectors = 3; /* RxQ0, TxQ0 and other */
-			adapter->msix_entries = kcalloc(adapter->num_vectors,
-							sizeof(struct
-							       msix_entry),
-							GFP_KERNEL);
+			adapter->msix_entries = kzalloc_objs(struct msix_entry,
+							     adapter->num_vectors);
 			if (adapter->msix_entries) {
 				struct e1000_adapter *a = adapter;
 
@@ -2370,9 +2368,8 @@ int e1000e_setup_rx_resources(struct e1000_ring *rx_ring)
 
 	for (i = 0; i < rx_ring->count; i++) {
 		buffer_info = &rx_ring->buffer_info[i];
-		buffer_info->ps_pages = kcalloc(PS_PAGE_BUFFERS,
-						sizeof(struct e1000_ps_page),
-						GFP_KERNEL);
+		buffer_info->ps_pages = kzalloc_objs(struct e1000_ps_page,
+						     PS_PAGE_BUFFERS);
 		if (!buffer_info->ps_pages)
 			goto err_pages;
 	}
@@ -7195,7 +7192,6 @@ static pci_ers_result_t e1000_io_slot_reset(struct pci_dev *pdev)
 			"Cannot re-enable PCI device after reset.\n");
 		result = PCI_ERS_RESULT_DISCONNECT;
 	} else {
-		pdev->state_saved = true;
 		pci_restore_state(pdev);
 		pci_set_master(pdev);
 
@@ -7674,6 +7670,9 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* init PTP hardware clock */
 	e1000e_ptp_init(adapter);
+
+	if (hw->mac.type >= e1000_pch_mtp)
+		adapter->flags2 |= FLAG2_DISABLE_K1;
 
 	/* reset the hardware with the new settings */
 	e1000e_reset(adapter);

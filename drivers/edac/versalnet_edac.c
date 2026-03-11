@@ -433,7 +433,7 @@ static void handle_error(struct mc_priv  *priv, struct ecc_status *stat,
 	phys_addr_t pfn;
 	int err;
 
-	if (WARN_ON_ONCE(ctl_num > NUM_CONTROLLERS))
+	if (WARN_ON_ONCE(ctl_num >= NUM_CONTROLLERS))
 		return;
 
 	mci = priv->mci[ctl_num];
@@ -559,7 +559,7 @@ static int setup_mcdi(struct mc_priv *mc_priv)
 	struct cdx_mcdi *amd_mcdi;
 	int ret, i;
 
-	amd_mcdi = kzalloc(sizeof(*amd_mcdi), GFP_KERNEL);
+	amd_mcdi = kzalloc_obj(*amd_mcdi);
 	if (!amd_mcdi)
 		return -ENOMEM;
 
@@ -605,21 +605,23 @@ static int rpmsg_cb(struct rpmsg_device *rpdev, void *data,
 	length = result[MSG_ERR_LENGTH];
 	offset = result[MSG_ERR_OFFSET];
 
+	/*
+	 * The data can come in two stretches. Construct the regs from two
+	 * messages. The offset indicates the offset from which the data is to
+	 * be taken.
+	 */
+	for (i = 0 ; i < length; i++) {
+		k = offset + i;
+		j = ERROR_DATA + i;
+		mc_priv->regs[k] = result[j];
+	}
+
 	if (result[TOTAL_ERR_LENGTH] > length) {
 		if (!mc_priv->part_len)
 			mc_priv->part_len = length;
 		else
 			mc_priv->part_len += length;
-		/*
-		 * The data can come in 2 stretches. Construct the regs from 2
-		 * messages the offset indicates the offset from which the data is to
-		 * be taken
-		 */
-		for (i = 0 ; i < length; i++) {
-			k = offset + i;
-			j = ERROR_DATA + i;
-			mc_priv->regs[k] = result[j];
-		}
+
 		if (mc_priv->part_len < result[TOTAL_ERR_LENGTH])
 			return 0;
 		mc_priv->part_len = 0;
@@ -705,7 +707,7 @@ static int rpmsg_cb(struct rpmsg_device *rpdev, void *data,
 	/* Convert to bytes */
 	length = result[TOTAL_ERR_LENGTH] * 4;
 	log_non_standard_event(sec_type, &amd_versalnet_guid, mc_priv->message,
-			       sec_sev, (void *)&result[ERROR_DATA], length);
+			       sec_sev, (void *)&mc_priv->regs, length);
 
 	return 0;
 }
@@ -810,7 +812,7 @@ static int init_versalnet(struct mc_priv *priv, struct platform_device *pdev)
 		priv->mci[i] = mci;
 		priv->dwidth = dt;
 
-		dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+		dev = kzalloc_obj(*dev);
 		dev->release = versal_edac_release;
 		name = kmalloc(32, GFP_KERNEL);
 		sprintf(name, "versal-net-ddrmc5-edac-%d", i);

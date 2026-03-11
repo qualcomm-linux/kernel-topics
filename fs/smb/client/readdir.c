@@ -13,7 +13,6 @@
 #include <linux/pagemap.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
-#include "cifspdu.h"
 #include "cifsglob.h"
 #include "cifsproto.h"
 #include "cifs_unicode.h"
@@ -98,7 +97,7 @@ retry:
 			default:
 				break;
 			}
-		} else if (fattr->cf_cifsattrs & ATTR_REPARSE) {
+		} else if (fattr->cf_cifsattrs & ATTR_REPARSE_POINT) {
 			reparse_need_reval = true;
 		}
 
@@ -138,7 +137,7 @@ retry:
 				 * reparse tag and ctime haven't changed.
 				 */
 				rc = 0;
-				if (fattr->cf_cifsattrs & ATTR_REPARSE) {
+				if (fattr->cf_cifsattrs & ATTR_REPARSE_POINT) {
 					if (likely(reparse_inode_match(inode, fattr))) {
 						fattr->cf_mode = inode->i_mode;
 						fattr->cf_rdev = inode->i_rdev;
@@ -190,7 +189,7 @@ cifs_fill_common_info(struct cifs_fattr *fattr, struct cifs_sb_info *cifs_sb)
 	 * TODO: go through all documented  reparse tags to see if we can
 	 * reasonably map some of them to directories vs. files vs. symlinks
 	 */
-	if ((fattr->cf_cifsattrs & ATTR_REPARSE) &&
+	if ((fattr->cf_cifsattrs & ATTR_REPARSE_POINT) &&
 	    cifs_reparse_point_to_fattr(cifs_sb, fattr, &data))
 		goto out_reparse;
 
@@ -258,7 +257,7 @@ cifs_posix_to_fattr(struct cifs_fattr *fattr, struct smb2_posix_info *info,
 	fattr->cf_nlink = le32_to_cpu(info->HardLinks);
 	fattr->cf_cifsattrs = le32_to_cpu(info->DosAttributes);
 
-	if (fattr->cf_cifsattrs & ATTR_REPARSE)
+	if (fattr->cf_cifsattrs & ATTR_REPARSE_POINT)
 		fattr->cf_cifstag = le32_to_cpu(info->ReparseTag);
 
 	/* The Mode field in the response can now include the file type as well */
@@ -316,7 +315,7 @@ static void cifs_fulldir_info_to_fattr(struct cifs_fattr *fattr,
 	__dir_info_to_fattr(fattr, info);
 
 	/* See MS-FSCC 2.4.14, 2.4.19 */
-	if (fattr->cf_cifsattrs & ATTR_REPARSE)
+	if (fattr->cf_cifsattrs & ATTR_REPARSE_POINT)
 		fattr->cf_cifstag = le32_to_cpu(di->EaSize);
 	cifs_fill_common_info(fattr, cifs_sb);
 }
@@ -359,7 +358,7 @@ _initiate_cifs_search(const unsigned int xid, struct file *file,
 		if (IS_ERR(tlink))
 			return PTR_ERR(tlink);
 
-		cifsFile = kzalloc(sizeof(struct cifsFileInfo), GFP_KERNEL);
+		cifsFile = kzalloc_obj(struct cifsFileInfo);
 		if (cifsFile == NULL) {
 			rc = -ENOMEM;
 			goto error_exit;
@@ -548,7 +547,7 @@ static void cifs_fill_dirent_full(struct cifs_dirent *de,
 }
 
 static void cifs_fill_dirent_search(struct cifs_dirent *de,
-		const SEARCH_ID_FULL_DIR_INFO *info)
+		const FILE_ID_FULL_DIR_INFO *info)
 {
 	de->name = &info->FileName[0];
 	de->namelen = le32_to_cpu(info->FileNameLength);
@@ -775,7 +774,7 @@ find_cifs_entry(const unsigned int xid, struct cifs_tcon *tcon, loff_t pos,
 
 		if (cfile->srch_inf.ntwrk_buf_start == NULL) {
 			cifs_dbg(VFS, "ntwrk_buf_start is NULL during readdir\n");
-			return -EIO;
+			return smb_EIO(smb_eio_trace_null_pointers);
 		}
 
 		end_of_smb = cfile->srch_inf.ntwrk_buf_start +
@@ -889,7 +888,7 @@ static bool add_cached_dirent(struct cached_dirents *cde,
 		cde->is_failed = 1;
 		return false;
 	}
-	de = kzalloc(sizeof(*de), GFP_ATOMIC);
+	de = kzalloc_obj(*de, GFP_ATOMIC);
 	if (de == NULL) {
 		cde->is_failed = 1;
 		return false;

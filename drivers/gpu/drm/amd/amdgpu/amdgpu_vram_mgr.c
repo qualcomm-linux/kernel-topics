@@ -234,6 +234,9 @@ static umode_t amdgpu_vram_attrs_is_visible(struct kobject *kobj,
 	    !adev->gmc.vram_vendor)
 		return 0;
 
+	if (!ttm_resource_manager_used(&adev->mman.vram_mgr.manager))
+		return 0;
+
 	return attr->mode;
 }
 
@@ -337,7 +340,7 @@ int amdgpu_vram_mgr_reserve_range(struct amdgpu_vram_mgr *mgr,
 {
 	struct amdgpu_vram_reservation *rsv;
 
-	rsv = kzalloc(sizeof(*rsv), GFP_KERNEL);
+	rsv = kzalloc_obj(*rsv);
 	if (!rsv)
 		return -ENOMEM;
 
@@ -475,7 +478,7 @@ static int amdgpu_vram_mgr_new(struct ttm_resource_manager *man,
 					tbo->page_alignment);
 	}
 
-	vres = kzalloc(sizeof(*vres), GFP_KERNEL);
+	vres = kzalloc_obj(*vres);
 	if (!vres)
 		return -ENOMEM;
 
@@ -681,7 +684,7 @@ int amdgpu_vram_mgr_alloc_sgt(struct amdgpu_device *adev,
 	int num_entries = 0;
 	int i, r;
 
-	*sgt = kmalloc(sizeof(**sgt), GFP_KERNEL);
+	*sgt = kmalloc_obj(**sgt);
 	if (!*sgt)
 		return -ENOMEM;
 

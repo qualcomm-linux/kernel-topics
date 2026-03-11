@@ -354,7 +354,9 @@ static const struct apple_key_translation swapped_fn_leftctrl_keys[] = {
 };
 
 static const struct apple_non_apple_keyboard non_apple_keyboards[] = {
+	{ "SONiX KN85 Keyboard" },
 	{ "SONiX USB DEVICE" },
+	{ "SONiX AK870 PRO" },
 	{ "Keychron" },
 	{ "AONE" },
 	{ "GANSS" },
@@ -792,7 +794,7 @@ static int apple_backlight_set(struct hid_device *hdev, u16 value, u16 rate)
 	int ret = 0;
 	struct apple_backlight_set_report *rep;
 
-	rep = kmalloc(sizeof(*rep), GFP_KERNEL);
+	rep = kmalloc_obj(*rep);
 	if (rep == NULL)
 		return -ENOMEM;
 

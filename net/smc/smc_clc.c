@@ -88,7 +88,7 @@ static int smc_clc_ueid_add(char *ueid)
 		return -EINVAL;
 
 	/* add a new ueid entry to the ueid table if there isn't one */
-	new_ueid = kzalloc(sizeof(*new_ueid), GFP_KERNEL);
+	new_ueid = kzalloc_obj(*new_ueid);
 	if (!new_ueid)
 		return -ENOMEM;
 	memcpy(new_ueid->eid, ueid, SMC_MAX_EID_LEN);
@@ -861,7 +861,7 @@ int smc_clc_send_proposal(struct smc_sock *smc, struct smc_init_info *ini)
 	struct kvec vec[8];
 	struct msghdr msg;
 
-	pclc = kzalloc(sizeof(*pclc), GFP_KERNEL);
+	pclc = kzalloc_obj(*pclc);
 	if (!pclc)
 		return -ENOMEM;
 
@@ -890,6 +890,7 @@ int smc_clc_send_proposal(struct smc_sock *smc, struct smc_init_info *ini)
 				return SMC_CLC_DECL_CNFERR;
 			}
 			pclc_base->hdr.typev1 = SMC_TYPE_N;
+			ini->smc_type_v1 = SMC_TYPE_N;
 		} else {
 			pclc_base->iparea_offset = htons(sizeof(*pclc_smcd));
 			plen += sizeof(*pclc_prfx) +

@@ -31,9 +31,6 @@
 #include "sdma_v4_4_2.h"
 #include "amdgpu_ip.h"
 
-#define XCP_INST_MASK(num_inst, xcp_id)                                        \
-	(num_inst ? GENMASK(num_inst - 1, 0) << (xcp_id * num_inst) : 0)
-
 void aqua_vanjaram_doorbell_index_init(struct amdgpu_device *adev)
 {
 	int i;
@@ -407,7 +404,8 @@ static int aqua_vanjaram_switch_partition_mode(struct amdgpu_xcp_mgr *xcp_mgr,
 		return -EINVAL;
 	}
 
-	if (adev->kfd.init_complete && !amdgpu_in_reset(adev))
+	if (adev->kfd.init_complete && !amdgpu_in_reset(adev) &&
+		!adev->in_suspend)
 		flags |= AMDGPU_XCP_OPS_KFD;
 
 	if (flags & AMDGPU_XCP_OPS_KFD) {

@@ -9,6 +9,7 @@
 
 #include <asm/text-patching.h>
 #include <asm/insn.h>
+#include <asm/insn-eval.h>
 #include <asm/ibt.h>
 #include <asm/set_memory.h>
 #include <asm/nmi.h>
@@ -346,25 +347,6 @@ static void add_nop(u8 *buf, unsigned int len)
 }
 
 /*
- * Matches NOP and NOPL, not any of the other possible NOPs.
- */
-static bool insn_is_nop(struct insn *insn)
-{
-	/* Anything NOP, but no REP NOP */
-	if (insn->opcode.bytes[0] == 0x90 &&
-	    (!insn->prefixes.nbytes || insn->prefixes.bytes[0] != 0xF3))
-		return true;
-
-	/* NOPL */
-	if (insn->opcode.bytes[0] == 0x0F && insn->opcode.bytes[1] == 0x1F)
-		return true;
-
-	/* TODO: more nops */
-
-	return false;
-}
-
-/*
  * Find the offset of the first non-NOP instruction starting at @offset
  * but no further than @len.
  */
@@ -559,7 +541,7 @@ EXPORT_SYMBOL(BUG_func);
  * Rewrite the "call BUG_func" replacement to point to the target of the
  * indirect pv_ops call "call *disp(%ip)".
  */
-static int alt_replace_call(u8 *instr, u8 *insn_buff, struct alt_instr *a)
+static unsigned int alt_replace_call(u8 *instr, u8 *insn_buff, struct alt_instr *a)
 {
 	void *target, *bug = &BUG_func;
 	s32 disp;
@@ -604,6 +586,87 @@ static inline u8 * instr_va(struct alt_instr *i)
 	return (u8 *)&i->instr_offset + i->instr_offset;
 }
 
+struct patch_site {
+	u8 *instr;
+	struct alt_instr *alt;
+	u8 buff[MAX_PATCH_LEN];
+	u8 len;
+};
+
+static struct alt_instr * __init_or_module analyze_patch_site(struct patch_site *ps,
+							     struct alt_instr *start,
+							     struct alt_instr *end)
+{
+	struct alt_instr *alt = start;
+
+	ps->instr = instr_va(start);
+
+	/*
+	 * In case of nested ALTERNATIVE()s the outer alternative might add
+	 * more padding. To ensure consistent patching find the max padding for
+	 * all alt_instr entries for this site (nested alternatives result in
+	 * consecutive entries).
+	 * Find the last alt_instr eligible for patching at the site.
+	 */
+	for (; alt < end && instr_va(alt) == ps->instr; alt++) {
+		ps->len = max(ps->len, alt->instrlen);
+
+		BUG_ON(alt->cpuid >= (NCAPINTS + NBUGINTS) * 32);
+		/*
+		 * Patch if either:
+		 * - feature is present
+		 * - feature not present but ALT_FLAG_NOT is set to mean,
+		 *   patch if feature is *NOT* present.
+		 */
+		if (!boot_cpu_has(alt->cpuid) != !(alt->flags & ALT_FLAG_NOT))
+			ps->alt = alt;
+	}
+
+	BUG_ON(ps->len > sizeof(ps->buff));
+
+	return alt;
+}
+
+static void __init_or_module prep_patch_site(struct patch_site *ps)
+{
+	struct alt_instr *alt = ps->alt;
+	u8 buff_sz;
+	u8 *repl;
+
+	if (!alt) {
+		/* Nothing to patch, use original instruction. */
+		memcpy(ps->buff, ps->instr, ps->len);
+		return;
+	}
+
+	repl = (u8 *)&alt->repl_offset + alt->repl_offset;
+	DPRINTK(ALT, "feat: %d*32+%d, old: (%pS (%px) len: %d), repl: (%px, len: %d) flags: 0x%x",
+		alt->cpuid >> 5, alt->cpuid & 0x1f,
+		ps->instr, ps->instr, ps->len,
+		repl, alt->replacementlen, alt->flags);
+
+	memcpy(ps->buff, repl, alt->replacementlen);
+	buff_sz = alt->replacementlen;
+
+	if (alt->flags & ALT_FLAG_DIRECT_CALL)
+		buff_sz = alt_replace_call(ps->instr, ps->buff, alt);
+
+	for (; buff_sz < ps->len; buff_sz++)
+		ps->buff[buff_sz] = 0x90;
+
+	__apply_relocation(ps->buff, ps->instr, ps->len, repl, alt->replacementlen);
+
+	DUMP_BYTES(ALT, ps->instr, ps->len, "%px:   old_insn: ", ps->instr);
+	DUMP_BYTES(ALT, repl, alt->replacementlen, "%px:   rpl_insn: ", repl);
+	DUMP_BYTES(ALT, ps->buff, ps->len, "%px: final_insn: ", ps->instr);
+}
+
+static void __init_or_module patch_site(struct patch_site *ps)
+{
+	optimize_nops(ps->instr, ps->buff, ps->len);
+	text_poke_early(ps->instr, ps->buff, ps->len);
+}
+
 /*
  * Replace instructions with better alternatives for this CPU type. This runs
  * before SMP is initialized to avoid SMP problems with self modifying code.
@@ -617,9 +680,7 @@ static inline u8 * instr_va(struct alt_instr *i)
 void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 						  struct alt_instr *end)
 {
-	u8 insn_buff[MAX_PATCH_LEN];
-	u8 *instr, *replacement;
-	struct alt_instr *a, *b;
+	struct alt_instr *a;
 
 	DPRINTK(ALT, "alt table %px, -> %px", start, end);
 
@@ -642,63 +703,16 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 	 * So be careful if you want to change the scan order to any other
 	 * order.
 	 */
-	for (a = start; a < end; a++) {
-		int insn_buff_sz = 0;
+	a = start;
+	while (a < end) {
+		struct patch_site ps = {
+			.alt = NULL,
+			.len = 0
+		};
 
-		/*
-		 * In case of nested ALTERNATIVE()s the outer alternative might
-		 * add more padding. To ensure consistent patching find the max
-		 * padding for all alt_instr entries for this site (nested
-		 * alternatives result in consecutive entries).
-		 */
-		for (b = a+1; b < end && instr_va(b) == instr_va(a); b++) {
-			u8 len = max(a->instrlen, b->instrlen);
-			a->instrlen = b->instrlen = len;
-		}
-
-		instr = instr_va(a);
-		replacement = (u8 *)&a->repl_offset + a->repl_offset;
-		BUG_ON(a->instrlen > sizeof(insn_buff));
-		BUG_ON(a->cpuid >= (NCAPINTS + NBUGINTS) * 32);
-
-		/*
-		 * Patch if either:
-		 * - feature is present
-		 * - feature not present but ALT_FLAG_NOT is set to mean,
-		 *   patch if feature is *NOT* present.
-		 */
-		if (!boot_cpu_has(a->cpuid) == !(a->flags & ALT_FLAG_NOT)) {
-			memcpy(insn_buff, instr, a->instrlen);
-			optimize_nops(instr, insn_buff, a->instrlen);
-			text_poke_early(instr, insn_buff, a->instrlen);
-			continue;
-		}
-
-		DPRINTK(ALT, "feat: %d*32+%d, old: (%pS (%px) len: %d), repl: (%px, len: %d) flags: 0x%x",
-			a->cpuid >> 5,
-			a->cpuid & 0x1f,
-			instr, instr, a->instrlen,
-			replacement, a->replacementlen, a->flags);
-
-		memcpy(insn_buff, replacement, a->replacementlen);
-		insn_buff_sz = a->replacementlen;
-
-		if (a->flags & ALT_FLAG_DIRECT_CALL) {
-			insn_buff_sz = alt_replace_call(instr, insn_buff, a);
-			if (insn_buff_sz < 0)
-				continue;
-		}
-
-		for (; insn_buff_sz < a->instrlen; insn_buff_sz++)
-			insn_buff[insn_buff_sz] = 0x90;
-
-		text_poke_apply_relocation(insn_buff, instr, a->instrlen, replacement, a->replacementlen);
-
-		DUMP_BYTES(ALT, instr, a->instrlen, "%px:   old_insn: ", instr);
-		DUMP_BYTES(ALT, replacement, a->replacementlen, "%px:   rpl_insn: ", replacement);
-		DUMP_BYTES(ALT, insn_buff, insn_buff_sz, "%px: final_insn: ", instr);
-
-		text_poke_early(instr, insn_buff, insn_buff_sz);
+		a = analyze_patch_site(&ps, a, end);
+		prep_patch_site(&ps);
+		patch_site(&ps);
 	}
 
 	kasan_enable_current();
@@ -2146,7 +2160,7 @@ void __init_or_module alternatives_smp_module_add(struct module *mod,
 		/* Don't bother remembering, we'll never have to undo it. */
 		goto smp_unlock;
 
-	smp = kzalloc(sizeof(*smp), GFP_KERNEL);
+	smp = kzalloc_obj(*smp);
 	if (NULL == smp)
 		/* we'll run the (safe but slow) SMP code then ... */
 		goto unlock;
@@ -2244,21 +2258,34 @@ int alternatives_text_reserved(void *start, void *end)
  * See entry_{32,64}.S for more details.
  */
 
-/*
- * We define the int3_magic() function in assembly to control the calling
- * convention such that we can 'call' it from assembly.
- */
-
-extern void int3_magic(unsigned int *ptr); /* defined in asm */
+extern void int3_selftest_asm(unsigned int *ptr);
 
 asm (
 "	.pushsection	.init.text, \"ax\", @progbits\n"
-"	.type		int3_magic, @function\n"
-"int3_magic:\n"
-	ANNOTATE_NOENDBR
-"	movl	$1, (%" _ASM_ARG1 ")\n"
+"	.type		int3_selftest_asm, @function\n"
+"int3_selftest_asm:\n"
+	ANNOTATE_NOENDBR "\n"
+	/*
+	 * INT3 padded with NOP to CALL_INSN_SIZE. The INT3 triggers an
+	 * exception, then the int3_exception_nb notifier emulates a call to
+	 * int3_selftest_callee().
+	 */
+"	int3; nop; nop; nop; nop\n"
 	ASM_RET
-"	.size		int3_magic, .-int3_magic\n"
+"	.size		int3_selftest_asm, . - int3_selftest_asm\n"
+"	.popsection\n"
+);
+
+extern void int3_selftest_callee(unsigned int *ptr);
+
+asm (
+"	.pushsection	.init.text, \"ax\", @progbits\n"
+"	.type		int3_selftest_callee, @function\n"
+"int3_selftest_callee:\n"
+	ANNOTATE_NOENDBR "\n"
+"	movl	$0x1234, (%" _ASM_ARG1 ")\n"
+	ASM_RET
+"	.size		int3_selftest_callee, . - int3_selftest_callee\n"
 "	.popsection\n"
 );
 
@@ -2267,7 +2294,7 @@ extern void int3_selftest_ip(void); /* defined in asm below */
 static int __init
 int3_exception_notify(struct notifier_block *self, unsigned long val, void *data)
 {
-	unsigned long selftest = (unsigned long)&int3_selftest_ip;
+	unsigned long selftest = (unsigned long)&int3_selftest_asm;
 	struct die_args *args = data;
 	struct pt_regs *regs = args->regs;
 
@@ -2282,7 +2309,7 @@ int3_exception_notify(struct notifier_block *self, unsigned long val, void *data
 	if (regs->ip - INT3_INSN_SIZE != selftest)
 		return NOTIFY_DONE;
 
-	int3_emulate_call(regs, (unsigned long)&int3_magic);
+	int3_emulate_call(regs, (unsigned long)&int3_selftest_callee);
 	return NOTIFY_STOP;
 }
 
@@ -2298,19 +2325,11 @@ static noinline void __init int3_selftest(void)
 	BUG_ON(register_die_notifier(&int3_exception_nb));
 
 	/*
-	 * Basically: int3_magic(&val); but really complicated :-)
-	 *
-	 * INT3 padded with NOP to CALL_INSN_SIZE. The int3_exception_nb
-	 * notifier above will emulate CALL for us.
+	 * Basically: int3_selftest_callee(&val); but really complicated :-)
 	 */
-	asm volatile ("int3_selftest_ip:\n\t"
-		      ANNOTATE_NOENDBR
-		      "    int3; nop; nop; nop; nop\n\t"
-		      : ASM_CALL_CONSTRAINT
-		      : __ASM_SEL_RAW(a, D) (&val)
-		      : "memory");
+	int3_selftest_asm(&val);
 
-	BUG_ON(val != 1);
+	BUG_ON(val != 0x1234);
 
 	unregister_die_notifier(&int3_exception_nb);
 }
@@ -2469,16 +2488,30 @@ void __init_or_module text_poke_early(void *addr, const void *opcode,
 __ro_after_init struct mm_struct *text_poke_mm;
 __ro_after_init unsigned long text_poke_mm_addr;
 
+/*
+ * Text poking creates and uses a mapping in the lower half of the
+ * address space. Relax LASS enforcement when accessing the poking
+ * address.
+ *
+ * objtool enforces a strict policy of "no function calls within AC=1
+ * regions". Adhere to the policy by using inline versions of
+ * memcpy()/memset() that will never result in a function call.
+ */
+
 static void text_poke_memcpy(void *dst, const void *src, size_t len)
 {
-	memcpy(dst, src, len);
+	lass_stac();
+	__inline_memcpy(dst, src, len);
+	lass_clac();
 }
 
 static void text_poke_memset(void *dst, const void *src, size_t len)
 {
 	int c = *(const int *)src;
 
-	memset(dst, c, len);
+	lass_stac();
+	__inline_memset(dst, c, len);
+	lass_clac();
 }
 
 typedef void text_poke_f(void *dst, const void *src, size_t len);

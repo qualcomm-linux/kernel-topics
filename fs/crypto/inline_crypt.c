@@ -32,7 +32,7 @@ static struct block_device **fscrypt_get_devices(struct super_block *sb,
 		if (devs)
 			return devs;
 	}
-	devs = kmalloc(sizeof(*devs), GFP_KERNEL);
+	devs = kmalloc_obj(*devs);
 	if (!devs)
 		return ERR_PTR(-ENOMEM);
 	devs[0] = sb->s_bdev;
@@ -169,7 +169,7 @@ int fscrypt_prepare_inline_crypt_key(struct fscrypt_prepared_key *prep_key,
 	unsigned int i;
 	int err;
 
-	blk_key = kmalloc(sizeof(*blk_key), GFP_KERNEL);
+	blk_key = kmalloc_obj(*blk_key);
 	if (!blk_key)
 		return -ENOMEM;
 
@@ -333,8 +333,7 @@ static bool bh_get_inode_and_lblk_num(const struct buffer_head *bh,
 	inode = mapping->host;
 
 	*inode_ret = inode;
-	*lblk_num_ret = ((u64)folio->index << (PAGE_SHIFT - inode->i_blkbits)) +
-			(bh_offset(bh) >> inode->i_blkbits);
+	*lblk_num_ret = (folio_pos(folio) + bh_offset(bh)) >> inode->i_blkbits;
 	return true;
 }
 

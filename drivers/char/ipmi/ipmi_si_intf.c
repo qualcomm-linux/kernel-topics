@@ -275,8 +275,7 @@ void debug_timestamp(struct smi_info *smi_info, char *msg)
 	struct timespec64 t;
 
 	ktime_get_ts64(&t);
-	dev_dbg(smi_info->io.dev, "**%s: %lld.%9.9ld\n",
-		msg, t.tv_sec, t.tv_nsec);
+	dev_dbg(smi_info->io.dev, "**%s: %ptSp\n", msg, &t);
 }
 #else
 #define debug_timestamp(smi_info, x)
@@ -1915,7 +1914,7 @@ int ipmi_si_add_smi(struct si_sm_io *io)
 		}
 	}
 
-	new_smi = kzalloc(sizeof(*new_smi), GFP_KERNEL);
+	new_smi = kzalloc_obj(*new_smi);
 	if (!new_smi)
 		return -ENOMEM;
 	spin_lock_init(&new_smi->si_lock);

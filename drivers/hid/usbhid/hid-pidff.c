@@ -523,9 +523,19 @@ static void pidff_set_effect_report(struct pidff_device *pidff,
 	pidff_set_duration(&pidff->set_effect[PID_DURATION],
 			   effect->replay.length);
 
-	pidff->set_effect[PID_TRIGGER_BUTTON].value[0] = effect->trigger.button;
-	pidff_set_time(&pidff->set_effect[PID_TRIGGER_REPEAT_INT],
-		       effect->trigger.interval);
+	/* Some games set this to random values that can be out of range */
+	s32 trigger_button_max =
+		pidff->set_effect[PID_TRIGGER_BUTTON].field->logical_maximum;
+	if (effect->trigger.button <= trigger_button_max) {
+		pidff->set_effect[PID_TRIGGER_BUTTON].value[0] =
+			effect->trigger.button;
+		pidff_set_time(&pidff->set_effect[PID_TRIGGER_REPEAT_INT],
+			       effect->trigger.interval);
+	} else {
+		pidff->set_effect[PID_TRIGGER_BUTTON].value[0] = 0;
+		pidff->set_effect[PID_TRIGGER_REPEAT_INT].value[0] = 0;
+	}
+
 	pidff->set_effect[PID_GAIN].value[0] =
 		pidff->set_effect[PID_GAIN].field->logical_maximum;
 
@@ -806,8 +816,8 @@ static int pidff_request_effect_upload(struct pidff_device *pidff, int efnum)
 
 static int pidff_needs_playback(struct pidff_device *pidff, int effect_id, int n)
 {
-	return pidff->effect[effect_id].is_infinite ||
-	       pidff->effect[effect_id].loop_count != n;
+	return !pidff->effect[effect_id].is_infinite ||
+		pidff->effect[effect_id].loop_count != n;
 }
 
 /*
@@ -1518,7 +1528,7 @@ int hid_pidff_init_with_quirks(struct hid_device *hid, u32 initial_quirks)
 		return -ENODEV;
 	}
 
-	pidff = kzalloc(sizeof(*pidff), GFP_KERNEL);
+	pidff = kzalloc_obj(*pidff);
 	if (!pidff)
 		return -ENOMEM;
 

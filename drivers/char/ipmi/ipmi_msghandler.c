@@ -599,7 +599,8 @@ static void __ipmi_bmc_unregister(struct ipmi_smi *intf);
 static int __ipmi_bmc_register(struct ipmi_smi *intf,
 			       struct ipmi_device_id *id,
 			       bool guid_set, guid_t *guid, int intf_num);
-static int __scan_channels(struct ipmi_smi *intf, struct ipmi_device_id *id);
+static int __scan_channels(struct ipmi_smi *intf,
+				struct ipmi_device_id *id, bool rescan);
 
 static void free_ipmi_user(struct kref *ref)
 {
@@ -760,13 +761,11 @@ int ipmi_smi_watcher_register(struct ipmi_smi_watcher *watcher)
 	list_for_each_entry(intf, &ipmi_interfaces, link)
 		count++;
 	if (count > 0) {
-		interfaces = kmalloc_array(count, sizeof(*interfaces),
-					   GFP_KERNEL);
+		interfaces = kmalloc_objs(*interfaces, count);
 		if (!interfaces) {
 			rv = -ENOMEM;
 		} else {
-			devices = kmalloc_array(count, sizeof(*devices),
-						GFP_KERNEL);
+			devices = kmalloc_objs(*devices, count);
 			if (!devices) {
 				kfree(interfaces);
 				interfaces = NULL;
@@ -1685,7 +1684,7 @@ int ipmi_register_for_cmd(struct ipmi_user *user,
 	if (!user)
 		return -ENODEV;
 
-	rcvr = kmalloc(sizeof(*rcvr), GFP_KERNEL);
+	rcvr = kmalloc_obj(*rcvr);
 	if (!rcvr) {
 		rv = -ENOMEM;
 		goto out_release;
@@ -2301,8 +2300,11 @@ static int i_ipmi_request(struct ipmi_user     *user,
 	if (supplied_recv) {
 		recv_msg = supplied_recv;
 		recv_msg->user = user;
-		if (user)
+		if (user) {
 			atomic_inc(&user->nr_msgs);
+			/* The put happens when the message is freed. */
+			kref_get(&user->refcount);
+		}
 	} else {
 		recv_msg = ipmi_alloc_recv_msg(user);
 		if (IS_ERR(recv_msg))
@@ -2665,7 +2667,7 @@ retry_bmc_lock:
 		if (__ipmi_bmc_register(intf, &id, guid_set, &guid, intf_num))
 			need_waiter(intf); /* Retry later on an error. */
 		else
-			__scan_channels(intf, &id);
+			__scan_channels(intf, &id, false);
 
 
 		if (!intf_set) {
@@ -2685,7 +2687,7 @@ retry_bmc_lock:
 		goto out_noprocessing;
 	} else if (memcmp(&bmc->fetch_id, &bmc->id, sizeof(bmc->id)))
 		/* Version info changes, scan the channels again. */
-		__scan_channels(intf, &bmc->fetch_id);
+		__scan_channels(intf, &bmc->fetch_id, true);
 
 	bmc->dyn_id_expiry = jiffies + IPMI_DYN_DEV_ID_EXPIRY;
 
@@ -3142,7 +3144,7 @@ static int __ipmi_bmc_register(struct ipmi_smi *intf,
 			 bmc->id.product_id,
 			 bmc->id.device_id);
 	} else {
-		bmc = kzalloc(sizeof(*bmc), GFP_KERNEL);
+		bmc = kzalloc_obj(*bmc);
 		if (!bmc) {
 			rv = -ENOMEM;
 			goto out;
@@ -3414,8 +3416,6 @@ channel_handler(struct ipmi_smi *intf, struct ipmi_recv_msg *msg)
 			intf->channels_ready = true;
 			wake_up(&intf->waitq);
 		} else {
-			intf->channel_list = intf->wchannels + set;
-			intf->channels_ready = true;
 			rv = send_channel_info_cmd(intf, intf->curr_channel);
 		}
 
@@ -3437,9 +3437,20 @@ channel_handler(struct ipmi_smi *intf, struct ipmi_recv_msg *msg)
 /*
  * Must be holding intf->bmc_reg_mutex to call this.
  */
-static int __scan_channels(struct ipmi_smi *intf, struct ipmi_device_id *id)
+static int __scan_channels(struct ipmi_smi *intf,
+				struct ipmi_device_id *id,
+				bool rescan)
 {
 	int rv;
+
+	if (rescan) {
+		/* Clear channels_ready to force channels rescan. */
+		intf->channels_ready = false;
+	}
+
+	/* Skip channel scan if channels are already marked ready */
+	if (intf->channels_ready)
+		return 0;
 
 	if (ipmi_version_major(id) > 1
 			|| (ipmi_version_major(id) == 1
@@ -3569,7 +3580,7 @@ int ipmi_add_smi(struct module         *owner,
 	if (rv)
 		return rv;
 
-	intf = kzalloc(sizeof(*intf), GFP_KERNEL);
+	intf = kzalloc_obj(*intf);
 	if (!intf)
 		return -ENOMEM;
 
@@ -3655,7 +3666,7 @@ int ipmi_add_smi(struct module         *owner,
 	}
 
 	mutex_lock(&intf->bmc_reg_mutex);
-	rv = __scan_channels(intf, &id);
+	rv = __scan_channels(intf, &id, false);
 	mutex_unlock(&intf->bmc_reg_mutex);
 	if (rv)
 		goto out_err_bmc_reg;
@@ -5182,7 +5193,7 @@ static void free_smi_msg(struct ipmi_smi_msg *msg)
 struct ipmi_smi_msg *ipmi_alloc_smi_msg(void)
 {
 	struct ipmi_smi_msg *rv;
-	rv = kmalloc(sizeof(struct ipmi_smi_msg), GFP_ATOMIC);
+	rv = kmalloc_obj(struct ipmi_smi_msg, GFP_ATOMIC);
 	if (rv) {
 		rv->done = free_smi_msg;
 		rv->recv_msg = NULL;
@@ -5212,7 +5223,7 @@ static struct ipmi_recv_msg *ipmi_alloc_recv_msg(struct ipmi_user *user)
 		}
 	}
 
-	rv = kmalloc(sizeof(struct ipmi_recv_msg), GFP_ATOMIC);
+	rv = kmalloc_obj(struct ipmi_recv_msg, GFP_ATOMIC);
 	if (!rv) {
 		if (user)
 			atomic_dec(&user->nr_msgs);

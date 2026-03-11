@@ -72,7 +72,7 @@ int trusted_task_arg_nonnull_fail1(void *ctx)
 
 SEC("?tp_btf/task_newtask")
 __failure __log_level(2)
-__msg("R1 type=ptr_or_null_ expected=ptr_, trusted_ptr_, rcu_ptr_")
+__msg("R1 type=trusted_ptr_or_null_ expected=ptr_, trusted_ptr_, rcu_ptr_")
 __msg("Caller passes invalid args into func#1 ('subprog_trusted_task_nonnull')")
 int trusted_task_arg_nonnull_fail2(void *ctx)
 {
@@ -225,7 +225,7 @@ int trusted_to_untrusted(void *ctx)
 }
 
 char mem[16];
-u32 off;
+u32 offset;
 
 SEC("tp_btf/sys_enter")
 __success
@@ -240,9 +240,9 @@ int anything_to_untrusted(void *ctx)
 	/* scalar to untrusted */
 	subprog_untrusted(0);
 	/* variable offset to untrusted (map) */
-	subprog_untrusted((void *)mem + off);
+	subprog_untrusted((void *)mem + offset);
 	/* variable offset to untrusted (trusted) */
-	subprog_untrusted((void *)bpf_get_current_task_btf() + off);
+	subprog_untrusted((void *)bpf_get_current_task_btf() + offset);
 	return 0;
 }
 
@@ -298,12 +298,12 @@ int anything_to_untrusted_mem(void *ctx)
 	/* scalar to untrusted mem */
 	subprog_void_untrusted(0);
 	/* variable offset to untrusted mem (map) */
-	subprog_void_untrusted((void *)mem + off);
+	subprog_void_untrusted((void *)mem + offset);
 	/* variable offset to untrusted mem (trusted) */
-	subprog_void_untrusted(bpf_get_current_task_btf() + off);
+	subprog_void_untrusted(bpf_get_current_task_btf() + offset);
 	/* variable offset to untrusted char/enum (map) */
-	subprog_char_untrusted(mem + off);
-	subprog_enum_untrusted((void *)mem + off);
+	subprog_char_untrusted(mem + offset);
+	subprog_enum_untrusted((void *)mem + offset);
 	return 0;
 }
 

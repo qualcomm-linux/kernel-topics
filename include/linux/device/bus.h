@@ -150,6 +150,9 @@ int bus_for_each_dev(const struct bus_type *bus, struct device *start,
 		     void *data, device_iter_t fn);
 struct device *bus_find_device(const struct bus_type *bus, struct device *start,
 			       const void *data, device_match_t match);
+struct device *bus_find_device_reverse(const struct bus_type *bus,
+				       struct device *start, const void *data,
+				       device_match_t match);
 /**
  * bus_find_device_by_name - device iterator for locating a particular device
  * of a specific name.
@@ -212,9 +215,9 @@ bus_find_next_device(const struct bus_type *bus,struct device *cur)
 	return bus_find_device(bus, cur, NULL, device_match_any);
 }
 
-#ifdef CONFIG_ACPI
 struct acpi_device;
 
+#ifdef CONFIG_ACPI
 /**
  * bus_find_device_by_acpi_dev : device iterator for locating a particular device
  * matching the ACPI COMPANION device.
@@ -228,7 +231,7 @@ bus_find_device_by_acpi_dev(const struct bus_type *bus, const struct acpi_device
 }
 #else
 static inline struct device *
-bus_find_device_by_acpi_dev(const struct bus_type *bus, const void *adev)
+bus_find_device_by_acpi_dev(const struct bus_type *bus, const struct acpi_device *adev)
 {
 	return NULL;
 }

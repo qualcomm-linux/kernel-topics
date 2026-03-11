@@ -4633,8 +4633,7 @@ static void igc_set_interrupt_capability(struct igc_adapter *adapter,
 	/* add 1 vector for link status interrupts */
 	numvecs++;
 
-	adapter->msix_entries = kcalloc(numvecs, sizeof(struct msix_entry),
-					GFP_KERNEL);
+	adapter->msix_entries = kzalloc_objs(struct msix_entry, numvecs);
 
 	if (!adapter->msix_entries)
 		return;
@@ -4863,8 +4862,7 @@ static int igc_alloc_q_vector(struct igc_adapter *adapter,
 	/* allocate q_vector and rings */
 	q_vector = adapter->q_vector[v_idx];
 	if (!q_vector)
-		q_vector = kzalloc(struct_size(q_vector, ring, ring_count),
-				   GFP_KERNEL);
+		q_vector = kzalloc_flex(*q_vector, ring, ring_count);
 	else
 		memset(q_vector, 0, struct_size(q_vector, ring, ring_count));
 	if (!q_vector)
@@ -7530,7 +7528,6 @@ static int __igc_resume(struct device *dev, bool rpm)
 
 	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
-	pci_save_state(pdev);
 
 	if (!pci_device_is_present(pdev))
 		return -ENODEV;
@@ -7667,7 +7664,6 @@ static pci_ers_result_t igc_io_slot_reset(struct pci_dev *pdev)
 	} else {
 		pci_set_master(pdev);
 		pci_restore_state(pdev);
-		pci_save_state(pdev);
 
 		pci_enable_wake(pdev, PCI_D3hot, 0);
 		pci_enable_wake(pdev, PCI_D3cold, 0);
@@ -7760,6 +7756,11 @@ int igc_reinit_queues(struct igc_adapter *adapter)
 
 	if (netif_running(netdev))
 		err = igc_open(netdev);
+
+	if (!err) {
+		/* Restore default IEEE 802.1Qbv schedule after queue reinit */
+		igc_tsn_clear_schedule(adapter);
+	}
 
 	return err;
 }

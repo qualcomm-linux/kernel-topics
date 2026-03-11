@@ -20,7 +20,7 @@ static void test_kprobe_riscv(struct kunit *test)
 	while (test_kprobes_addresses[num_kprobe])
 		num_kprobe++;
 
-	kp = kcalloc(num_kprobe, sizeof(*kp), GFP_KERNEL);
+	kp = kzalloc_objs(*kp, num_kprobe);
 	KUNIT_EXPECT_TRUE(test, kp);
 	if (!kp)
 		return;
@@ -49,8 +49,11 @@ static struct kunit_case kprobes_testcases[] = {
 };
 
 static struct kunit_suite kprobes_test_suite = {
-	.name = "kprobes_test_riscv",
+	.name = "kprobes_riscv",
 	.test_cases = kprobes_testcases,
 };
 
 kunit_test_suites(&kprobes_test_suite);
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("KUnit test for riscv kprobes");

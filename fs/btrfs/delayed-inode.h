@@ -30,21 +30,6 @@ enum btrfs_delayed_item_type {
 	BTRFS_DELAYED_DELETION_ITEM
 };
 
-struct btrfs_delayed_root {
-	spinlock_t lock;
-	struct list_head node_list;
-	/*
-	 * Used for delayed nodes which is waiting to be dealt with by the
-	 * worker. If the delayed node is inserted into the work queue, we
-	 * drop it from this list.
-	 */
-	struct list_head prepare_list;
-	atomic_t items;		/* for delayed items */
-	atomic_t items_seq;	/* for delayed items */
-	int nodes;		/* for delayed nodes */
-	wait_queue_head_t wait;
-};
-
 struct btrfs_ref_tracker_dir {
 #ifdef CONFIG_BTRFS_DEBUG
 	struct ref_tracker_dir dir;
@@ -217,6 +202,13 @@ static inline void btrfs_delayed_node_ref_tracker_dir_exit(struct btrfs_delayed_
 static inline void btrfs_delayed_node_ref_tracker_dir_print(struct btrfs_delayed_node *node)
 {
 	if (!btrfs_test_opt(node->root->fs_info, REF_TRACKER))
+		return;
+
+	/*
+	 * Only print if there are leaked references. The caller is
+	 * holding one reference, so if refs == 1 there is no leak.
+	 */
+	if (refcount_read(&node->refs) == 1)
 		return;
 
 	ref_tracker_dir_print(&node->ref_dir.dir,

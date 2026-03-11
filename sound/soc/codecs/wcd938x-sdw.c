@@ -1207,37 +1207,21 @@ static int wcd9380_probe(struct sdw_slave *pdev,
 		regcache_cache_only(wcd->regmap, true);
 	}
 
-	pm_runtime_set_autosuspend_delay(dev, 3000);
-	pm_runtime_use_autosuspend(dev);
-	pm_runtime_mark_last_busy(dev);
-	pm_runtime_set_active(dev);
-	pm_runtime_enable(dev);
-
 	ret = component_add(dev, &wcd_sdw_component_ops);
 	if (ret)
-		goto err_disable_rpm;
+		return ret;
+
+	/* Set suspended until aggregate device is bind */
+	pm_runtime_set_suspended(dev);
 
 	return 0;
-
-err_disable_rpm:
-	pm_runtime_disable(dev);
-	pm_runtime_set_suspended(dev);
-	pm_runtime_dont_use_autosuspend(dev);
-
-	return ret;
 }
 
-static int wcd9380_remove(struct sdw_slave *pdev)
+static void wcd9380_remove(struct sdw_slave *pdev)
 {
 	struct device *dev = &pdev->dev;
 
 	component_del(dev, &wcd_sdw_component_ops);
-
-	pm_runtime_disable(dev);
-	pm_runtime_set_suspended(dev);
-	pm_runtime_dont_use_autosuspend(dev);
-
-	return 0;
 }
 
 static const struct sdw_device_id wcd9380_slave_id[] = {

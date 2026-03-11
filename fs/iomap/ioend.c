@@ -6,6 +6,7 @@
 #include <linux/list_sort.h>
 #include <linux/pagemap.h>
 #include <linux/writeback.h>
+#include <linux/fserror.h>
 #include "internal.h"
 #include "trace.h"
 
@@ -55,6 +56,11 @@ static u32 iomap_finish_ioend_buffered(struct iomap_ioend *ioend)
 
 	/* walk all folios in bio, ending page IO on them */
 	bio_for_each_folio_all(fi, bio) {
+		if (ioend->io_error)
+			fserror_report_io(inode, FSERR_BUFFERED_WRITE,
+					  folio_pos(fi.folio) + fi.offset,
+					  fi.length, ioend->io_error,
+					  GFP_ATOMIC);
 		iomap_finish_folio_write(inode, fi.folio, fi.length);
 		folio_count++;
 	}
@@ -194,8 +200,6 @@ new_ioend:
 	if (!bio_add_folio(&ioend->io_bio, folio, map_len, poff))
 		goto new_ioend;
 
-	iomap_start_folio_write(wpc->inode, folio, map_len);
-
 	/*
 	 * Clamp io_offset and io_size to the incore EOF so that ondisk
 	 * file size updates in the ioend completion are byte-accurate.
@@ -301,6 +305,14 @@ EXPORT_SYMBOL_GPL(iomap_finish_ioends);
 static bool iomap_ioend_can_merge(struct iomap_ioend *ioend,
 		struct iomap_ioend *next)
 {
+	/*
+	 * There is no point in merging reads as there is no completion
+	 * processing that can be easily batched up for them.
+	 */
+	if (bio_op(&ioend->io_bio) == REQ_OP_READ ||
+	    bio_op(&next->io_bio) == REQ_OP_READ)
+		return false;
+
 	if (ioend->io_bio.bi_status != next->io_bio.bi_status)
 		return false;
 	if (next->io_flags & IOMAP_IOEND_BOUNDARY)

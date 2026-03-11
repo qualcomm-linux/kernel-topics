@@ -873,7 +873,6 @@ u8 iwl_mvm_mac_ctxt_get_lowest_rate(struct iwl_mvm *mvm,
 				    struct ieee80211_tx_info *info,
 				    struct ieee80211_vif *vif)
 {
-	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct ieee80211_supported_band *sband;
 	unsigned long basic = vif->bss_conf.basic_rates;
 	u16 lowest_cck = IWL_RATE_COUNT, lowest_ofdm = IWL_RATE_COUNT;
@@ -882,16 +881,6 @@ u8 iwl_mvm_mac_ctxt_get_lowest_rate(struct iwl_mvm *mvm,
 	u8 band = info->band;
 	u8 rate;
 	u32 i;
-
-	if (link_id == IEEE80211_LINK_UNSPECIFIED && ieee80211_vif_is_mld(vif)) {
-		for (i = 0; i < ARRAY_SIZE(mvmvif->link); i++) {
-			if (!mvmvif->link[i])
-				continue;
-			/* shouldn't do this when >1 link is active */
-			WARN_ON_ONCE(link_id != IEEE80211_LINK_UNSPECIFIED);
-			link_id = i;
-		}
-	}
 
 	if (link_id < IEEE80211_LINK_UNSPECIFIED) {
 		struct ieee80211_bss_conf *link_conf;
@@ -938,19 +927,12 @@ u8 iwl_mvm_mac_ctxt_get_lowest_rate(struct iwl_mvm *mvm,
 
 u16 iwl_mvm_mac_ctxt_get_beacon_flags(const struct iwl_fw *fw, u8 rate_idx)
 {
+	u16 flags = iwl_mvm_mac80211_idx_to_hwrate(fw, rate_idx);
 	bool is_new_rate = iwl_fw_lookup_cmd_ver(fw, BEACON_TEMPLATE_CMD, 0) > 10;
-	u16 flags, cck_flag;
-
-	if (is_new_rate) {
-		flags = iwl_mvm_mac80211_idx_to_hwrate(fw, rate_idx);
-		cck_flag = IWL_MAC_BEACON_CCK;
-	} else {
-		cck_flag = IWL_MAC_BEACON_CCK_V1;
-		flags = iwl_fw_rate_idx_to_plcp(rate_idx);
-	}
 
 	if (rate_idx <= IWL_LAST_CCK_RATE)
-		flags |= cck_flag;
+		flags |= is_new_rate ? IWL_MAC_BEACON_CCK
+			  : IWL_MAC_BEACON_CCK_V1;
 
 	return flags;
 }
@@ -1768,7 +1750,21 @@ void iwl_mvm_probe_resp_data_notif(struct iwl_mvm *mvm,
 
 	mvmvif = iwl_mvm_vif_from_mac80211(vif);
 
-	new_data = kzalloc(sizeof(*new_data), GFP_KERNEL);
+	/*
+	 * len_low should be 2 + n*13 (where n is the number of descriptors.
+	 * 13 is the size of a NoA descriptor). We can have either one or two
+	 * descriptors.
+	 */
+	if (IWL_FW_CHECK(mvm, notif->noa_active &&
+			 notif->noa_attr.len_low != 2 +
+			 sizeof(struct ieee80211_p2p_noa_desc) &&
+			 notif->noa_attr.len_low != 2 +
+			 sizeof(struct ieee80211_p2p_noa_desc) * 2,
+			 "Invalid noa_attr.len_low (%d)\n",
+			 notif->noa_attr.len_low))
+		return;
+
+	new_data = kzalloc_obj(*new_data);
 	if (!new_data)
 		return;
 

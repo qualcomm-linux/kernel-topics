@@ -656,7 +656,7 @@ mtk_wed_tx_buffer_alloc(struct mtk_wed_device *dev)
 	}
 	n_pages = dev->tx_buf_ring.size / MTK_WED_BUF_PER_PAGE;
 
-	page_list = kcalloc(n_pages, sizeof(*page_list), GFP_KERNEL);
+	page_list = kzalloc_objs(*page_list, n_pages);
 	if (!page_list)
 		return -ENOMEM;
 
@@ -677,7 +677,7 @@ mtk_wed_tx_buffer_alloc(struct mtk_wed_device *dev)
 		void *buf;
 		int s;
 
-		page = __dev_alloc_page(GFP_KERNEL);
+		page = __dev_alloc_page(GFP_KERNEL | GFP_DMA32);
 		if (!page)
 			return -ENOMEM;
 
@@ -780,7 +780,7 @@ mtk_wed_hwrro_buffer_alloc(struct mtk_wed_device *dev)
 	if (!dev->wlan.hw_rro)
 		return 0;
 
-	page_list = kcalloc(n_pages, sizeof(*page_list), GFP_KERNEL);
+	page_list = kzalloc_objs(*page_list, n_pages);
 	if (!page_list)
 		return -ENOMEM;
 
@@ -800,7 +800,7 @@ mtk_wed_hwrro_buffer_alloc(struct mtk_wed_device *dev)
 		struct page *page;
 		int s;
 
-		page = __dev_alloc_page(GFP_KERNEL);
+		page = __dev_alloc_page(GFP_KERNEL | GFP_DMA32);
 		if (!page)
 			return -ENOMEM;
 
@@ -2426,6 +2426,10 @@ mtk_wed_attach(struct mtk_wed_device *dev)
 	dev->version = hw->version;
 	dev->hw->pcie_base = mtk_wed_get_pcie_base(dev);
 
+	ret = dma_set_mask_and_coherent(hw->dev, DMA_BIT_MASK(32));
+	if (ret)
+		goto out;
+
 	if (hw->eth->dma_dev == hw->eth->dev &&
 	    of_dma_is_coherent(hw->eth->dev->of_node))
 		mtk_eth_set_dma_device(hw->eth, hw->dev);
@@ -2714,7 +2718,7 @@ mtk_wed_setup_tc_block(struct mtk_wed_hw *hw, struct net_device *dev,
 			return 0;
 		}
 
-		priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+		priv = kzalloc_obj(*priv);
 		if (!priv)
 			return -ENOMEM;
 
@@ -2818,7 +2822,7 @@ void mtk_wed_add_hw(struct device_node *np, struct mtk_eth *eth,
 	if (WARN_ON(hw_list[index]))
 		goto unlock;
 
-	hw = kzalloc(sizeof(*hw), GFP_KERNEL);
+	hw = kzalloc_obj(*hw);
 	if (!hw)
 		goto unlock;
 
