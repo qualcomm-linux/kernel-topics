@@ -34,6 +34,13 @@ properties:
   reg:
     maxItems: 1
 
+  clocks:
+    items:
+      - description: aggre UFS PHY AXI clock
+      - description: aggre USB2 SEC AXI clock
+      - description: aggre USB3 PRIM AXI clock
+      - description: RPMH CC IPA clock
+
 required:
   - compatible
 
@@ -53,6 +60,22 @@ allOf:
       required:
         - reg
 
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,qcs615-camnoc-virt
+              - qcom,qcs615-config-noc
+              - qcom,qcs615-dc-noc
+              - qcom,qcs615-gem-noc
+              - qcom,qcs615-mc-virt
+              - qcom,qcs615-mmss-noc
+              - qcom,qcs615-system-noc
+    then:
+      properties:
+        clocks: false
+
 unevaluatedProperties: false
 
 examples:
@@ -68,4 +91,15 @@ examples:
         compatible = "qcom,qcs615-mc-virt";
         #interconnect-cells = <2>;
         qcom,bcm-voters = <&apps_bcm_voter>;
+    };
+
+    aggre1_noc: interconnect@1700000 {
+        compatible = "qcom,qcs615-aggre1-noc";
+        reg = <0x1700000 0x3f200>;
+        #interconnect-cells = <2>;
+        qcom,bcm-voters = <&apps_bcm_voter>;
+        clocks = <&gcc_aggre_ufs_phy_axi_clk>,
+                 <&gcc_aggre_usb2_sec_axi_clk>,
+                 <&gcc_aggre_usb3_prim_axi_clk>,
+                 <&rpmhcc_rpmh_ipa_clk>;
     };
