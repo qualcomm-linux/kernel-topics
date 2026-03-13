@@ -555,9 +555,11 @@
  */
 
 &usb_1 {
-	dr_mode = "host";
-
 	status = "okay";
+};
+
+&usb_1_dwc3 {
+	dr_mode = "host";
 };
 
 &usb_1_hsphy {
@@ -569,9 +571,11 @@
 };
 
 &usb_2 {
-	dr_mode = "host";
-
 	status = "okay";
+};
+
+&usb_2_dwc3 {
+	dr_mode = "host";
 };
 
 &usb_2_hsphy {
