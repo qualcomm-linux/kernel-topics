@@ -34,6 +34,9 @@ enum domain_type {
  * struct iris_core - holds core parameters valid for all instances
  *
  * @dev: reference to device structure
+ * @dev_np: reference to non-pixel context bank device structure
+ * @dev_p: reference to pixel context bank device structure
+ * @dev_bs: reference to bitstream context bank device structure
  * @reg_base: IO memory base address
  * @irq: iris irq
  * @v4l2_dev: a holder for v4l2 device structure
@@ -77,6 +80,9 @@ enum domain_type {
 
 struct iris_core {
 	struct device				*dev;
+	struct device				*dev_np;
+	struct device				*dev_p;
+	struct device				*dev_bs;
 	void __iomem				*reg_base;
 	int					irq;
 	struct v4l2_device			v4l2_dev;
