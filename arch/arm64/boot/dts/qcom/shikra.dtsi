@@ -102,6 +102,17 @@
 		interrupts = <GIC_PPI 5 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
+	rpm: remoteproc {
+		compatible = "qcom,shikra-rpm-proc", "qcom,rpm-proc";
+
+		glink-edge {
+			compatible = "qcom,glink-rpm";
+			interrupts = <GIC_SPI 194 IRQ_TYPE_EDGE_RISING>;
+			qcom,rpm-msg-ram = <&rpm_msg_ram>;
+			mboxes = <&apcs_glb 0>;
+		};
+	};
+
 	reserved_memory: reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -242,6 +253,19 @@
 			};
 		};
 
+		rpm_msg_ram: sram@45f0000 {
+			compatible = "qcom,rpm-msg-ram", "mmio-sram";
+			reg = <0x0 0x045f0000 0x0 0x7000>;
+
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0x0 0x045f0000 0x7000>;
+
+			apss_mpm: sram@1b8 {
+				reg = <0x1b8 0x48>;
+			};
+		};
+
 		adreno_smmu: iommu@59a0000 {
 			compatible = "qcom,shikra-smmu-500", "qcom,smmu-500", "arm,mmu-500";
 			reg = <0x0 0x059a0000 0x0 0x10000>;
@@ -363,6 +387,12 @@
 			#address-cells = <2>;
 			#size-cells = <2>;
 			ranges;
+		};
+
+		apcs_glb: mailbox@f400000 {
+			compatible = "qcom,shikra-apcs-hmss-global";
+			reg = <0x0 0x0f400000 0x0 0x1000>;
+			#mbox-cells = <1>;
 		};
 
 		timer@f420000 {
