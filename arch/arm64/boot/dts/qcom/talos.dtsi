@@ -2453,14 +2453,6 @@
 						remote-endpoint = <&tmc_etr_in>;
 					};
 				};
-
-				port@1 {
-					reg = <1>;
-
-					replicator0_out1: endpoint {
-						remote-endpoint = <&replicator1_in>;
-					};
-				};
 			};
 		};
 
@@ -2502,31 +2494,6 @@
 				port {
 					tmc_etr_in: endpoint {
 						remote-endpoint = <&replicator0_out0>;
-					};
-				};
-			};
-		};
-
-		replicator@604a000 {
-			compatible = "arm,coresight-dynamic-replicator", "arm,primecell";
-			reg = <0x0 0x0604a000 0x0 0x1000>;
-
-			clocks = <&aoss_qmp>;
-			clock-names = "apb_pclk";
-			status = "disabled";
-
-			in-ports {
-				port {
-					replicator1_in: endpoint {
-						remote-endpoint = <&replicator0_out1>;
-					};
-				};
-			};
-
-			out-ports {
-				port {
-					replicator1_out: endpoint {
-						remote-endpoint = <&funnel_swao_in6>;
 					};
 				};
 			};
@@ -2952,14 +2919,6 @@
 			in-ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
-
-				port@6 {
-					reg = <6>;
-
-					funnel_swao_in6: endpoint {
-						remote-endpoint = <&replicator1_out>;
-					};
-				};
 
 				port@7 {
 					reg = <7>;
