@@ -146,6 +146,10 @@
 	remote-endpoint = <&lt9211c_in>;
 };
 
+&remoteproc_wpss {
+       status = "disabled";
+};
+
 &spi11 {
 	#address-cells = <1>;
 	#size-cells = <0>;
@@ -370,4 +374,8 @@
 		power-source = <0>;
 	};
 
+};
+
+&wifi {
+       status = "disabled";
 };
