@@ -275,7 +275,6 @@ struct iris_platform_data {
 	const struct iris_firmware_desc *firmware_desc;
 
 	const struct vpu_ops *vpu_ops;
-	void (*set_preset_registers)(struct iris_core *core);
 	int (*init_cb_devs)(struct iris_core *core);
 	void (*deinit_cb_devs)(struct iris_core *core);
 	const struct icc_info *icc_tbl;
