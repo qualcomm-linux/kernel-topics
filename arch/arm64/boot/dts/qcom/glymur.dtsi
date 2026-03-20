@@ -8396,7 +8396,7 @@
 			};
 		};
 
-		video-0-thermal {
+		thermal_video_0: video-0-thermal {
 			thermal-sensors = <&tsens1 7>;
 
 			trips {
@@ -8408,7 +8408,7 @@
 			};
 		};
 
-		video-1-thermal {
+		thermal_video_1: video-1-thermal {
 			thermal-sensors = <&tsens1 8>;
 
 			trips {
@@ -8684,7 +8684,7 @@
 			};
 		};
 
-		cpu-2-0-0-thermal {
+		thermal_cpu_2_0_0: cpu-2-0-0-thermal {
 			thermal-sensors = <&tsens4 1>;
 
 			trips {
@@ -8696,7 +8696,7 @@
 			};
 		};
 
-		cpu-2-0-1-thermal {
+		thermal_cpu_2_0_1: cpu-2-0-1-thermal {
 			thermal-sensors = <&tsens4 2>;
 
 			trips {
@@ -8708,7 +8708,7 @@
 			};
 		};
 
-		cpu-2-1-0-thermal {
+		thermal_cpu_2_1_0: cpu-2-1-0-thermal {
 			thermal-sensors = <&tsens4 3>;
 
 			trips {
@@ -8720,7 +8720,7 @@
 			};
 		};
 
-		cpu-2-1-1-thermal {
+		thermal_cpu_2_1_1: cpu-2-1-1-thermal {
 			thermal-sensors = <&tsens4 4>;
 
 			trips {
@@ -8732,7 +8732,7 @@
 			};
 		};
 
-		cpu-2-2-0-thermal {
+		thermal_cpu_2_2_0: cpu-2-2-0-thermal {
 			thermal-sensors = <&tsens4 5>;
 
 			trips {
@@ -8744,7 +8744,7 @@
 			};
 		};
 
-		cpu-2-2-1-thermal {
+		thermal_cpu_2_2_1: cpu-2-2-1-thermal {
 			thermal-sensors = <&tsens4 6>;
 
 			trips {
@@ -8756,7 +8756,7 @@
 			};
 		};
 
-		cpu-2-3-0-thermal {
+		thermal_cpu_2_3_0: cpu-2-3-0-thermal {
 			thermal-sensors = <&tsens4 7>;
 
 			trips {
@@ -8768,7 +8768,7 @@
 			};
 		};
 
-		cpu-2-3-1-thermal {
+		thermal_cpu_2_3_1: cpu-2-3-1-thermal {
 			thermal-sensors = <&tsens4 8>;
 
 			trips {
@@ -8780,7 +8780,7 @@
 			};
 		};
 
-		cpu-2-4-0-thermal {
+		thermal_cpu_2_4_0: cpu-2-4-0-thermal {
 			thermal-sensors = <&tsens4 9>;
 
 			trips {
@@ -8792,7 +8792,7 @@
 			};
 		};
 
-		cpu-2-4-1-thermal {
+		thermal_cpu_2_4_1: cpu-2-4-1-thermal {
 			thermal-sensors = <&tsens4 10>;
 
 			trips {
@@ -8804,7 +8804,7 @@
 			};
 		};
 
-		cpu-2-5-0-thermal {
+		thermal_cpu_2_5_0: cpu-2-5-0-thermal {
 			thermal-sensors = <&tsens4 11>;
 
 			trips {
@@ -8816,7 +8816,7 @@
 			};
 		};
 
-		cpu-2-5-1-thermal {
+		thermal_cpu_2_5_1: cpu-2-5-1-thermal {
 			thermal-sensors = <&tsens4 12>;
 
 			trips {
@@ -8840,7 +8840,7 @@
 			};
 		};
 
-		cpullc-2-0-thermal {
+		thermal_cpullc_2_0: cpullc-2-0-thermal {
 			thermal-sensors = <&tsens5 1>;
 
 			trips {
@@ -8852,7 +8852,7 @@
 			};
 		};
 
-		cpuillc-2-1-thermal {
+		thermal_cpuillc_2_1: cpuillc-2-1-thermal {
 			thermal-sensors = <&tsens5 2>;
 
 			trips {
@@ -8864,7 +8864,7 @@
 			};
 		};
 
-		qmx-2-0-thermal {
+		thermal_qmx_2_0: qmx-2-0-thermal {
 			thermal-sensors = <&tsens5 3>;
 
 			trips {
@@ -8876,7 +8876,7 @@
 			};
 		};
 
-		qmx-2-1-thermal {
+		thermal_qmx_2_1: qmx-2-1-thermal {
 			thermal-sensors = <&tsens5 4>;
 
 			trips {
@@ -8888,7 +8888,7 @@
 			};
 		};
 
-		qmx-2-2-thermal {
+		thermal_qmx_2_2: qmx-2-2-thermal {
 			thermal-sensors = <&tsens5 5>;
 
 			trips {
@@ -8900,7 +8900,7 @@
 			};
 		};
 
-		qmx-2-3-thermal {
+		thermal_qmx_2_3: qmx-2-3-thermal {
 			thermal-sensors = <&tsens5 6>;
 
 			trips {
@@ -8912,7 +8912,7 @@
 			};
 		};
 
-		qmx-2-4-thermal {
+		thermal_qmx_2_4: qmx-2-4-thermal {
 			thermal-sensors = <&tsens5 7>;
 
 			trips {
@@ -8924,7 +8924,7 @@
 			};
 		};
 
-		aoss-6-thermal {
+		thermal_aoss_6: aoss-6-thermal {
 			thermal-sensors = <&tsens6 0>;
 
 			trips {
@@ -8936,7 +8936,7 @@
 			};
 		};
 
-		nsphvx-0-thermal {
+		thermal_nsphvx_0: nsphvx-0-thermal {
 			thermal-sensors = <&tsens6 1>;
 
 			trips {
@@ -8948,7 +8948,7 @@
 			};
 		};
 
-		nsphvx-1-thermal {
+		thermal_nsphvx_1: nsphvx-1-thermal {
 			thermal-sensors = <&tsens6 2>;
 
 			trips {
@@ -8960,7 +8960,7 @@
 			};
 		};
 
-		nsphvx-2-thermal {
+		thermal_nsphvx_2: nsphvx-2-thermal {
 			thermal-sensors = <&tsens6 3>;
 
 			trips {
@@ -8972,7 +8972,7 @@
 			};
 		};
 
-		nsphvx-3-thermal {
+		thermal_nsphvx_3: nsphvx-3-thermal {
 			thermal-sensors = <&tsens6 4>;
 
 			trips {
@@ -8984,7 +8984,7 @@
 			};
 		};
 
-		nsphmx-0-thermal {
+		thermal_nsphmx_0: nsphmx-0-thermal {
 			thermal-sensors = <&tsens6 5>;
 
 			trips {
@@ -8996,7 +8996,7 @@
 			};
 		};
 
-		nsphmx-1-thermal {
+		thermal_nsphmx_1: nsphmx-1-thermal {
 			thermal-sensors = <&tsens6 6>;
 
 			trips {
@@ -9008,7 +9008,7 @@
 			};
 		};
 
-		nsphmx-2-thermal {
+		thermal_nsphmx_2: nsphmx-2-thermal {
 			thermal-sensors = <&tsens6 7>;
 
 			trips {
@@ -9020,7 +9020,7 @@
 			};
 		};
 
-		nsphmx-3-thermal {
+		thermal_nsphmx_3: nsphmx-3-thermal {
 			thermal-sensors = <&tsens6 8>;
 
 			trips {
@@ -9032,7 +9032,7 @@
 			};
 		};
 
-		camera-0-thermal {
+		thermal_camera_0: camera-0-thermal {
 			thermal-sensors = <&tsens6 9>;
 
 			trips {
@@ -9044,7 +9044,7 @@
 			};
 		};
 
-		camera-1-thermal {
+		thermal_camera_1: camera-1-thermal {
 			thermal-sensors = <&tsens6 10>;
 
 			trips {
@@ -9056,7 +9056,7 @@
 			};
 		};
 
-		ddr-1-thermal {
+		thermal_ddr_1: ddr-1-thermal {
 			thermal-sensors = <&tsens6 11>;
 
 			trips {
@@ -9068,7 +9068,7 @@
 			};
 		};
 
-		ddr-2-thermal {
+		thermal_ddr_2: ddr-2-thermal {
 			thermal-sensors = <&tsens6 12>;
 
 			trips {
@@ -9080,7 +9080,7 @@
 			};
 		};
 
-		aoss-7-thermal {
+		thermal_aoss_7: aoss-7-thermal {
 			thermal-sensors = <&tsens7 0>;
 
 			trips {
@@ -9092,7 +9092,7 @@
 			};
 		};
 
-		gpu-0-0-thermal {
+		thermal_gpu_0_0: gpu-0-0-thermal {
 			thermal-sensors = <&tsens7 1>;
 
 			trips {
@@ -9110,7 +9110,7 @@
 			};
 		};
 
-		gpu-0-1-thermal {
+		thermal_gpu_0_1: gpu-0-1-thermal {
 			thermal-sensors = <&tsens7 2>;
 
 			trips {
@@ -9128,7 +9128,7 @@
 			};
 		};
 
-		gpu-0-2-thermal {
+		thermal_gpu_0_2: gpu-0-2-thermal {
 			thermal-sensors = <&tsens7 3>;
 
 			trips {
@@ -9146,7 +9146,7 @@
 			};
 		};
 
-		gpu-1-0-thermal {
+		thermal_gpu_1_0: gpu-1-0-thermal {
 			thermal-sensors = <&tsens7 4>;
 
 			trips {
@@ -9164,7 +9164,7 @@
 			};
 		};
 
-		gpu-1-1-thermal {
+		thermal_gpu_1_1: gpu-1-1-thermal {
 			thermal-sensors = <&tsens7 5>;
 
 			trips {
@@ -9182,7 +9182,7 @@
 			};
 		};
 
-		gpu-1-2-thermal {
+		thermal_gpu_1_2: gpu-1-2-thermal {
 			thermal-sensors = <&tsens7 6>;
 
 			trips {
@@ -9200,7 +9200,7 @@
 			};
 		};
 
-		gpu-2-0-thermal {
+		thermal_gpu_2_0: gpu-2-0-thermal {
 			thermal-sensors = <&tsens7 7>;
 
 			trips {
@@ -9218,7 +9218,7 @@
 			};
 		};
 
-		gpu-2-1-thermal {
+		thermal_gpu_2_1: gpu-2-1-thermal {
 			thermal-sensors = <&tsens7 8>;
 
 			trips {
@@ -9236,7 +9236,7 @@
 			};
 		};
 
-		gpu-2-2-thermal {
+		thermal_gpu_2_2: gpu-2-2-thermal {
 			thermal-sensors = <&tsens7 9>;
 
 			trips {
@@ -9254,7 +9254,7 @@
 			};
 		};
 
-		gpu-3-0-thermal {
+		thermal_gpu_3_0: gpu-3-0-thermal {
 			thermal-sensors = <&tsens7 10>;
 
 			trips {
@@ -9272,7 +9272,7 @@
 			};
 		};
 
-		gpu-3-1-thermal {
+		thermal_gpu_3_1: gpu-3-1-thermal {
 			thermal-sensors = <&tsens7 11>;
 
 			trips {
@@ -9290,7 +9290,7 @@
 			};
 		};
 
-		gpu-3-2-thermal {
+		thermal_gpu_3_2: gpu-3-2-thermal {
 			thermal-sensors = <&tsens7 12>;
 
 			trips {
@@ -9308,7 +9308,7 @@
 			};
 		};
 
-		gpuss-0-thermal {
+		thermal_gpuss_0: gpuss-0-thermal {
 			thermal-sensors = <&tsens7 13>;
 
 			trips {
@@ -9326,7 +9326,7 @@
 			};
 		};
 
-		gpuss-1-thermal {
+		thermal_gpuss_1: gpuss-1-thermal {
 			thermal-sensors = <&tsens7 14>;
 
 			trips {
