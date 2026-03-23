@@ -462,7 +462,7 @@ static int eem_unwrap(struct gether *port,
 					goto next;
 				}
 
-				ctx = kmalloc(sizeof(*ctx), GFP_KERNEL);
+				ctx = kmalloc_obj(*ctx);
 				if (!ctx) {
 					kfree(req->buf);
 					usb_ep_free_request(ep, req);
@@ -477,8 +477,13 @@ static int eem_unwrap(struct gether *port,
 				req->complete = eem_cmd_complete;
 				req->zero = 1;
 				req->context = ctx;
-				if (usb_ep_queue(port->in_ep, req, GFP_ATOMIC))
+				if (usb_ep_queue(port->in_ep, req, GFP_ATOMIC)) {
 					DBG(cdev, "echo response queue fail\n");
+					kfree(ctx);
+					kfree(req->buf);
+					usb_ep_free_request(ep, req);
+					dev_kfree_skb_any(skb2);
+				}
 				break;
 
 			case 1:  /* echo response */
@@ -603,7 +608,7 @@ static struct usb_function_instance *eem_alloc_inst(void)
 {
 	struct f_eem_opts *opts;
 
-	opts = kzalloc(sizeof(*opts), GFP_KERNEL);
+	opts = kzalloc_obj(*opts);
 	if (!opts)
 		return ERR_PTR(-ENOMEM);
 	mutex_init(&opts->lock);
@@ -646,7 +651,7 @@ static struct usb_function *eem_alloc(struct usb_function_instance *fi)
 	struct f_eem_opts *opts;
 
 	/* allocate and initialize one new instance */
-	eem = kzalloc(sizeof(*eem), GFP_KERNEL);
+	eem = kzalloc_obj(*eem);
 	if (!eem)
 		return ERR_PTR(-ENOMEM);
 
