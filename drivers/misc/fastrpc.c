@@ -271,6 +271,8 @@ struct fastrpc_session_ctx {
 	int sid;
 	bool used;
 	bool valid;
+	bool allocated;
+	struct mutex mutex;
 };
 
 struct fastrpc_soc_data {
@@ -355,8 +357,13 @@ static inline u64 fastrpc_sid_offset(struct fastrpc_channel_ctx *cctx,
 static void fastrpc_free_map(struct kref *ref)
 {
 	struct fastrpc_map *map;
+	struct fastrpc_user *fl;
 
 	map = container_of(ref, struct fastrpc_map, refcount);
+
+	fl = map->fl;
+	if (!fl)
+		return;
 
 	if (map->table) {
 		if (map->attr & FASTRPC_ATTR_SECUREMAP) {
@@ -376,10 +383,16 @@ static void fastrpc_free_map(struct kref *ref)
 				return;
 			}
 		}
+		mutex_lock(&fl->sctx->mutex);
+		if (!fl->sctx->dev) {
+			mutex_unlock(&fl->sctx->mutex);
+			return;
+		}
 		dma_buf_unmap_attachment_unlocked(map->attach, map->table,
 						  DMA_BIDIRECTIONAL);
 		dma_buf_detach(map->buf, map->attach);
 		dma_buf_put(map->buf);
+		mutex_unlock(&fl->sctx->mutex);
 	}
 
 	if (map->fl) {
@@ -439,9 +452,18 @@ static void fastrpc_buf_free(struct fastrpc_buf *buf)
 	if (!buf)
 		return;
 
-	dma_free_coherent(buf->dev, buf->size, buf->virt,
-			  fastrpc_ipa_to_dma_addr(buf->fl->cctx, buf->dma_addr));
-	kfree(buf);
+	struct fastrpc_user *fl = buf->fl;
+
+	if (!fl)
+		return;
+	mutex_lock(&fl->sctx->mutex);
+	if (fl->sctx->dev) {
+		dma_free_coherent(buf->dev, buf->size, buf->virt,
+				  fastrpc_ipa_to_dma_addr(buf->fl->cctx,
+							  buf->dma_addr));
+		kfree(buf);
+	}
+	mutex_unlock(&fl->sctx->mutex);
 }
 
 static int __fastrpc_buf_alloc(struct fastrpc_user *fl, struct device *dev,
@@ -464,8 +486,11 @@ static int __fastrpc_buf_alloc(struct fastrpc_user *fl, struct device *dev,
 	buf->dev = dev;
 	buf->raddr = 0;
 
-	buf->virt = dma_alloc_coherent(dev, buf->size, &buf->dma_addr,
-				       GFP_KERNEL);
+	mutex_lock(&fl->sctx->mutex);
+	if (fl->sctx->dev)
+		buf->virt = dma_alloc_coherent(dev, buf->size, &buf->dma_addr,
+					       GFP_KERNEL);
+	mutex_unlock(&fl->sctx->mutex);
 	if (!buf->virt) {
 		mutex_destroy(&buf->lock);
 		kfree(buf);
@@ -508,6 +533,10 @@ static void fastrpc_channel_ctx_free(struct kref *ref)
 	struct fastrpc_channel_ctx *cctx;
 
 	cctx = container_of(ref, struct fastrpc_channel_ctx, refcount);
+	for (int i = 0; i < FASTRPC_MAX_SESSIONS; i++) {
+		if (cctx->session[i].allocated)
+			mutex_destroy(&cctx->session[i].mutex);
+	}
 
 	kfree(cctx);
 }
@@ -850,19 +879,29 @@ static int fastrpc_map_attach(struct fastrpc_user *fl, int fd,
 		goto get_err;
 	}
 
+	mutex_lock(&fl->sctx->mutex);
+	if (!fl->sctx->dev) {
+		err = -ENODEV;
+		mutex_unlock(&fl->sctx->mutex);
+		goto attach_err;
+	}
+
 	map->attach = dma_buf_attach(map->buf, sess->dev);
 	if (IS_ERR(map->attach)) {
 		dev_err(sess->dev, "Failed to attach dmabuf\n");
 		err = PTR_ERR(map->attach);
+		mutex_unlock(&fl->sctx->mutex);
 		goto attach_err;
 	}
 
 	table = dma_buf_map_attachment_unlocked(map->attach, DMA_BIDIRECTIONAL);
 	if (IS_ERR(table)) {
 		err = PTR_ERR(table);
+		mutex_unlock(&fl->sctx->mutex);
 		goto map_err;
 	}
 	map->table = table;
+	mutex_unlock(&fl->sctx->mutex);
 
 	if (attr & FASTRPC_ATTR_SECUREMAP)
 		map->dma_addr = sg_phys(map->table->sgl);
@@ -2350,6 +2389,8 @@ static int fastrpc_cb_probe(struct platform_device *pdev)
 	sess->used = false;
 	sess->valid = true;
 	sess->dev = dev;
+	mutex_init(&sess->mutex);
+	sess->allocated = true;
 	dev_set_drvdata(dev, sess);
 
 	if (cctx->domain_id == CDSP_DOMAIN_ID)
@@ -2366,6 +2407,8 @@ static int fastrpc_cb_probe(struct platform_device *pdev)
 				break;
 			dup_sess = &cctx->session[cctx->sesscount++];
 			memcpy(dup_sess, sess, sizeof(*dup_sess));
+			mutex_init(&dup_sess->mutex);
+			dup_sess->allocated = true;
 		}
 	}
 	spin_unlock_irqrestore(&cctx->lock, flags);
@@ -2388,6 +2431,11 @@ static void fastrpc_cb_remove(struct platform_device *pdev)
 	spin_lock_irqsave(&cctx->lock, flags);
 	for (i = 0; i < FASTRPC_MAX_SESSIONS; i++) {
 		if (cctx->session[i].sid == sess->sid) {
+			spin_unlock_irqrestore(&cctx->lock, flags);
+			mutex_lock(&cctx->session[i].mutex);
+			cctx->session[i].dev = NULL;
+			mutex_unlock(&cctx->session[i].mutex);
+			spin_lock_irqsave(&cctx->lock, flags);
 			cctx->session[i].valid = false;
 			cctx->sesscount--;
 		}
