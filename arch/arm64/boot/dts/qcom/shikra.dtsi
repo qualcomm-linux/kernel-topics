@@ -111,6 +111,30 @@
 			qcom,rpm-msg-ram = <&rpm_msg_ram>;
 			mboxes = <&apcs_glb 0>;
 		};
+
+		mpm: interrupt-controller {
+			compatible = "qcom,mpm";
+			qcom,rpm-msg-ram = <&apss_mpm>;
+			interrupts = <GIC_SPI 197 IRQ_TYPE_EDGE_RISING>;
+			mboxes = <&apcs_glb 1>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			#power-domain-cells = <0>;
+			interrupt-parent = <&intc>;
+			qcom,mpm-pin-count = <95>;
+			qcom,mpm-pin-map = <2 275>,  /* TSENS0 uplow */
+					   <12 422>, /* DWC3 ss_phy_irq */
+					   <58 272>, /* QUSB2_PHY dmse_hv_vddmx */
+					   <59 273>, /* QUSB2_PHY dpse_hv_vddmx */
+					   <86 183>, /* MPM wake, SPMI */
+					   <90 157>, /* QUSB2_PHY DM */
+					   <91 158>; /* QUSB2_PHY DP */
+		};
+
+		rpm_requests: rpm-requests {
+			compatible = "qcom,rpm-shikra", "qcom,glink-smd-rpm";
+			qcom,glink-channels = "rpm_requests";
+		};
 	};
 
 	reserved_memory: reserved-memory {
@@ -244,6 +268,7 @@
 			#interrupt-cells = <2>;
 
 			gpio-ranges = <&tlmm 0 0 185>;
+			wakeup-parent = <&mpm>;
 
 			qup_uart0_default: qup-uart0-default-state {
 				pins = "gpio0", "gpio1";
@@ -276,6 +301,11 @@
 			apss_mpm: sram@1b8 {
 				reg = <0x1b8 0x48>;
 			};
+		};
+
+		sram@4690000 {
+			compatible = "qcom,rpm-stats";
+			reg = <0x0 0x04690000 0x0 0x14000>;
 		};
 
 		adreno_smmu: iommu@59a0000 {
