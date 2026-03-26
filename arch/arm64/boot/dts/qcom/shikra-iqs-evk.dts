@@ -13,9 +13,14 @@
 	chassis-type = "embedded";
 
 	aliases {
+		serial0 = &uart0;
 	};
 
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
+};
+
+&uart0 {
+	status = "okay";
 };
