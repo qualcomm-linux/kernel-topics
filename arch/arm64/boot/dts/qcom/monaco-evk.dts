@@ -22,6 +22,7 @@
 		i2c1 = &i2c1;
 		serial0 = &uart7;
 		serial1 = &uart2;
+		serial2 = &uart6;
 	};
 
 	chosen {
@@ -935,6 +936,10 @@
 		vddrfa1p2-supply = <&vreg_wcn_3p3>;
 		vddrfa1p8-supply = <&vreg_wcn_3p3>;
 	};
+};
+
+&uart6 {
+	status = "okay";
 };
 
 &uart7 {
