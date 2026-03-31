@@ -1050,8 +1050,14 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	spin_lock_init(&gi2c->lock);
 	platform_set_drvdata(pdev, gi2c);
 
-	/* Keep interrupts disabled initially to allow for low-power modes */
-	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq, IRQF_NO_AUTOEN,
+	/*
+	 * Keep interrupts disabled initially to allow for low-power modes.
+	 * IRQF_NO_SUSPEND: Keep IRQ enabled during suspend to handle I2C transfers
+	 *                  in noirq phase (e.g., from PCIe driver's noirq_resume).
+	 * IRQF_EARLY_RESUME: Enable IRQ early during resume sequence.
+	 */
+	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq,
+			       IRQF_NO_AUTOEN | IRQF_NO_SUSPEND | IRQF_EARLY_RESUME,
 			       dev_name(dev), gi2c);
 	if (ret)
 		return dev_err_probe(dev, ret,
@@ -1269,6 +1275,20 @@ static int __maybe_unused geni_i2c_suspend_noirq(struct device *dev)
 static int __maybe_unused geni_i2c_resume_noirq(struct device *dev)
 {
 	struct geni_i2c_dev *gi2c = dev_get_drvdata(dev);
+	int ret = 0;
+
+	/*
+	 * Resume hardware to handle I2C transfers from other drivers'
+	 * noirq_resume callbacks (e.g., PCIe driver).
+	 * pm_runtime_force_resume() properly handles PM state and usage_count.
+	 */
+	if (gi2c->suspended) {
+		ret = pm_runtime_force_resume(dev);
+		if (ret) {
+			dev_err(dev, "Failed to resume I2C during noirq: %d\n", ret);
+			return ret;
+		}
+	}
 
 	i2c_mark_adapter_resumed(&gi2c->adap);
 	return 0;
