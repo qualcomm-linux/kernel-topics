@@ -45,7 +45,7 @@
 		compatible = "qcom,qcs615-sndcard";
 		model = "TALOS-EVK";
 
-		pinctrl-0 = <&mi2s1_pins>;
+		pinctrl-0 = <&mi2s1_pins>, <&mi2s_mclk>;
 		pinctrl-names = "default";
 
 		pri-mi2s-capture-dai-link {
@@ -164,6 +164,17 @@
 &mdss_dsi0_out {
 	remote-endpoint = <&adv7535_in>;
 	data-lanes = <0 1 2 3>;
+};
+
+&q6apmbedai {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	dai@17 {
+		reg = <PRIMARY_MI2S_TX>;
+		clocks = <&q6prmcc LPASS_CLK_ID_MCLK_2 LPASS_CLK_ATTRIBUTE_COUPLE_NO>;
+		clock-names = "mclk";
+	};
 };
 
 &pon_pwrkey {

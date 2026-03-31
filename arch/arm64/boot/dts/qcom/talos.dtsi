@@ -1591,6 +1591,13 @@
 				bias-disable;
 			};
 
+			mi2s_mclk: mi2s-mclk-state {
+				pins = "gpio122";
+				function = "mclk2";
+				drive-strength = <8>;
+				bias-disable;
+			};
+
 			cam0_default: cam0-default-state {
 				pins = "gpio28";
 				function = "cam_mclk";
