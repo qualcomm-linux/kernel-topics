@@ -815,6 +815,14 @@ static int geni_i2c_gpi_xfer(struct geni_i2c_dev *gi2c, struct i2c_msg msgs[], i
 		if (i < num - 1)
 			peripheral.stretch = 1;
 
+		peripheral.lock_action = GPI_LOCK_NONE;
+		if (gi2c->se.multi_owner) {
+			if (i == 0)
+				peripheral.lock_action = GPI_LOCK_ACQUIRE;
+			else if (i == num - 1)
+				peripheral.lock_action = GPI_LOCK_RELEASE;
+		}
+
 		peripheral.addr = msgs[i].addr;
 		if (i > 0 && (!(msgs[i].flags & I2C_M_RD)))
 			peripheral.multi_msg = false;
@@ -1014,6 +1022,17 @@ static int geni_i2c_probe(struct platform_device *pdev)
 		gi2c->clk_freq_out = I2C_MAX_STANDARD_MODE_FREQ;
 	}
 
+	if (of_property_read_bool(pdev->dev.of_node, "qcom,qup-multi-owner")) {
+		/*
+		 * Multi-owner controller configuration: the controller may be
+		 * used by another system processor. Mark the SE as shared so
+		 * common GENI resource handling can avoid pin state changes
+		 * that would disrupt the other user.
+		 */
+		gi2c->se.multi_owner = true;
+		dev_dbg(&pdev->dev, "I2C controller is shared with another system processor\n");
+	}
+
 	if (has_acpi_companion(dev))
 		ACPI_COMPANION_SET(&gi2c->adap.dev, ACPI_COMPANION(dev));
 
@@ -1089,7 +1108,9 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	}
 
 	if (fifo_disable) {
-		/* FIFO is disabled, so we can only use GPI DMA */
+		/* FIFO is disabled, so we can only use GPI DMA.
+		 * SE can be shared in GSI mode between subsystems, each SS owns a GPII.
+		 */
 		gi2c->gpi_mode = true;
 		ret = setup_gpi_dma(gi2c);
 		if (ret)
@@ -1098,6 +1119,10 @@ static int geni_i2c_probe(struct platform_device *pdev)
 		dev_dbg(dev, "Using GPI DMA mode for I2C\n");
 	} else {
 		gi2c->gpi_mode = false;
+
+		if (gi2c->se.multi_owner)
+			dev_err_probe(dev, -EINVAL, "I2C sharing not supported in non GSI mode\n");
+
 		tx_depth = geni_se_get_tx_fifo_depth(&gi2c->se);
 
 		/* I2C Master Hub Serial Elements doesn't have the HW_PARAM_0 register */
