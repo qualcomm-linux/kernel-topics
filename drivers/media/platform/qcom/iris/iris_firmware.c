@@ -29,7 +29,6 @@ static int iris_load_fw_to_memory(struct iris_core *core, const char *fw_name)
 	phys_addr_t mem_phys;
 	size_t res_size;
 	ssize_t fw_size;
-	void *mem_virt;
 	int ret;
 
 	if (strlen(fw_name) >= MAX_FIRMWARE_NAME_SIZE - 4)
@@ -60,22 +59,16 @@ static int iris_load_fw_to_memory(struct iris_core *core, const char *fw_name)
 		goto err_release_fw;
 	}
 
-	mem_virt = memremap(mem_phys, res_size, MEMREMAP_WC);
-	if (!mem_virt) {
-		ret = -ENOMEM;
-		goto err_release_fw;
-	}
-
-	ret = qcom_mdt_pas_load(ctx, firmware, fw_name, mem_virt, NULL);
+	ret = qcom_mdt_pas_load(ctx, firmware, fw_name, NULL);
 	qcom_scm_pas_metadata_release(ctx);
 	if (ret)
-		goto err_mem_unmap;
+		goto err_release_fw;
 
 	if (core->fw.iommu_domain) {
 		ret = iommu_map(core->fw.iommu_domain, 0, mem_phys, res_size,
 				IOMMU_READ | IOMMU_WRITE | IOMMU_PRIV, GFP_KERNEL);
 		if (ret)
-			goto err_mem_unmap;
+			goto err_release_fw;
 	}
 
 	ret = qcom_scm_pas_prepare_and_auth_reset(ctx);
@@ -88,8 +81,6 @@ static int iris_load_fw_to_memory(struct iris_core *core, const char *fw_name)
 
 err_iommu_unmap:
 	iommu_unmap(core->fw.iommu_domain, 0, res_size);
-err_mem_unmap:
-	memunmap(mem_virt);
 err_release_fw:
 	release_firmware(firmware);
 
