@@ -22,6 +22,7 @@ struct msm_dp {
 	bool mst_active;
 	unsigned int connector_type;
 	bool is_edp;
+	bool prepared;
 
 	struct msm_dp_audio *msm_dp_audio;
 	bool psr_supported;
