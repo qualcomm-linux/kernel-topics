@@ -14,6 +14,8 @@
 
 #include "iris_platform_kaanapali.h"
 
+#define WRAPPER_INTR_STATUS_A2HWD_BMSK		BIT(3)
+
 const struct iris_firmware_desc iris_vpu40_p2_s7_gen2_desc = {
 	.firmware_data = &iris_hfi_gen2_data,
 	.get_vpu_buffer_size = iris_vpu4x_buf_size,
@@ -102,6 +104,7 @@ const struct iris_platform_data kaanapali_data = {
 	.tz_cp_config_data_size = ARRAY_SIZE(tz_cp_config_kaanapali),
 	.ubwc_config = &iris_ubwc_config_vpu4x,
 	.num_vpp_pipe = 2,
+	.wd_intr_mask = WRAPPER_INTR_STATUS_A2HWD_BMSK,
 	.max_session_count = 16,
 	.max_core_mbpf = NUM_MBS_8K * 2,
 	.max_core_mbps = ((8192 * 4352) / 256) * 60,
