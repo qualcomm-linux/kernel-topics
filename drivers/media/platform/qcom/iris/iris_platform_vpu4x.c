@@ -105,6 +105,7 @@ const struct iris_platform_data kaanapali_data = {
 	.ubwc_config = &iris_ubwc_config_vpu4x,
 	.num_vpp_pipe = 2,
 	.wd_intr_mask = WRAPPER_INTR_STATUS_A2HWD_BMSK,
+	.icc_ib_multiplier = 1,
 	.max_session_count = 16,
 	.max_core_mbpf = NUM_MBS_8K * 2,
 	.max_core_mbps = ((8192 * 4352) / 256) * 60,
