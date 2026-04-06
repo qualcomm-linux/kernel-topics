@@ -36,6 +36,8 @@ int iris_set_icc_bw(struct iris_core *core, unsigned long icc_bw)
 				return ret;
 
 			core->icc_tbl[i].avg_bw = bw_kbps;
+			if (core->iris_platform_data->icc_ib_vote)
+				core->icc_tbl[i].peak_bw = bw_kbps * 2;
 
 			core->power.icc_bw = bw_kbps;
 			break;
