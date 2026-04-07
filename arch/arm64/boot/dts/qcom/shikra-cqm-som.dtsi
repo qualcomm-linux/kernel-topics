@@ -137,3 +137,24 @@
 		};
 	};
 };
+
+&usb_1 {
+	dr_mode = "peripheral";
+
+	status = "okay";
+};
+
+&usb_1_hsphy {
+	vdd-supply = <&pm4125_l4>;
+	vdda-pll-supply = <&pm4125_l12>;
+	vdda-phy-dpdm-supply = <&pm4125_l13>;
+
+	status = "okay";
+};
+
+&usb_qmpphy {
+	vdda-phy-supply = <&pm4125_l6>;
+	vdda-pll-supply = <&pm4125_l12>;
+
+	status = "okay";
+};
