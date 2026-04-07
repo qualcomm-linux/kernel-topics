@@ -762,6 +762,47 @@ static void iris_set_sm8550_preset_registers(struct iris_core *core)
 	writel(0x0, core->reg_base + 0xB0088);
 }
 
+static int sm8550_init_cb_devs(struct iris_core *core)
+{
+	const u32 f_id_np = 0; /* IRIS_NON_PIXEL_VCODEC */
+	const u32 f_id_p = 1;  /* IRIS_PIXEL */
+	struct device *dev;
+
+	dev = iris_create_cb_dev(core, "iris_non_pixel", &f_id_np);
+	if (IS_ERR(dev))
+		return PTR_ERR(dev);
+
+	core->dev_np = dev;
+	core->dev_bs = core->dev_np;
+
+	dev = iris_create_cb_dev(core, "iris_pixel", &f_id_p);
+	if (IS_ERR(dev))
+		goto err_unreg_dev_np;
+
+	core->dev_p = dev;
+
+	return 0;
+
+err_unreg_dev_np:
+	platform_device_unregister(to_platform_device(core->dev_np));
+	core->dev_np = NULL;
+	core->dev_bs = NULL;
+
+	return PTR_ERR(dev);
+}
+
+static void sm8550_deinit_cb_devs(struct iris_core *core)
+{
+	if (core->dev_np)
+		platform_device_unregister(to_platform_device(core->dev_np));
+	if (core->dev_p)
+		platform_device_unregister(to_platform_device(core->dev_p));
+
+	core->dev_np = NULL;
+	core->dev_bs = NULL;
+	core->dev_p = NULL;
+}
+
 static const struct icc_info sm8550_icc_table[] = {
 	{ "cpu-cfg",    1000, 1000     },
 	{ "video-mem",  1000, 15000000 },
@@ -1016,6 +1057,8 @@ const struct iris_platform_data sm8550_data = {
 	.get_vpu_buffer_size = iris_vpu_buf_size,
 	.vpu_ops = &iris_vpu3_ops,
 	.set_preset_registers = iris_set_sm8550_preset_registers,
+	.init_cb_devs = sm8550_init_cb_devs,
+	.deinit_cb_devs = sm8550_deinit_cb_devs,
 	.icc_tbl = sm8550_icc_table,
 	.icc_tbl_size = ARRAY_SIZE(sm8550_icc_table),
 	.clk_rst_tbl = sm8550_clk_reset_table,
