@@ -110,6 +110,7 @@ static const struct iris_fmt iris_venc_formats_out[] = {
 static const struct iris_fmt *
 find_format(struct iris_inst *inst, u32 pixfmt, u32 type)
 {
+	struct ubwc_config_data *ubwc_config = inst->core->iris_platform_data->ubwc_config;
 	const struct iris_fmt *fmt = NULL;
 	unsigned int size = 0;
 	unsigned int i;
@@ -117,6 +118,9 @@ find_format(struct iris_inst *inst, u32 pixfmt, u32 type)
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
 		fmt = iris_venc_formats_out;
 		size = ARRAY_SIZE(iris_venc_formats_out);
+		/* Last format is UBWC; drop it if UBWC is unsupported */
+		if (!ubwc_config)
+			size--;
 		break;
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
 		fmt = iris_venc_formats_cap;
@@ -140,6 +144,7 @@ find_format(struct iris_inst *inst, u32 pixfmt, u32 type)
 static const struct iris_fmt *
 find_format_by_index(struct iris_inst *inst, u32 index, u32 type)
 {
+	struct ubwc_config_data *ubwc_config = inst->core->iris_platform_data->ubwc_config;
 	const struct iris_fmt *fmt = NULL;
 	unsigned int size = 0;
 
@@ -147,6 +152,9 @@ find_format_by_index(struct iris_inst *inst, u32 index, u32 type)
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
 		fmt = iris_venc_formats_out;
 		size = ARRAY_SIZE(iris_venc_formats_out);
+		/* Last format is UBWC; drop it if UBWC is unsupported */
+		if (!ubwc_config)
+			size--;
 		break;
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
 		fmt = iris_venc_formats_cap;
