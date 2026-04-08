@@ -1770,6 +1770,8 @@ static int ath12k_core_panic_handler(struct notifier_block *nb,
 	struct ath12k_base *ab = container_of(nb, struct ath12k_base,
 					      panic_nb);
 
+	set_bit(ATH12K_FLAG_PANIC_PROCESSING, &ab->dev_flags);
+
 	return ath12k_hif_panic_handler(ab);
 }
 

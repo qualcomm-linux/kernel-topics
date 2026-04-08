@@ -1157,7 +1157,8 @@ u32 ath12k_pci_read32(struct ath12k_base *ab, u32 offset)
 	 * need to wakeup MHI to access.
 	 */
 	if (test_bit(ATH12K_PCI_FLAG_INIT_DONE, &ab_pci->flags) &&
-	    offset >= ACCESS_ALWAYS_OFF && ab_pci->pci_ops->wakeup)
+	    offset >= ACCESS_ALWAYS_OFF && ab_pci->pci_ops->wakeup &&
+	    !test_bit(ATH12K_FLAG_PANIC_PROCESSING, &ab->dev_flags))
 		ret = ab_pci->pci_ops->wakeup(ab);
 
 	if (offset < WINDOW_START) {
@@ -1205,7 +1206,8 @@ void ath12k_pci_write32(struct ath12k_base *ab, u32 offset, u32 value)
 	 * need to wakeup MHI to access.
 	 */
 	if (test_bit(ATH12K_PCI_FLAG_INIT_DONE, &ab_pci->flags) &&
-	    offset >= ACCESS_ALWAYS_OFF && ab_pci->pci_ops->wakeup)
+	    offset >= ACCESS_ALWAYS_OFF && ab_pci->pci_ops->wakeup &&
+	    !test_bit(ATH12K_FLAG_PANIC_PROCESSING, &ab->dev_flags))
 		ret = ab_pci->pci_ops->wakeup(ab);
 
 	if (offset < WINDOW_START) {
