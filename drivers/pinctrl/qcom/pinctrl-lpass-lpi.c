@@ -49,7 +49,16 @@ static int lpi_gpio_read(struct lpi_pinctrl *state, unsigned int pin,
 	else
 		pin_offset = LPI_TLMM_REG_OFFSET * pin;
 
+	ret = pm_runtime_get_sync(state->dev);
+	if (ret < 0) {
+		pm_runtime_put_noidle(state->dev);
+		return ret;
+	}
+
 	*val = ioread32(state->tlmm_base + pin_offset + addr);
+
+	pm_runtime_mark_last_busy(state->dev);
+	pm_runtime_put_autosuspend(state->dev);
 
 	return 0;
 }
@@ -65,7 +74,16 @@ static int lpi_gpio_write(struct lpi_pinctrl *state, unsigned int pin,
 	else
 		pin_offset = LPI_TLMM_REG_OFFSET * pin;
 
+	ret = pm_runtime_get_sync(state->dev);
+	if (ret < 0) {
+		pm_runtime_put_noidle(state->dev);
+		return ret;
+	}
+
 	iowrite32(val, state->tlmm_base + pin_offset + addr);
+
+	pm_runtime_mark_last_busy(state->dev);
+	pm_runtime_put_autosuspend(state->dev);
 
 	return 0;
 }
