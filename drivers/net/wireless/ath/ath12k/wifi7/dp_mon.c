@@ -3006,9 +3006,9 @@ ath12k_wifi7_dp_mon_parse_rx_dest(struct ath12k_pdev_dp *dp_pdev,
 
 		tlv = PTR_ALIGN(tlv + tlv_len + tlv_hdr_len, tlv_hdr_len);
 
-		if ((tlv - skb->data) > skb->len)
+		if (unlikely(tlv - skb->data > skb->len ||
+			     skb->len - (tlv - skb->data) < tlv_hdr_len))
 			break;
-
 	} while ((hal_status == HAL_RX_MON_STATUS_PPDU_NOT_DONE) ||
 		 (hal_status == HAL_RX_MON_STATUS_BUF_ADDR) ||
 		 (hal_status == HAL_RX_MON_STATUS_MPDU_START) ||
