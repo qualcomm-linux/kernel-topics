@@ -3,6 +3,8 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+/dts-v1/;
+
 #include "monaco-evk-common.dtsi"
 
 / {
