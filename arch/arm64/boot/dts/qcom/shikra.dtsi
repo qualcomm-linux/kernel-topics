@@ -945,6 +945,17 @@
 				     <GIC_SPI 172 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 173 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
+
+			clocks = <&gpucc GPU_CC_GPU_SMMU_VOTE_CLK>,
+				<&gcc GCC_GPU_MEMNOC_GFX_CLK>,
+				<&gcc GCC_GPU_SNOC_DVM_GFX_CLK>,
+				<&gpucc GPU_CC_AHB_CLK>;
+			clock-names = "hlos",
+				      "mem",
+				      "iface",
+				      "ahb";
+
+			power-domains = <&gpucc GPU_CC_CX_GDSC>;
 		};
 
 		dispcc: clock-controller@5f00000 {
