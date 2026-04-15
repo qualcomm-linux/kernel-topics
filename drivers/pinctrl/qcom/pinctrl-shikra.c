@@ -1216,6 +1216,21 @@ static const struct msm_pingroup shikra_groups[] = {
 	[168] = SDC_QDSD_PINGROUP(sdc2_data, 0x1AA000, 9, 0),
 };
 
+static const struct msm_gpio_wakeirq_map shikra_mpm_map[] = {
+	{1, 9}, {2, 31}, {5, 49}, {6, 53}, {9, 72}, {10, 10},
+	{12, 22}, {14, 26}, {17, 29}, {18, 24}, {20, 32}, {22, 33},
+	{25, 34}, {27, 35}, {28, 36}, {29, 37}, {30, 38}, {31, 39},
+	{32, 40}, {33, 41}, {38, 42}, {40, 43}, {43, 44}, {44, 45},
+	{45, 46}, {46, 47}, {47, 48}, {48, 60}, {50, 50}, {51, 51},
+	{52, 61}, {53, 62}, {57, 52}, {58, 63}, {60, 54}, {63, 64},
+	{73, 55}, {74, 56}, {75, 57}, {77, 3}, {80, 4}, {84, 5},
+	{85, 67}, {86, 69}, {88, 70}, {89, 71}, {90, 73}, {91, 74},
+	{92, 75}, {93, 76}, {94, 77}, {95, 78}, {97, 79}, {99, 80},
+	{100, 11}, {101, 13}, {102, 14}, {103, 15}, {106, 16}, {108, 17},
+	{112, 18}, {116, 19}, {117, 20}, {119, 21}, {120, 23}, {136, 25},
+	{159, 27}, {161, 28},
+};
+
 static const struct msm_pinctrl_soc_data shikra_tlmm = {
 	.pins = shikra_pins,
 	.npins = ARRAY_SIZE(shikra_pins),
@@ -1224,6 +1239,8 @@ static const struct msm_pinctrl_soc_data shikra_tlmm = {
 	.groups = shikra_groups,
 	.ngroups = ARRAY_SIZE(shikra_groups),
 	.ngpios = 166,
+	.wakeirq_map = shikra_mpm_map,
+	.nwakeirq_map = ARRAY_SIZE(shikra_mpm_map),
 	.egpio_func = 11,
 };
 
