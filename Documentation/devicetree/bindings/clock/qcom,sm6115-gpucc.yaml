@@ -8,16 +8,20 @@ title: Qualcomm Graphics Clock & Reset Controller on SM6115
 
 maintainers:
   - Konrad Dybcio <konradybcio@kernel.org>
+  - Imran Shaik <imran.shaik@oss.qualcomm.com>
 
 description: |
   Qualcomm graphics clock control module provides clocks, resets and power
   domains on Qualcomm SoCs.
 
-  See also: include/dt-bindings/clock/qcom,sm6115-gpucc.h
+  See also:
+    include/dt-bindings/clock/qcom,shikra-gpucc.h
+    include/dt-bindings/clock/qcom,sm6115-gpucc.h
 
 properties:
   compatible:
     enum:
+      - qcom,shikra-gpucc
       - qcom,sm6115-gpucc
 
   clocks:
