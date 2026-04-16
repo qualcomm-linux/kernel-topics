@@ -101,6 +101,16 @@ config CLK_KAANAPALI_VIDEOCC
 	  Say Y if you want to support video devices and functionality such as
 	  video encode/decode.
 
+config CLK_SHIKRA_DISPCC
+	tristate "Shikra Display Clock Controller"
+	depends on ARM64 || COMPILE_TEST
+	select CLK_SHIKRA_GCC
+	help
+	  Support for the display clock controller on Qualcomm Technologies, Inc
+	  Shikra devices.
+	  Say Y if you want to support display devices and functionality such as
+	  splash screen.
+
 config CLK_SHIKRA_GCC
 	tristate "Shikra Global Clock Controller"
 	depends on ARM64 || COMPILE_TEST
