@@ -439,7 +439,7 @@ static u16 ath12k_hal_reo_status_dec_tlv_hdr_qcc2072(void *tlv, void **desc)
 	struct hal_reo_get_queue_stats_status_qcc2072 *status_tlv;
 	u16 tag;
 
-	tag = ath12k_hal_decode_tlv32_hdr(tlv, (void **)&status_tlv);
+	status_tlv = ath12k_hal_decode_tlv32_hdr(tlv, &tag, NULL, NULL);
 	/*
 	 * actual desc of REO status entry starts after tlv32_padding,
 	 * see hal_reo_get_queue_stats_status_qcc2072
