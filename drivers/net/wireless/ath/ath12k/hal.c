@@ -875,3 +875,15 @@ void *ath12k_hal_decode_tlv32_hdr(void *tlv, u16 *tag, u16 *len, u16 *usrid)
 	return tlv32->value;
 }
 EXPORT_SYMBOL(ath12k_hal_decode_tlv32_hdr);
+
+u32 ath12k_hal_get_tlv64_hdr_align(void)
+{
+	return HAL_TLV_64_ALIGN;
+}
+EXPORT_SYMBOL(ath12k_hal_get_tlv64_hdr_align);
+
+u32 ath12k_hal_get_tlv32_hdr_align(void)
+{
+	return HAL_TLV_ALIGN;
+}
+EXPORT_SYMBOL(ath12k_hal_get_tlv32_hdr_align);
