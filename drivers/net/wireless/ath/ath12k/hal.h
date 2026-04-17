@@ -1439,6 +1439,8 @@ struct hal_ops {
 					 u8 *rbm, u32 *msdu_cnt);
 	void *(*reo_cmd_enc_tlv_hdr)(void *tlv, u64 tag, u64 len);
 	u16 (*reo_status_dec_tlv_hdr)(void *tlv, void **desc);
+	void *(*mon_rx_status_dec_tlv_hdr)(void *tlv, u16 *tag, u16 *len, u16 *usrid);
+	u32 (*get_tlv_hdr_align)(void);
 };
 
 #define HAL_TLV_HDR_TAG		GENMASK(9, 1)
@@ -1553,4 +1555,6 @@ void *ath12k_hal_encode_tlv64_hdr(void *tlv, u64 tag, u64 len);
 void *ath12k_hal_encode_tlv32_hdr(void *tlv, u64 tag, u64 len);
 void *ath12k_hal_decode_tlv64_hdr(void *tlv, u16 *tag, u16 *len, u16 *usrid);
 void *ath12k_hal_decode_tlv32_hdr(void *tlv, u16 *tag, u16 *len, u16 *usrid);
+u32 ath12k_hal_get_tlv64_hdr_align(void);
+u32 ath12k_hal_get_tlv32_hdr_align(void);
 #endif
