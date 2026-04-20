@@ -13,6 +13,10 @@
  * NFC DC
  */
 
+&iris {
+	status = "okay";
+};
+
 &qupv3_0 {
 	firmware-name = "qcom/shikra/qupv3fw.elf";
 	status = "okay";
