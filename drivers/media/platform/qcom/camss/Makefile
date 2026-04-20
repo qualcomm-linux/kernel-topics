@@ -11,13 +11,10 @@ qcom-camss-objs += \
 		camss-csid-gen2.o \
 		camss-csid-gen3.o \
 		camss-csid-gen4.o \
-		camss-csiphy.o \
 		camss-csiphy-2ph-1-0.o \
 		camss-csiphy-3ph-1-0.o \
-		camss-format.o \
+		camss-csiphy.o \
 		camss-ispif.o \
-		camss-tpg.o \
-		camss-vfe.o \
 		camss-vfe-4-1.o \
 		camss-vfe-4-7.o \
 		camss-vfe-4-8.o \
@@ -25,10 +22,12 @@ qcom-camss-objs += \
 		camss-vfe-340.o \
 		camss-vfe-480.o \
 		camss-vfe-680.o \
-		camss-vfe-gen1.o \
 		camss-vfe-gen3.o \
 		camss-vfe-gen4.o \
+		camss-vfe-gen1.o \
 		camss-vfe-vbif.o \
-		camss-video.o
+		camss-vfe.o \
+		camss-video.o \
+		camss-format.o \
 
 obj-$(CONFIG_VIDEO_QCOM_CAMSS) += qcom-camss.o
