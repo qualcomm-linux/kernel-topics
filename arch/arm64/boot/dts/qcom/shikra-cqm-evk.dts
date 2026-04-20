@@ -25,6 +25,14 @@
 	};
 };
 
+&pm4125_hs_in {
+	remote-endpoint = <&usb_1_dwc3_hs>;
+};
+
+&pm4125_ss_in {
+	remote-endpoint = <&usb_qmpphy_out>;
+};
+
 &sdhc_1 {
 	vmmc-supply = <&pm4125_l20>;
 	vqmmc-supply = <&pm4125_l14>;
@@ -62,9 +70,13 @@
 };
 
 &usb_1 {
-	dr_mode = "peripheral";
+	dr_mode = "otg";
 
 	status = "okay";
+};
+
+&usb_1_dwc3_hs {
+	remote-endpoint = <&pm4125_hs_in>;
 };
 
 &usb_1_hsphy {
@@ -91,4 +103,8 @@
 	firmware-name = "cq2390";
 
 	status = "okay";
+};
+
+&usb_qmpphy_out {
+	remote-endpoint = <&pm4125_ss_in>;
 };
