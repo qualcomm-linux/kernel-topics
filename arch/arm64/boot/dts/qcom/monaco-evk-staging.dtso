@@ -9,14 +9,16 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 
-&eeprom1 {
-	nvmem-layout {
-		mac_addr1: mac-addr@0 {
-			reg = <0x0 0x6>;
-		};
+&i2c15 {
+	eeprom1: eeprom@52 {
+		nvmem-layout {
+			mac_addr1: mac-addr@0 {
+				reg = <0x0 0x6>;
+			};
 
-		mac_addr2: mac-addr@6 {
-			reg = <0x6 0x6>;
+			mac_addr2: mac-addr@6 {
+				reg = <0x6 0x6>;
+			};
 		};
 	};
 };
@@ -42,7 +44,7 @@
 				nvmem-cell-names = "mac-address";
 				pinctrl-names = "default";
 				pinctrl-0 = <&napa_intn_wol_sig>;
-				phy-reset-gpios = <&expander5 0 GPIO_ACTIVE_HIGH>;
+				phy-reset-gpios = <&expander5 0 GPIO_ACTIVE_LOW>;
 				reset-deassert-us = <20000>;
 			};
 		};
