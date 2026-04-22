@@ -1240,10 +1240,10 @@
 				      "vcodec0_bus";
 
 			memory-region = <&video_mem>;
-			interconnects = <&mmnrt_virt MASTER_VIDEO_P0 RPM_ACTIVE_TAG
-					 &mc_virt SLAVE_EBI_CH0 RPM_ACTIVE_TAG>,
-					<&mem_noc MASTER_AMPSS_M0 RPM_ALWAYS_TAG
-					 &config_noc SLAVE_VENUS_CFG RPM_ALWAYS_TAG>;
+			interconnects = <&mmnrt_virt MASTER_VIDEO_P0 RPM_ALWAYS_TAG
+					 &mc_virt SLAVE_EBI_CH0 RPM_ALWAYS_TAG>,
+					<&mem_noc MASTER_AMPSS_M0 RPM_ACTIVE_TAG
+					 &config_noc SLAVE_VENUS_CFG RPM_ACTIVE_TAG>;
 			interconnect-names = "video-mem",
 					     "cpu-cfg";
 
