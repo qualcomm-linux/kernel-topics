@@ -49,6 +49,7 @@
 /delete-node/ &thermal_video_1;
 /delete-node/ &tsens6;
 /delete-node/ &tsens7;
+/delete-node/ &QDSS_DSP;
 
 &aggre1_noc {
 	compatible = "qcom,mahua-aggre1-noc", "qcom,glymur-aggre1-noc";
