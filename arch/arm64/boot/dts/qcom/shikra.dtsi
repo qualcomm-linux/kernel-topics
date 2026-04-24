@@ -803,6 +803,15 @@
 			#interconnect-cells = <2>;
 		};
 
+		llcc: system-cache-controller@e00000 {
+			compatible = "qcom,shikra-llcc";
+			reg = <0x0 0x00e00000 0x0 0x80000>,
+			      <0x0 0x0f00000 0x0 0x80000>,
+			      <0x0 0x1000000 0x0 0x80000>;
+			reg-names = "llcc0_base", "llcc1_base", "llcc_broadcast_base";
+			interrupts = <GIC_SPI 571 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		gcc: clock-controller@1400000 {
 			compatible = "qcom,shikra-gcc";
 			reg = <0x0 0x01400000 0x0 0x1f0000>;
