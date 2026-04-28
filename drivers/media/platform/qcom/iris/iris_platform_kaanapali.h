@@ -16,12 +16,22 @@ static const char *const kaanapali_clk_reset_table[] = {
 	"vcodec0_core_freerun_reset",
 };
 
-static const char *const kaanapali_pmdomain_table[] = {
-	"venus",
-	"vcodec0",
-	"vpp0",
-	"vpp1",
-	"apv",
+static const struct platform_pd_data kaanapali_pmdomain_table = {
+	.pd_types = (enum platform_pm_domain_type []) {
+		IRIS_CTRL_POWER_DOMAIN,
+		IRIS_VCODEC_POWER_DOMAIN,
+		IRIS_VPP0_HW_POWER_DOMAIN,
+		IRIS_VPP1_HW_POWER_DOMAIN,
+		IRIS_APV_HW_POWER_DOMAIN,
+	},
+	.pd_names = (const char *[]) {
+		"venus",
+		"vcodec0",
+		"vpp0",
+		"vpp1",
+		"apv",
+	},
+	.pd_count = 5,
 };
 
 static const struct platform_clk_data kaanapali_clk_table[] = {
