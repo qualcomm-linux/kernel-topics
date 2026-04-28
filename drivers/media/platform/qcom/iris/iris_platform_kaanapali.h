@@ -25,16 +25,16 @@ static const char *const kaanapali_pmdomain_table[] = {
 };
 
 static const struct platform_clk_data kaanapali_clk_table[] = {
-	{ IRIS_AXI_CLK, "iface" },
-	{ IRIS_CTRL_CLK, "core" },
-	{ IRIS_HW_CLK, "vcodec0_core" },
-	{ IRIS_AXI1_CLK, "iface1" },
-	{ IRIS_CTRL_FREERUN_CLK, "core_freerun" },
-	{ IRIS_HW_FREERUN_CLK, "vcodec0_core_freerun" },
-	{ IRIS_BSE_HW_CLK, "vcodec_bse" },
-	{ IRIS_VPP0_HW_CLK, "vcodec_vpp0" },
-	{ IRIS_VPP1_HW_CLK, "vcodec_vpp1" },
-	{ IRIS_APV_HW_CLK, "vcodec_apv" },
+	{IRIS_AXI_VCODEC_CLK,		"iface"			},
+	{IRIS_CTRL_CLK,			"core"			},
+	{IRIS_VCODEC_CLK,		"vcodec0_core"		},
+	{IRIS_AXI_CTRL_CLK,		"iface1"		},
+	{IRIS_CTRL_FREERUN_CLK,		"core_freerun"		},
+	{IRIS_VCODEC_FREERUN_CLK,	"vcodec0_core_freerun"	},
+	{IRIS_BSE_HW_CLK,		"vcodec_bse"		},
+	{IRIS_VPP0_HW_CLK,		"vcodec_vpp0"		},
+	{IRIS_VPP1_HW_CLK,		"vcodec_vpp1"		},
+	{IRIS_APV_HW_CLK,		"vcodec_apv"		},
 };
 
 static const char *const kaanapali_opp_clk_table[] = {
