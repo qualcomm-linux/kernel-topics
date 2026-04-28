@@ -688,6 +688,14 @@
 	};
 };
 
+&iris {
+	status = "okay";
+
+	video-firmware {
+		iommus = <&apps_smmu 0x19e2 0x0>;
+	};
+};
+
 &mdss {
 	status = "okay";
 };
