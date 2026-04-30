@@ -423,7 +423,7 @@
 
 		tlmm: pinctrl@500000 {
 			compatible = "qcom,shikra-tlmm";
-			reg = <0x0 0x00500000 0x0 0x800000>;
+			reg = <0x0 0x00400000 0x0 0x800000>;
 
 			interrupts = <GIC_SPI 227 IRQ_TYPE_LEVEL_HIGH>;
 
