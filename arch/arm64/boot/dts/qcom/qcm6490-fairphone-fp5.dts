@@ -98,7 +98,7 @@
 					reg = <0>;
 
 					pmic_glink_hs_in: endpoint {
-						remote-endpoint = <&usb_1_dwc3_hs>;
+						remote-endpoint = <&eud_con>;
 					};
 				};
 
@@ -1478,10 +1478,6 @@
 	status = "okay";
 };
 
-&usb_1_dwc3_hs {
-	remote-endpoint = <&pmic_glink_hs_in>;
-};
-
 &usb_1_hsphy {
 	vdda-pll-supply = <&vreg_l10c>;
 	vdda18-supply = <&vreg_l1c>;
@@ -1520,4 +1516,8 @@
 &wifi {
 	qcom,calibration-variant = "Fairphone_5";
 	status = "okay";
+};
+
+&eud_con {
+	remote-endpoint = <&pmic_glink_hs_in>;
 };
