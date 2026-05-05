@@ -243,16 +243,17 @@
 #define GCC_PDM_BCR						9
 #define GCC_QUPV3_WRAPPER_0_BCR					10
 #define GCC_QUSB2PHY_PRIM_BCR					11
-#define GCC_SDCC1_BCR						12
-#define GCC_SDCC2_BCR						13
-#define GCC_TSCSS_BCR						14
-#define GCC_USB20_BCR						15
-#define GCC_USB30_PRIM_BCR					16
-#define GCC_USB3PHY_PHY_PRIM_SP0_BCR				17
-#define GCC_USB3_PHY_PRIM_SP0_BCR				18
-#define GCC_USB_PHY_CFG_AHB2PHY_BCR				19
-#define GCC_VCODEC0_BCR						20
-#define GCC_VENUS_BCR						21
-#define GCC_VIDEO_INTERFACE_BCR					22
+#define GCC_QUSB2PHY_SEC_BCR					12
+#define GCC_SDCC1_BCR						13
+#define GCC_SDCC2_BCR						14
+#define GCC_TSCSS_BCR						15
+#define GCC_USB20_BCR						16
+#define GCC_USB30_PRIM_BCR					17
+#define GCC_USB3PHY_PHY_PRIM_SP0_BCR				18
+#define GCC_USB3_PHY_PRIM_SP0_BCR				19
+#define GCC_USB_PHY_CFG_AHB2PHY_BCR				20
+#define GCC_VCODEC0_BCR						21
+#define GCC_VENUS_BCR						22
+#define GCC_VIDEO_INTERFACE_BCR					23
 
 #endif
