@@ -189,16 +189,23 @@ aest_oncore_dev_init_debugfs(struct aest_device *adev)
 	char name[16];
 
 	for_each_possible_cpu(cpu) {
-		percpu_dev = this_cpu_ptr(adev->adev_oncore);
+		percpu_dev = per_cpu_ptr(adev->adev_oncore, cpu);
 
-		snprintf(name, sizeof(name), "processor%u%u", cpu);
+		snprintf(name, sizeof(name), "processor%u", cpu);
 		percpu_dev->debugfs = debugfs_create_dir(name, adev->debugfs);
 
 		for (i = 0; i < adev->node_cnt; i++) {
-			node = &adev->nodes[i];
+			node = &percpu_dev->nodes[i];
 
-			node->debugfs = debugfs_create_dir(node->name,
-							percpu_dev->debugfs);
+			/*
+			 * Use adev->nodes[i].name (the original) rather than
+			 * node->name from the per-CPU copy. The per-CPU copy
+			 * receives node->name via shallow memcpy in __setup_ppi;
+			 * the original is the authoritative, guaranteed-valid
+			 * string.
+			 */
+			node->debugfs = debugfs_create_dir(adev->nodes[i].name,
+							   percpu_dev->debugfs);
 			aest_node_init_debugfs(node);
 		}
 	}
