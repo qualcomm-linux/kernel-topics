@@ -745,6 +745,13 @@
 	status = "okay";
 };
 
+&iris {
+    status = "okay";
+    video-firmware {
+    iommus = <&apps_smmu 0x19e2 0x0>;
+    };
+};
+
 &pcie3b {
 	vddpe-3v3-supply = <&vreg_nvmesec>;
 
