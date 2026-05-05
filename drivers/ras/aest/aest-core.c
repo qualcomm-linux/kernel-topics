@@ -22,6 +22,11 @@ DEFINE_PER_CPU(struct aest_device, percpu_adev);
 #undef pr_fmt
 #define pr_fmt(fmt) "AEST: " fmt
 
+static bool aest_panic_on_ue;
+module_param(aest_panic_on_ue, bool, 0644);
+MODULE_PARM_DESC(aest_panic_on_ue,
+		 "Panic on unrecoverable error: 0=off 1=on (default: 1)");
+
 #ifdef CONFIG_DEBUG_FS
 struct dentry *aest_debugfs;
 #endif
@@ -342,9 +347,11 @@ void aest_proc_record(struct aest_record *record, void *data, bool fake)
 			aest_record_info(
 				record,
 				"Simulated error! Skip panic due to fault injection\n");
-		else
+		else if (aest_panic_on_ue)
 			aest_panic(record, &regs,
 				   "AEST: unrecoverable error encountered");
+		else
+			aest_record_err(record, "UE detected, panic suppressed\n");
 	}
 
 	aest_log(record, &regs);
