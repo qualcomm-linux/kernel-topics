@@ -1532,7 +1532,7 @@ static const struct qcom_pas_data sm8750_mpss_resource = {
 
 static const struct qcom_pas_data shikra_cdsp_resource = {
 	.crash_reason_smem = 601,
-	.firmware_name = "cdsp.mdt",
+	.firmware_name = "cdsp.mbn",
 	.pas_id = 18,
 	.minidump_id = 7,
 	.auto_boot = false,
@@ -1563,7 +1563,7 @@ static const struct qcom_pas_data shikra_lpaicp_resource = {
 
 static const struct qcom_pas_data shikra_mpss_resource = {
 	.crash_reason_smem = 421,
-	.firmware_name = "modem.mdt",
+	.firmware_name = "modem.mbn",
 	.pas_id = 4,
 	.minidump_id = 3,
 	.auto_boot = false,
