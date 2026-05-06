@@ -34,7 +34,7 @@
 };
 
 &remoteproc_cdsp {
-	firmware-name = "qcom/shikra/cdsp.mdt";
+	firmware-name = "qcom/shikra/cdsp.mbn";
 
 	status = "okay";
 };
@@ -47,7 +47,7 @@
 };
 
 &remoteproc_mpss {
-	firmware-name = "qcom/shikra/modem.mdt";
+	firmware-name = "qcom/shikra/modem.mbn";
 
 	status = "okay";
 };
