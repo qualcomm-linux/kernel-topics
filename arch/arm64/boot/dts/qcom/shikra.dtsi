@@ -5,6 +5,7 @@
 
 #include <dt-bindings/clock/qcom,rpmcc.h>
 #include <dt-bindings/clock/qcom,dsi-phy-28nm.h>
+#include <dt-bindings/clock/qcom,shikra-audiocorecc.h>
 #include <dt-bindings/clock/qcom,shikra-dispcc.h>
 #include <dt-bindings/clock/qcom,shikra-gcc.h>
 #include <dt-bindings/clock/qcom,shikra-gpucc.h>
@@ -3787,6 +3788,18 @@
 			clocks = <&rpmcc RPM_SMD_QDSS_CLK>;
 			clock-names = "apb_pclk";
 			label = "cti_apss_2";
+		};
+
+		audiocorecc: clock-controller@a0a0000 {
+			compatible = "qcom,shikra-cqm-audiocorecc";
+			reg = <0x0 0x0a0a0000 0x0 0x10000>,
+			      <0x0 0x0a0b4000 0x0 0x1000>;
+			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+				 <&sleep_clk>,
+				 <0>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			status = "disabled";
 		};
 
 		remoteproc_cdsp: remoteproc@b300000 {

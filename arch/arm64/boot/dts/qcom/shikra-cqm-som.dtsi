@@ -53,6 +53,10 @@
 	};
 };
 
+&audiocorecc {
+	status = "okay";
+};
+
 &pm4125_adc {
 	pinctrl-0 = <&pm4125_adc_gpio5_default>, <&pm4125_adc_gpio6_default>;
 	pinctrl-names = "default";
