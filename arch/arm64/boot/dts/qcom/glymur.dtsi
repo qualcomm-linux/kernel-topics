@@ -5199,7 +5199,6 @@
 				 <&apps_smmu 0x1944 0x0>,
 				 <&apps_smmu 0x19e0 0x0>;
 
-			iommu-map = <IOMMU_FID_IRIS_FIRMWARE &apps_smmu 0x19e2 0x1>;
 
 			memory-region = <&video_mem>;
 
