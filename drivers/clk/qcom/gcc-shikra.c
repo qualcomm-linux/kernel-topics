@@ -4347,6 +4347,8 @@ static u32 gcc_shikra_critical_cbcrs[] = {
 	0x1702c, /* GCC_DISP_XO_CLK */
 	0x36004, /* GCC_GPU_CFG_AHB_CLK */
 	0x36100, /* GCC_GPU_IREF_CLK */
+	0x3a00c, /* GCC_LPASS_CONFIG_CLK */
+	0x3a008, /* GCC_LPASS_CORE_AXIM_CLK */
 	0x79004, /* GCC_SYS_NOC_CPUSS_AHB_CLK */
 	0x17004, /* GCC_VIDEO_AHB_CLK */
 	0x17024, /* GCC_VIDEO_XO_CLK */
