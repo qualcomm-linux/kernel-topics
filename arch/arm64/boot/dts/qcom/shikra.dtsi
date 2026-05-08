@@ -823,6 +823,7 @@
 				 <0>,
 				 <0>,
 				 <0>;
+			power-domains = <&rpmpd RPMPD_VDDCX>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 			#power-domain-cells = <1>;
