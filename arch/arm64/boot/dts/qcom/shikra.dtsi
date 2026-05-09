@@ -1175,7 +1175,8 @@
 		};
 
 		adreno_smmu: iommu@59a0000 {
-			compatible = "qcom,shikra-smmu-500", "qcom,smmu-500", "arm,mmu-500";
+			compatible = "qcom,shikra-smmu-500", "qcom,adreno-smmu",
+				     "qcom,smmu-500", "arm,mmu-500";
 			reg = <0x0 0x059a0000 0x0 0x10000>;
 			#iommu-cells = <2>;
 			#global-interrupts = <1>;
@@ -1293,8 +1294,7 @@
 		};
 
 		apps_smmu: iommu@c600000 {
-			compatible = "qcom,shikra-smmu-500", "qcom,adreno-smmu",
-				     "qcom,smmu-500", "arm,mmu-500";
+			compatible = "qcom,shikra-smmu-500", "qcom,smmu-500", "arm,mmu-500";
 			reg = <0x0 0x0c600000 0x0 0x80000>;
 			#iommu-cells = <2>;
 			#global-interrupts = <1>;
