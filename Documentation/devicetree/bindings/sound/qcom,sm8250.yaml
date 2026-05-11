@@ -47,6 +47,7 @@ properties:
           - qcom,sdm845-sndcard
           - qcom,sm8250-sndcard
           - qcom,sm8450-sndcard
+          - qcom,shikra-sndcard
           - qcom,x1e80100-sndcard
 
   audio-routing:
