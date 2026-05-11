@@ -27,6 +27,117 @@ module_param(aest_panic_on_ue, bool, 0644);
 MODULE_PARM_DESC(aest_panic_on_ue,
 		 "Panic on unrecoverable error: 0=off 1=on (default: 1)");
 
+static inline void write_errselr_el1(u64 val)
+{
+	asm volatile("msr s3_0_c5_c3_1, %0" : : "r" (val));
+	isb();
+}
+
+static inline void set_errxctlr_el1(void)
+{
+	u64 val = 0x10f;
+
+	asm volatile("msr s3_0_c5_c4_1, %0" : : "r" (val));
+}
+
+static inline void set_errxmisc_overflow(void)
+{
+	u64 val = 0x7F7F00000000ULL;
+
+	asm volatile("msr s3_0_c5_c5_0, %0" : : "r" (val));
+	isb();
+}
+
+static void initialize_registers(void *info)
+{
+	set_errxctlr_el1();
+	set_errxmisc_overflow();
+}
+
+static void init_regs_on_cpu(bool all_cpus)
+{
+	write_errselr_el1(0);
+	if (all_cpus)
+		on_each_cpu(initialize_registers, NULL, 1);
+	else
+		initialize_registers(NULL);
+
+	write_errselr_el1(1);
+	initialize_registers(NULL);
+}
+
+#ifdef CONFIG_CPU_PM
+static inline u64 read_errxstatus_el1(void)
+{
+	u64 val;
+
+	asm volatile("mrs %0, s3_0_c5_c4_2" : "=r" (val));
+	return val;
+}
+
+static inline void clear_errxstatus_el1(u64 val)
+{
+	asm volatile("msr s3_0_c5_c4_2, %0" : : "r" (val));
+}
+
+/*
+ * Check ERXSTATUS for the currently selected record and clear it if
+ * V=1. This drains any error that was latched during power collapse
+ * before we return from the PM notifier — preventing a stale FHI
+ * interrupt from firing after IRQs are re-enabled and resetting
+ * ERXMISC0 to 0 via aest_proc_record.
+ */
+static void aest_check_and_clear_erxstatus(void)
+{
+	u64 status = read_errxstatus_el1();
+
+	if (status & ERR_STATUS_V)
+		clear_errxstatus_el1(status);
+}
+
+static int aest_cpu_pm_notify(struct notifier_block *self,
+			      unsigned long cmd, void *v)
+{
+	if (cmd != CPU_PM_EXIT && cmd != CPU_PM_ENTER_FAILED)
+		return NOTIFY_OK;
+
+	/*
+	 * Restore RAS sysregs on this CPU after power collapse, then
+	 * check and clear any pending ERXSTATUS. Matches the downstream
+	 * driver sequence exactly:
+	 *   1. init_regs_on_cpu(false) — restore ERXCTLR + ERXMISC0
+	 *   2. check record 1 ERXSTATUS (already selected by init_regs_on_cpu)
+	 *   3. check record 0 ERXSTATUS
+	 */
+	init_regs_on_cpu(false);
+
+	/* Record 1 is already selected after init_regs_on_cpu(false). */
+	aest_check_and_clear_erxstatus();
+
+	write_errselr_el1(0);
+	aest_check_and_clear_erxstatus();
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block aest_cpu_pm_nb = {
+	.notifier_call = aest_cpu_pm_notify,
+};
+
+static void aest_cpu_pm_init(void)
+{
+	cpu_pm_register_notifier(&aest_cpu_pm_nb);
+}
+
+static void aest_cpu_pm_exit(void)
+{
+	cpu_pm_unregister_notifier(&aest_cpu_pm_nb);
+}
+#else
+static inline void aest_cpu_pm_init(void) { }
+static inline void aest_cpu_pm_exit(void) { }
+#endif /* CONFIG_CPU_PM */
+
 #ifdef CONFIG_DEBUG_FS
 struct dentry *aest_debugfs;
 #endif
@@ -1020,6 +1131,8 @@ static int aest_device_probe(struct platform_device *pdev)
 	struct aest_device *adev;
 	struct aest_hnode *ahnode;
 
+	init_regs_on_cpu(true);
+
 	ahnode = *((struct aest_hnode **)pdev->dev.platform_data);
 	if (!ahnode)
 		return -ENODEV;
@@ -1067,6 +1180,8 @@ static int aest_device_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, adev);
 
+	aest_cpu_pm_init();
+
 	aest_dev_init_debugfs(adev);
 
 	aest_dev_dbg(adev, "Node cnt: %x, id: %x\n", adev->node_cnt, adev->id);
@@ -1087,7 +1202,6 @@ static int __init aest_init(void)
 #ifdef CONFIG_DEBUG_FS
 	aest_debugfs = debugfs_create_dir("aest", NULL);
 #endif
-
 	return platform_driver_register(&aest_driver);
 }
 module_init(aest_init);
