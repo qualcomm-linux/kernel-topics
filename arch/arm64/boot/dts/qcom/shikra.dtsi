@@ -221,7 +221,7 @@
 			#interrupt-cells = <2>;
 			#power-domain-cells = <0>;
 			interrupt-parent = <&intc>;
-			qcom,mpm-pin-count = <95>;
+			qcom,mpm-pin-count = <96>;
 			qcom,mpm-pin-map = <2 275>,  /* TSENS0 uplow */
 					   <12 422>, /* DWC3 ss_phy_irq */
 					   <58 272>, /* QUSB2_PHY dmse_hv_vddmx */
