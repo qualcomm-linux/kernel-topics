@@ -4465,7 +4465,7 @@
 
 						q6apmdai: dais {
 							compatible = "qcom,q6apm-dais";
-							iommus = <&apps_smmu 0x1004 0x80>,
+							iommus = <&apps_smmu 0x1001 0x80>,
 								 <&apps_smmu 0x1061 0x20>;
 						};
 					};
