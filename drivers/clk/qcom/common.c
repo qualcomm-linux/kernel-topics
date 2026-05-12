@@ -408,6 +408,9 @@ int qcom_cc_really_probe(struct device *dev,
 	qcom_cc_drop_protected(dev, cc);
 
 	for (i = 0; i < num_clk_hws; i++) {
+		if (!clk_hws[i])
+			continue;
+
 		ret = devm_clk_hw_register(dev, clk_hws[i]);
 		if (ret)
 			goto put_rpm;
