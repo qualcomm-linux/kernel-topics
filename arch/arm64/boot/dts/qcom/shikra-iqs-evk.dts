@@ -18,6 +18,7 @@
 		mmc0 = &sdhc_1;
 		mmc1 = &sdhc_2; /* SDC2 SD card slot */
 		serial0 = &uart0;
+		serial1 = &uart8;
 	};
 
 	chosen {
@@ -82,6 +83,17 @@
 
 &uart0 {
 	status = "okay";
+};
+
+&uart8 {
+	status = "okay";
+
+	bluetooth {
+		vddio-supply = <&pm8150_s4>;
+		vddxo-supply = <&pm8150_l12>;
+		vddrf-supply = <&pm8150_l8>;
+		vddch0-supply = <&vreg_wlan_3p3_dummy>;
+	};
 };
 
 &usb_1 {
