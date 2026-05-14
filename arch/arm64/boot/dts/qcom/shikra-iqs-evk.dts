@@ -34,6 +34,14 @@
 			regulator-always-on;
 		};
 	};
+
+	vreg_bt_3p3_dummy: regulator-bt-3p3-dummy {
+		compatible = "regulator-fixed";
+		regulator-name = "bt_3p3_dummy";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
 };
 
 &remoteproc_cdsp {
@@ -92,7 +100,7 @@
 		vddio-supply = <&pm8150_s4>;
 		vddxo-supply = <&pm8150_l12>;
 		vddrf-supply = <&pm8150_l8>;
-		vddch0-supply = <&vreg_wlan_3p3_dummy>;
+		vddch0-supply = <&vreg_bt_3p3_dummy>;
 	};
 };
 
