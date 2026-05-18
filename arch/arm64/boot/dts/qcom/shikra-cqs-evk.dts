@@ -105,6 +105,12 @@
 	status = "okay";
 };
 
+&remoteproc_mpss {
+        firmware-name = "qcom/shikra/qdsp6sw.mbn";
+
+        status = "okay";
+};
+
 &sdhc_1 {
 	vmmc-supply = <&pm4125_l20>;
 	vqmmc-supply = <&pm4125_l14>;
