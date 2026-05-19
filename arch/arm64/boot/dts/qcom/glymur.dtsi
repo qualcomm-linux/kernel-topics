@@ -6995,7 +6995,7 @@
 			clock-names = "apb_pclk";
 		};
 
-		QDSS_DSP: cti@111ab000 {
+		cti@111ab000 {
 			compatible = "arm,coresight-cti", "arm,primecell";
 			reg = <0x0 0x111ab000 0x0 0x1000>;
 
