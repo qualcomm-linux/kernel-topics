@@ -6028,6 +6028,16 @@
 			};
 		};
 
+		power-controller@ef3b000 {
+			compatible = "qcom,spel";
+			reg = <0x0 0x0ef3e000 0x0 0x1000>,
+			      <0x0 0x0ef3d000 0x0 0x1000>,
+			      <0x0 0x0ef3b000 0x0 0x1000>;
+			reg-names = "nodes",
+				    "constraints",
+				    "config";
+		};
+
 		tlmm: pinctrl@f100000 {
 			compatible = "qcom,glymur-tlmm";
 			reg = <0x0 0x0f100000 0x0 0xf00000>;
