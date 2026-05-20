@@ -21,9 +21,6 @@ description: |
   voltage selector supporting output voltages of 4.25 V, 4.5 V, 4.75 V
   and 5.0 V.
 
-allOf:
-  - $ref: regulator.yaml#
-
 properties:
   compatible:
     oneOf:
@@ -41,29 +38,31 @@ properties:
     maxItems: 1
     description: VBUS output base address
 
-if:
-  properties:
-    compatible:
-      contains:
-        enum:
-          - qcom,pm8150b-vbus-reg
-          - qcom,pm6150-vbus-reg
-          - qcom,pm7250b-vbus-reg
-          - qcom,pmi632-vbus-reg
-then:
-  required:
-    - regulator-min-microamp
-    - regulator-max-microamp
+allOf:
+  - $ref: regulator.yaml#
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,pm8150b-vbus-reg
+              - qcom,pm6150-vbus-reg
+              - qcom,pm7250b-vbus-reg
+              - qcom,pmi632-vbus-reg
+    then:
+      required:
+        - regulator-min-microamp
+        - regulator-max-microamp
 
-if:
-  properties:
-    compatible:
-      contains:
-        const: qcom,pm4125-vbus-reg
-then:
-  required:
-    - regulator-min-microvolt
-    - regulator-max-microvolt
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: qcom,pm4125-vbus-reg
+    then:
+      required:
+        - regulator-min-microvolt
+        - regulator-max-microvolt
 
 required:
   - compatible
@@ -89,7 +88,7 @@ examples:
         #address-cells = <1>;
         #size-cells = <0>;
 
-        usb-vbus-regulator@5000 {
+        usb-vbus-regulator@1100 {
             compatible = "qcom,pm4125-vbus-reg";
             reg = <0x1100>;
             regulator-min-microvolt = <4250000>;
