@@ -16,6 +16,7 @@
 	chassis-type = "embedded";
 
 	aliases {
+		i2c3 = &i2c3;
 		mmc0 = &sdhc_1;
 		mmc1 = &sdhc_2; /* SDC2 SD card slot */
 		serial0 = &uart0;
@@ -82,6 +83,7 @@
 			};
 		};
 	};
+
 	lcd_bias: regulator-lcd-bias {
 		compatible = "regulator-fixed";
 		regulator-name = "lcd_bias";
@@ -92,6 +94,26 @@
 		enable-active-high;
 		pinctrl-0 = <&lcd_bias_en>;
 		pinctrl-names = "default";
+	};
+
+	vreg_0p9: regulator-0v9 {
+		compatible = "regulator-fixed";
+		regulator-name = "VREG_0P9";
+
+		regulator-min-microvolt = <900000>;
+		regulator-max-microvolt = <900000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	vreg_1p8: regulator-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "VREG_1P8";
+
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	wcn3988-pmu {
@@ -314,6 +336,114 @@
 };
 
 &mdss_dsi0_phy {
+	status = "okay";
+};
+
+&pcie {
+	wake-gpios = <&tlmm 119 GPIO_ACTIVE_LOW>;
+
+	iommu-map = <0x0 &apps_smmu 0x0800 0x1>,
+		<0x100 &apps_smmu 0x0801 0x1>,
+		<0x208 &apps_smmu 0x0802 0x1>,
+		<0x210 &apps_smmu 0x0803 0x1>,
+		<0x218 &apps_smmu 0x0804 0x1>,
+		<0x300 &apps_smmu 0x0805 0x1>,
+		<0x400 &apps_smmu 0x0806 0x1>,
+		<0x500 &apps_smmu 0x0807 0x1>,
+		<0x501 &apps_smmu 0x0808 0x1>;
+
+	pinctrl-0 = <&pcie_default_state>;
+	pinctrl-names = "default";
+
+	status = "okay";
+};
+
+&pcie_port0 {
+	#address-cells = <3>;
+	#size-cells = <2>;
+
+	tc9563: pcie@0,0 {
+		compatible = "pci1179,0623";
+		reg = <0x10000 0x0 0x0 0x0 0x0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		#gpio-cells = <2>;
+
+		device_type = "pci";
+		ranges;
+		bus-range = <0x2 0xff>;
+
+		vddc-supply = <&vreg_0p9>;
+		vdd18-supply = <&vreg_1p8>;
+		vdd09-supply = <&vreg_0p9>;
+		vddio1-supply = <&vreg_1p8>;
+		vddio2-supply = <&vreg_1p8>;
+		vddio18-supply = <&vreg_1p8>;
+
+		i2c-parent = <&i2c3 0x77>;
+
+		resx-gpios = <&tlmm 118 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&tc9563_resx_n>;
+		pinctrl-names = "default";
+
+		pcie@1,0 {
+			reg = <0x20800 0x0 0x0 0x0 0x0>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+
+			device_type = "pci";
+			ranges;
+			bus-range = <0x3 0xff>;
+
+			ep-pwr-en-gpio = <&tc9563 2 GPIO_ACTIVE_HIGH>;
+			ep-reset-gpio = <&tc9563 5 GPIO_ACTIVE_HIGH>;
+		};
+
+		pcie@2,0 {
+			reg = <0x21000 0x0 0x0 0x0 0x0>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+
+			device_type = "pci";
+			ranges;
+			bus-range = <0x4 0xff>;
+
+			ep-pwr-en-gpio = <&tc9563 4 GPIO_ACTIVE_HIGH>;
+			ep-reset-gpio = <&tc9563 3 GPIO_ACTIVE_HIGH>;
+		};
+
+		pcie@3,0 {
+			reg = <0x21800 0x0 0x0 0x0 0x0>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			device_type = "pci";
+			ranges;
+			bus-range = <0x5 0xff>;
+
+			pci@0,0 {
+				reg = <0x50000 0x0 0x0 0x0 0x0>;
+				#address-cells = <3>;
+				#size-cells = <2>;
+				device_type = "pci";
+				ranges;
+			};
+
+			pci@0,1 {
+				reg = <0x50100 0x0 0x0 0x0 0x0>;
+				#address-cells = <3>;
+				#size-cells = <2>;
+				device_type = "pci";
+				ranges;
+			};
+		};
+	};
+};
+
+&pcie_phy {
+	vdda-phy-supply = <&pm4125_l13>;
+	vdda-pll-supply = <&pm4125_l9>;
+
 	status = "okay";
 };
 
@@ -576,10 +706,36 @@
 		bias-pull-down;
 	};
 
+	pcie_default_state: pcie-default-state {
+		clkreq-pins {
+			pins = "gpio117";
+			function = "pcie0_clk_req_n";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+
+		wake-pins {
+			pins = "gpio119";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
 	sw_ctrl_default: sw-ctrl-default-state {
 		pins = "gpio88";
 		function = "gpio";
 		bias-pull-down;
+	};
+
+	tc9563_resx_n: tc9563-resx-state {
+		pins = "gpio118";
+		function = "gpio";
+		bias-disable;
+		/* Reset pin of tc9563 is active low hence set default
+		 * state of this pin to output-high.
+		 */
+		output-high;
 	};
 
 };
