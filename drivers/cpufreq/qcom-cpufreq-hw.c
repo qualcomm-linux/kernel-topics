@@ -422,7 +422,7 @@ static const struct qcom_cpufreq_soc_data epss_soc_data = {
 	.lut_max_entries = LUT_MAX_ENTRIES,
 };
 
-static const struct qcom_cpufreq_soc_data rimps_soc_data = {
+static const struct qcom_cpufreq_soc_data shikra_epss_soc_data = {
 	.reg_enable = 0x0,
 	.reg_domain_state = 0x20,
 	.reg_dcvs_ctrl = 0xb0,
@@ -437,7 +437,7 @@ static const struct qcom_cpufreq_soc_data rimps_soc_data = {
 static const struct of_device_id qcom_cpufreq_hw_match[] = {
 	{ .compatible = "qcom,cpufreq-hw", .data = &qcom_soc_data },
 	{ .compatible = "qcom,cpufreq-epss", .data = &epss_soc_data },
-	{ .compatible = "qcom,cpufreq-rimps", .data = &rimps_soc_data },
+	{ .compatible = "qcom,shikra-epss", .data = &shikra_epss_soc_data },
 	{}
 };
 MODULE_DEVICE_TABLE(of, qcom_cpufreq_hw_match);
