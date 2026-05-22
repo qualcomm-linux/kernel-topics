@@ -181,6 +181,8 @@
 };
 
 &tlmm {
+	gpio-reserved-ranges = <6 4>, <14 4>, <30 2>, <115 2>, <138 1>, <155 11>;
+
 	lcd_bias_en: lcd-bias-en-state {
 		pins = "gpio151";
 		function = "gpio";

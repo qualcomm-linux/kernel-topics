@@ -199,6 +199,8 @@
 };
 
 &tlmm {
+	gpio-reserved-ranges = <6 4>, <14 4>, <30 2>, <115 2>, <138 1>, <155 11>;
+
 	panel_rst_n: panel-rst-n-state {
 		pins = "gpio3";
 		function = "gpio";
