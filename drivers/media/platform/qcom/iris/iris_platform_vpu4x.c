@@ -78,7 +78,7 @@ static struct ubwc_config_data iris_ubwc_config_vpu4x = {
 };
 
 const struct iris_platform_data kaanapali_data = {
-	.firmware_desc = &iris_vpu40_p2_s7_gen2_desc,
+	.firmware_desc_gen2 = &iris_vpu40_p2_s7_gen2_desc,
 	.vpu_ops = &iris_vpu4x_ops,
 	.icc_tbl = iris_icc_info_vpu4x,
 	.icc_tbl_size = ARRAY_SIZE(iris_icc_info_vpu4x),
