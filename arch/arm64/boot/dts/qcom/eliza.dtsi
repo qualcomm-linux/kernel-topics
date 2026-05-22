@@ -2499,7 +2499,8 @@
 						reg = <7>;
 
 						iommus = <&apps_smmu 0x1007 0x40>,
-							 <&apps_smmu 0x1067 0x0>;
+							 <&apps_smmu 0x1067 0x0>,
+							 <&apps_smmu 0x1087 0x0>;
 						dma-coherent;
 					};
 				};
