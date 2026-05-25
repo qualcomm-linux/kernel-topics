@@ -258,5 +258,6 @@
 #define GCC_VCODEC0_BCR						21
 #define GCC_VENUS_BCR						22
 #define GCC_VIDEO_INTERFACE_BCR					23
+#define GCC_USB3_DP_PHY_PRIM_BCR				24
 
 #endif
