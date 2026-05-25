@@ -3,12 +3,12 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+#include <dt-bindings/clock/qcom,dispcc-qcm2290.h>
 #include <dt-bindings/clock/qcom,rpmcc.h>
 #include <dt-bindings/clock/qcom,dsi-phy-28nm.h>
+#include <dt-bindings/clock/qcom,qcm2290-gpucc.h>
 #include <dt-bindings/clock/qcom,shikra-audiocorecc.h>
-#include <dt-bindings/clock/qcom,shikra-dispcc.h>
 #include <dt-bindings/clock/qcom,shikra-gcc.h>
-#include <dt-bindings/clock/qcom,shikra-gpucc.h>
 #include <dt-bindings/interconnect/qcom,icc.h>
 #include <dt-bindings/interconnect/qcom,osm-l3.h>
 #include <dt-bindings/dma/qcom-gpi.h>
@@ -1561,8 +1561,8 @@
 			compatible = "qcom,adreno-gmu-wrapper";
 			reg = <0x0 0x0596a000 0x0 0x30000>;
 			reg-names = "gmu";
-			power-domains = <&gpucc GPU_CC_CX_GDSC>,
-					<&gpucc GPU_CC_GX_GDSC>;
+			power-domains = <&gpucc GPU_CX_GDSC>,
+					<&gpucc GPU_GX_GDSC>;
 			power-domain-names = "cx",
 					     "gx";
 		};
@@ -1570,9 +1570,11 @@
 		gpucc: clock-controller@5990000 {
 			compatible = "qcom,shikra-gpucc";
 			reg = <0x0 0x05990000 0x0 0x9000>;
-			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+			clocks = <&gcc GCC_GPU_CFG_AHB_CLK>,
+				 <&rpmcc RPM_SMD_XO_CLK_SRC>,
 				 <&gcc GCC_GPU_GPLL0_CLK_SRC>,
 				 <&gcc GCC_GPU_GPLL0_DIV_CLK_SRC>;
+			power-domains = <&rpmpd RPMPD_VDDCX>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 			#power-domain-cells = <1>;
@@ -1595,7 +1597,7 @@
 				     <GIC_SPI 173 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
 
-			clocks = <&gpucc GPU_CC_GPU_SMMU_VOTE_CLK>,
+			clocks = <&gpucc GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK>,
 				<&gcc GCC_GPU_MEMNOC_GFX_CLK>,
 				<&gcc GCC_GPU_SNOC_DVM_GFX_CLK>,
 				<&gpucc GPU_CC_AHB_CLK>;
@@ -1604,7 +1606,7 @@
 				      "iface",
 				      "ahb";
 
-			power-domains = <&gpucc GPU_CC_CX_GDSC>;
+			power-domains = <&gpucc GPU_CX_GDSC>;
 		};
 
 		iris: video-codec@5a00000 {
@@ -1820,7 +1822,7 @@
 
 			resets = <&dispcc DISP_CC_MDSS_CORE_BCR>;
 
-			power-domains = <&dispcc DISP_CC_MDSS_CORE_GDSC>;
+			power-domains = <&dispcc MDSS_GDSC>;
 
 			iommus = <&apps_smmu 0x420 0x2>;
 			interconnects = <&mmrt_virt MASTER_MDP_PORT0 RPM_ALWAYS_TAG
@@ -2001,15 +2003,26 @@
 		};
 
 		dispcc: clock-controller@5f00000 {
-			compatible = "qcom,shikra-dispcc";
+			compatible = "qcom,shikra-dispcc", "qcom,qcm2290-dispcc";
 			reg = <0x0 0x05f00000 0x0 0x20000>;
 			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
-				 <&sleep_clk>,
+				 <&rpmcc RPM_SMD_XO_A_CLK_SRC>,
+				 <&gcc GCC_DISP_GPLL0_CLK_SRC>,
 				 <&gcc GCC_DISP_GPLL0_DIV_CLK_SRC>,
 				 <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
 				 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>,
 				 <0>,
-				 <0>;
+				 <0>,
+				 <&sleep_clk>;
+			clock-names = "bi_tcxo",
+				      "bi_tcxo_ao",
+				      "gcc_disp_gpll0_clk_src",
+				      "gcc_disp_gpll0_div_clk_src",
+				      "dsi0_phy_pll_out_byteclk",
+				      "dsi0_phy_pll_out_dsiclk",
+				      "dsi1_phy_pll_out_byteclk",
+				      "dsi1_phy_pll_out_dsiclk",
+				      "sleep_clk";
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 			#power-domain-cells = <1>;
