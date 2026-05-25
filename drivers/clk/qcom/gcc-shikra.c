@@ -4331,6 +4331,7 @@ static const struct qcom_reset_map gcc_shikra_resets[] = {
 	[GCC_VCODEC0_BCR] = { 0x6d034 },
 	[GCC_VENUS_BCR] = { 0x6d018 },
 	[GCC_VIDEO_INTERFACE_BCR] = { 0x6e000 },
+	[GCC_USB3_DP_PHY_PRIM_BCR] = { 0x1b020 },
 };
 
 static struct clk_alpha_pll *gcc_shikra_plls[] = {
