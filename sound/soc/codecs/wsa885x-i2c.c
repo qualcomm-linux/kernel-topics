@@ -196,6 +196,11 @@
 #define FU21_VOL_STEPS 124
 static const DECLARE_TLV_DB_SCALE(fu21_digital_gain, -8400, 100, 0);
 
+/*TDM Slots*/
+#define WSA885X_TDM8 0X08
+#define WSA885X_TDM4 0X04
+#define WSA885X_TDM2 0X02
+
 static const char *const supply_name[] = {
 	"vdd-io",
 	"vdd-1p8",
@@ -408,13 +413,21 @@ static int wsa885x_gpio_set(struct wsa885x_i2c_priv *wsa885x, bool val)
 	return ret;
 }
 
-static void reg_update_sequence(struct regmap *regmap)
+static void reg_update_sequence(struct regmap *regmap, int slots)
 {
 	regmap_write(regmap, DIG_CTRL1_I2S_TDM_CTL1, 0x15);
 	regmap_write(regmap, DIG_CTRL1_I2S_TDM_CTL1, 0x11);
 
 	/* Configure TDM control register 0 */
-	regmap_write(regmap, DIG_CTRL1_I2S_TDM_CTL0, 0x04);
+	if (slots == WSA885X_TDM2)
+		regmap_write(regmap, DIG_CTRL1_I2S_TDM_CTL0, 0x0);
+	else if (slots == WSA885X_TDM4)
+		regmap_write(regmap, DIG_CTRL1_I2S_TDM_CTL0, 0x04);
+	else if (slots == WSA885X_TDM8)
+		regmap_write(regmap, DIG_CTRL1_I2S_TDM_CTL0, 0xC);
+	else
+		pr_warn("Invalid TDM slot count: %d, expected 2, 4, or 8\n", slots);
+
 	regmap_update_bits(regmap, DIG_CTRL1_I2S_TDM_CTL0, 0x01, 0x01);
 
 	/* Configure TDM transmit channel settings */
@@ -616,7 +629,7 @@ static int codec_set_tdm_slot(struct snd_soc_dai *dai,
 		regmap_update_bits(wsa885x->regmap, DIG_CTRL1_I2S_CFG1_TDM_TX,
 						   0x60, 0x60);
 		/* Apply TDM control sequence */
-		reg_update_sequence(wsa885x->regmap);
+		reg_update_sequence(wsa885x->regmap, slots);
 		/* Enable transmit channels */
 		regmap_update_bits(wsa885x->regmap, DIG_CTRL1_I2S_TDM_CH_TX,
 						   0x04, 0x04);
@@ -630,7 +643,7 @@ static int codec_set_tdm_slot(struct snd_soc_dai *dai,
 		/* Configure slot1 for current protection sense 0 */
 		regmap_update_bits(wsa885x->regmap, DIG_CTRL1_I2S_CFG0_TDM_TX,
 						   0x50, 0x50);
-		reg_update_sequence(wsa885x->regmap);
+		reg_update_sequence(wsa885x->regmap, slots);
 	} else if (wsa885x->rx_slot_mask == WSA885X_CHANNEL_MONO_RIGHT) {
 		/* Mono right channel configuration */
 		/* Configure slot0 for I-sense channel 1 */
@@ -639,7 +652,7 @@ static int codec_set_tdm_slot(struct snd_soc_dai *dai,
 		/* Configure slot1 for current protection sense 1 */
 		regmap_update_bits(wsa885x->regmap, DIG_CTRL1_I2S_CFG0_TDM_TX,
 						   0x60, 0x60);
-		reg_update_sequence(wsa885x->regmap);
+		reg_update_sequence(wsa885x->regmap, slots);
 	}
 
 	/* Enable I2S control */
@@ -719,6 +732,93 @@ static int codec_set_sysclk(struct snd_soc_dai *dai, int clk_id,
 	return 0;
 }
 
+static int wsa885x_handle_ssr_reset(struct wsa885x_i2c_priv *wsa885x)
+{
+	int ret;
+
+	/*
+	 * Re-toggle shutdown GPIO to force codec out of a potential SSR/fault
+	 * state, then keep PA FSM disabled until power-up reconfiguration.
+	 */
+	if (wsa885x->sd_n) {
+		dev_dbg(wsa885x->component->dev, "%s: asserting powerdown gpio\n",
+			__func__);
+		ret = wsa885x_gpio_set(wsa885x, true);
+		if (ret) {
+			dev_err(wsa885x->component->dev,
+				"%s: failed to assert powerdown gpio: %d\n",
+				__func__, ret);
+			return ret;
+		}
+
+		usleep_range(1000, 1500);
+
+		dev_dbg(wsa885x->component->dev, "%s: deasserting powerdown gpio\n",
+			__func__);
+		ret = wsa885x_gpio_set(wsa885x, false);
+		if (ret) {
+			dev_err(wsa885x->component->dev,
+				"%s: failed to deassert powerdown gpio: %d\n",
+				__func__, ret);
+			return ret;
+		}
+
+		usleep_range(2000, 2500);
+	} else {
+		dev_dbg(wsa885x->component->dev,
+			"%s: no powerdown gpio, skip gpio reset sequence\n", __func__);
+	}
+
+	regmap_write(wsa885x->regmap, DIG_CTRL0_PA_FSM_CTL, 0x00);
+	dev_dbg(wsa885x->component->dev, "%s: PA FSM disabled\n", __func__);
+	return 0;
+}
+
+static int reinit_wsa885x_powerup(struct wsa885x_i2c_priv *wsa885x)
+{
+	int ret = 0;
+	int ps = 0;
+
+	ret = wsa885x_handle_ssr_reset(wsa885x);
+	if (ret) {
+		dev_err(wsa885x->component->dev, "SSR reset failed: %d\n", ret);
+		return ret;
+	}
+
+	dev_dbg(wsa885x->component->dev, "%s: programming reinit sequence\n",
+		__func__);
+	regmap_write(wsa885x->regmap, DIG_CTRL0_PA_FSM_CTL, 0x00);
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_OT23_USAGE,
+		     wsa885x->usage_mode);
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_IT21_CLUSERINDEX, 0x01);
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_PPU21_POSTURENUMBER, 0x01);
+
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_FU21_CH_VOL_CH2X0_MSB,
+		     wsa885x->stereo_voldB);
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_FU21_CH_VOL_CH2X0_LSB, 0x00);
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_FU21_CH_VOL_CH2X1_MSB,
+		     wsa885x->stereo_voldB);
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_FU21_CH_VOL_CH2X1_LSB, 0x00);
+	regmap_write(wsa885x->regmap, DIG_CTRL0_SDCA_COMMIT, 0x01);
+	dev_dbg(wsa885x->component->dev,
+		"%s: committed usage=%u vol_db=%d cluster=1 posture=1\n",
+		__func__, wsa885x->usage_mode, wsa885x->stereo_voldB);
+
+	regmap_write(wsa885x->regmap, SMP_AMP_CTRL_STEREO_PDE23_REQ_PS, 0x00);
+	dev_dbg(wsa885x->component->dev, "%s: requested PS%d\n", __func__, ps);
+
+	ret = wait_for_pde_state(wsa885x, ps, SMP_AMP_CTRL_STEREO_PDE23_ACT_PS);
+	if (!ret) {
+		dev_dbg(wsa885x->component->dev,
+			"Successfully transitioned to power state %d\n", ps);
+	} else {
+		dev_err(wsa885x->component->dev,
+			"Failed transitioned to power state %d\n", ps);
+	}
+
+	return ret;
+}
+
 static int codec_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct wsa885x_i2c_priv *wsa885x = snd_soc_dai_get_drvdata(dai);
@@ -771,7 +871,9 @@ static int codec_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
 					"Successfully transitioned to power state %d\n", ps0);
 		} else {
 			dev_err(wsa885x->component->dev, "PS0 request failed\n");
-			goto exit;
+			ret = reinit_wsa885x_powerup(wsa885x);
+			if (ret)
+				goto exit;
 		}
 
 		/* Configure power amplifier based on channel configuration */
@@ -1047,7 +1149,7 @@ static const struct snd_kcontrol_new wsa885x_snd_controls[] = {
 			   wsa885x_stereo_gain_offset_put,
 			   fu21_digital_gain),
 
-	SOC_SINGLE_EXT("Rx Slot Mask", SND_SOC_NOPM, 0, 4, 0,
+	SOC_SINGLE_EXT("Rx Slot Mask", SND_SOC_NOPM, 0, 3, 0,
 			   wsa885x_i2c_rx_slot_mask_get,
 			   wsa885x_i2c_rx_slot_mask_put),
 };
@@ -1336,6 +1438,8 @@ static const struct of_device_id wsa885x_i2c_dt_match[] = {
 		.compatible = "qcom,wsa885x-i2c",
 	},
 	{}};
+
+MODULE_DEVICE_TABLE(of, wsa885x_i2c_dt_match);
 
 static const struct i2c_device_id wsa885x_id_i2c[] = {
 	{"wsa885x_i2c", 0},
