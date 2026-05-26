@@ -16,6 +16,7 @@
 #include <dt-bindings/interconnect/qcom,shikra.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
+#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
 #include <dt-bindings/thermal/thermal.h>
 
 / {
@@ -1006,6 +1007,41 @@
 				function = "gpio";
 				drive-strength = <2>;
 				bias-pull-up;
+			};
+
+			swr_rx_clk: swr-rx-clk {
+				pins = "gpio107";
+				function = "swr0_rx";
+				drive-strength = <8>;
+				bias-disable;
+			};
+
+			swr_rx_data0: swr-rx-data0 {
+				pins = "gpio108";
+				function = "swr0_rx";
+				drive-strength = <8>;
+				bias-bus-hold;
+			};
+
+			swr_rx_data1: swr-rx-data1 {
+				pins = "gpio109";
+				function = "swr0_rx";
+				drive-strength = <8>;
+				bias-bus-hold;
+			};
+
+			swr_tx_clk: swr-tx-clk {
+				pins = "gpio105";
+				function = "swr0_tx";
+				drive-strength = <8>;
+				bias-disable;
+			};
+
+			swr_tx_data0: swr-tx-data0 {
+				pins = "gpio106";
+				function = "swr0_tx";
+				drive-strength = <8>;
+				bias-bus-hold;
 			};
 		};
 
@@ -2045,7 +2081,7 @@
 			reg = <0x0 0x0a000000 0x0 0x20000>;
 			reg-names = "audio-qaif-core";
 
-			interrupts = <GIC_SPI 331 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 331 IRQ_TYPE_LEVEL_HIGH 0>;
 			interrupt-names = "qaif-irq-audio-core";
 
 			clocks = <&gcc GCC_LPASS_CONFIG_CLK>,
@@ -2083,6 +2119,116 @@
 
 			#sound-dai-cells = <1>;
 			#address-cells = <1>;
+			#size-cells = <0>;
+
+			status = "disabled";
+		};
+
+		rxmacro: codec@a040000 {
+			compatible = "qcom,shikra-lpass-rx-macro";
+			reg = <0x0 0x0a040000 0x0 0x1000>;
+
+			pinctrl-0 = <&swr_rx_clk>, <&swr_rx_data0>, <&swr_rx_data1>;
+			pinctrl-names = "default";
+
+			clocks = <&audiocorecc AUDIO_CORE_CC_RX_MCLK_CLK>,
+				<&audiocorecc AUDIO_CORE_CC_RX_MCLK_2X_CLK>,
+				 <&vamacro>;
+			clock-names = "mclk",
+				      "npl",
+				      "fsgen";
+
+			#clock-cells = <0>;
+			clock-output-names = "mclk";
+			#sound-dai-cells = <1>;
+
+			status = "disabled";
+		};
+
+		swr0: soundwire@a060000 {
+			compatible = "qcom,soundwire-v3.1.0";
+			reg = <0x0 0x0a060000 0x0 0x10000>;
+			qcom,swr-master-ee-val = <0>;
+
+			interrupts = <GIC_SPI 330 IRQ_TYPE_LEVEL_HIGH 0>;
+
+			clocks = <&rxmacro>;
+			clock-names = "iface";
+
+			label = "RX";
+			qcom,din-ports = <0>;
+			qcom,dout-ports = <5>;
+
+			resets = <&audiocorecc AUDIO_CORE_CSR_RX_SWR_CGCR>;
+			reset-names = "swr_audio_cgcr";
+
+			qcom,ports-sinterval-low =	/bits/ 8 <0x03 0x1f 0x1f 0x07 0x00>;
+			qcom,ports-offset1 =		/bits/ 8 <0x00 0x00 0x0b 0x01 0x00>;
+			qcom,ports-offset2 =		/bits/ 8 <0x00 0x00 0x0b 0x00 0x00>;
+			qcom,ports-hstart =		/bits/ 8 <0xff 0x03 0xff 0xff 0xff>;
+			qcom,ports-hstop =		/bits/ 8 <0xff 0x06 0xff 0xff 0xff>;
+			qcom,ports-word-length =	/bits/ 8 <0x01 0x07 0x04 0xff 0xff>;
+			qcom,ports-block-pack-mode =	/bits/ 8 <0xff 0x00 0x01 0xff 0xff>;
+			qcom,ports-block-group-count =	/bits/ 8 <0xff 0xff 0xff 0xff 0x00>;
+			qcom,ports-lane-control =	/bits/ 8 <0x01 0x00 0x00 0x00 0x00>;
+
+			#sound-dai-cells = <1>;
+			#address-cells = <2>;
+			#size-cells = <0>;
+
+			status = "disabled";
+		};
+
+		vamacro: codec@a078000 {
+			compatible = "qcom,shikra-lpass-va-macro";
+			reg = <0x0 0x0a078000 0x0 0x2000>;
+
+			pinctrl-0 = <&swr_tx_clk>, <&swr_tx_data0>;
+			pinctrl-names = "default";
+
+			clocks = <&audiocorecc AUDIO_CORE_CC_TX_MCLK_CLK>,
+				 <&audiocorecc AUDIO_CORE_CC_TX_MCLK_2X_CLK>;
+			clock-names = "mclk",
+				      "npl";
+
+			#clock-cells = <0>;
+			#sound-dai-cells = <1>;
+			clock-output-names = "fsgen";
+			status = "disabled";
+		};
+
+		swr1: soundwire@a080000 {
+			compatible = "qcom,soundwire-v3.1.0";
+			reg = <0x0 0x0a080000 0x0 0x10000>;
+			qcom,swr-master-ee-val = <0>;
+
+			interrupts = <GIC_SPI 328 IRQ_TYPE_LEVEL_HIGH 0>,
+				     <GIC_SPI 406 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-names = "core", "wakeup";
+
+			clocks = <&vamacro>;
+			clock-names = "iface";
+
+			label = "VA_TX";
+
+			qcom,din-ports = <3>;
+			qcom,dout-ports = <0>;
+
+			resets = <&audiocorecc AUDIO_CORE_CSR_TX_SWR_CGCR>;
+			reset-names = "swr_audio_cgcr";
+
+			qcom,ports-sinterval-low =      /bits/ 8 <0x01 0x03 0x03>;
+			qcom,ports-offset1 =            /bits/ 8 <0x00 0x01 0x01>;
+			qcom,ports-offset2 =            /bits/ 8 <0x00 0x00 0x00>;
+			qcom,ports-hstart =             /bits/ 8 <0xff 0xff 0xff>;
+			qcom,ports-hstop =              /bits/ 8 <0xff 0xff 0xff>;
+			qcom,ports-word-length =        /bits/ 8 <0xff 0xff 0xff>;
+			qcom,ports-block-pack-mode =    /bits/ 8 <0xff 0xff 0xff>;
+			qcom,ports-block-group-count =  /bits/ 8 <0xff 0xff 0xff>;
+			qcom,ports-lane-control =       /bits/ 8 <0x00 0x01 0x00>;
+
+			#sound-dai-cells = <1>;
+			#address-cells = <2>;
 			#size-cells = <0>;
 
 			status = "disabled";
