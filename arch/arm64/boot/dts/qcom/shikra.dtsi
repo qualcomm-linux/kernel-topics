@@ -1308,14 +1308,14 @@
 				      "core",
 				      "xo";
 
-			interconnects = <&system_noc MASTER_SDCC_1 QCOM_ICC_TAG_ALWAYS
-					&mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ALWAYS>,
-					<&mem_noc MASTER_AMPSS_M0 QCOM_ICC_TAG_ACTIVE_ONLY
-					&config_noc SLAVE_SDCC_1 QCOM_ICC_TAG_ACTIVE_ONLY>;
+			interconnects = <&system_noc MASTER_SDCC_1 RPM_ALWAYS_TAG
+					&mc_virt SLAVE_EBI_CH0 RPM_ALWAYS_TAG>,
+					<&mem_noc MASTER_AMPSS_M0 RPM_ACTIVE_TAG
+					&config_noc SLAVE_SDCC_1 RPM_ACTIVE_TAG>;
 			interconnect-names = "sdhc-ddr",
 					     "cpu-sdhc";
 
-			power-domains = <&rpmpd RPMHPD_CX>;
+			power-domains = <&rpmpd QCM2290_VDDCX>;
 			operating-points-v2 = <&sdhc1_opp_table>;
 
 			qcom,dll-config = <0x000f642c>;
@@ -1345,7 +1345,7 @@
 
 				opp-384000000 {
 					opp-hz = /bits/ 64 <384000000>;
-					required-opps = <&rpmpd_opp_nom>;
+					required-opps = <&rpmpd_opp_svs_plus>;
 					opp-peak-kBps = <800000 300000>;
 					opp-avg-kBps = <400000 0>;
 				};
