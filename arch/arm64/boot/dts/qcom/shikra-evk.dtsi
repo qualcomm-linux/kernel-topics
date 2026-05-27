@@ -21,3 +21,12 @@
 	firmware-name = "qcom/shikra/qupv3fw.elf";
 	status = "okay";
 };
+
+&uart8 {
+
+	bluetooth {
+		compatible = "qcom,wcn3988-bt";
+
+		max-speed = <3200000>;
+	};
+};
