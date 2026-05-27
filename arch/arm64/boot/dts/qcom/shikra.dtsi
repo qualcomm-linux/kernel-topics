@@ -1367,15 +1367,16 @@
 					 <&rpmcc RPM_SMD_XO_CLK_SRC>;
 			clock-names = "iface", "core", "xo";
 
+			power-domains = <&rpmpd QCM2290_VDDCX>;
 			qcom,dll-config = <0x0007442c>;
 			qcom,ddr-config = <0x80040868>;
 
 			iommus = <&apps_smmu 0x0a0 0x0>;
 
-			interconnects = <&system_noc MASTER_SDCC_2 QCOM_ICC_TAG_ALWAYS
-					&mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ALWAYS>,
-					<&mem_noc MASTER_AMPSS_M0 QCOM_ICC_TAG_ACTIVE_ONLY
-					&config_noc SLAVE_SDCC_2 QCOM_ICC_TAG_ACTIVE_ONLY>;
+			interconnects = <&system_noc MASTER_SDCC_2 RPM_ALWAYS_TAG
+					&mc_virt SLAVE_EBI_CH0 RPM_ALWAYS_TAG>,
+					<&mem_noc MASTER_AMPSS_M0 RPM_ACTIVE_TAG
+					&config_noc SLAVE_SDCC_2 RPM_ACTIVE_TAG>;
 			interconnect-names = "sdhc-ddr","cpu-sdhc";
 			operating-points-v2 = <&sdhc2_opp_table>;
 
@@ -1391,7 +1392,7 @@
 
 				opp-202000000 {
 					opp-hz = /bits/ 64 <202000000>;
-					required-opps = <&rpmpd_opp_nom>;
+					required-opps = <&rpmpd_opp_svs_plus>;
 				};
 			};
 		};
