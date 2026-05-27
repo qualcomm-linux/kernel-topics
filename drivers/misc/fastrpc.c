@@ -294,8 +294,6 @@ struct fastrpc_channel_ctx {
 	struct kref refcount;
 	/* Flag if dsp attributes are cached */
 	bool valid_attributes;
-	/* Flag if audio PD init mem was allocated */
-	bool audio_init_mem;
 	u32 dsp_attributes[FASTRPC_MAX_DSP_ATTRIBUTES];
 	struct fastrpc_device *secure_fdevice;
 	struct fastrpc_device *fdevice;
@@ -1461,16 +1459,15 @@ static int fastrpc_init_create_static_process(struct fastrpc_user *fl,
 	struct fastrpc_init_create_static init;
 	struct fastrpc_invoke_args *args;
 	struct fastrpc_phy_page pages[1];
-	struct fastrpc_channel_ctx *cctx = fl->cctx;
 	char *name;
 	int err;
+	bool scm_done = false;
 	struct {
 		int client_id;
 		u32 namelen;
 		u32 pageslen;
 	} inbuf;
 	u32 sc;
-	unsigned long flags;
 
 	args = kzalloc_objs(*args, FASTRPC_CREATE_STATIC_PROCESS_NARGS);
 	if (!args)
@@ -1494,6 +1491,31 @@ static int fastrpc_init_create_static_process(struct fastrpc_user *fl,
 	inbuf.client_id = fl->client_id;
 	inbuf.namelen = init.namelen;
 	inbuf.pageslen = 0;
+	if (!fl->cctx->remote_heap) {
+		err = fastrpc_remote_heap_alloc(fl, fl->sctx->dev, init.memlen,
+						&fl->cctx->remote_heap);
+		if (err)
+			goto err_name;
+
+		/* Map if we have any heap VMIDs associated with this ADSP Static Process. */
+		if (fl->cctx->vmcount) {
+			u64 src_perms = BIT(QCOM_SCM_VMID_HLOS);
+
+			err = qcom_scm_assign_mem(fl->cctx->remote_heap->dma_addr,
+							(u64)fl->cctx->remote_heap->size,
+							&src_perms,
+							fl->cctx->vmperms, fl->cctx->vmcount);
+			if (err) {
+				dev_err(fl->sctx->dev,
+					"Failed to assign memory with dma_addr %pad size 0x%llx err %d\n",
+					&fl->cctx->remote_heap->dma_addr,
+					fl->cctx->remote_heap->size, err);
+				goto err_map;
+			}
+			scm_done = true;
+			inbuf.pageslen = 1;
+		}
+	}
 
 	fl->pd = USER_PD;
 
@@ -1505,25 +1527,8 @@ static int fastrpc_init_create_static_process(struct fastrpc_user *fl,
 	args[1].length = inbuf.namelen;
 	args[1].fd = -1;
 
-	spin_lock_irqsave(&cctx->lock, flags);
-	if (!fl->cctx->audio_init_mem) {
-		if (!fl->cctx->remote_heap ||
-		    !fl->cctx->remote_heap->dma_addr ||
-		    !fl->cctx->remote_heap->size) {
-			spin_unlock_irqrestore(&cctx->lock, flags);
-			err = -ENOMEM;
-			goto err;
-		}
-
-		pages[0].addr = fl->cctx->remote_heap->dma_addr;
-		pages[0].size = fl->cctx->remote_heap->size;
-		fl->cctx->audio_init_mem = true;
-		inbuf.pageslen = 1;
-	} else {
-		pages[0].addr = 0;
-		pages[0].size = 0;
-	}
-	spin_unlock_irqrestore(&cctx->lock, flags);
+	pages[0].addr = fl->cctx->remote_heap->dma_addr;
+	pages[0].size = fl->cctx->remote_heap->size;
 
 	args[2].ptr = (u64)(uintptr_t) pages;
 	args[2].length = sizeof(*pages);
@@ -1541,7 +1546,27 @@ static int fastrpc_init_create_static_process(struct fastrpc_user *fl,
 
 	return 0;
 err_invoke:
-	fl->cctx->audio_init_mem = false;
+	if (fl->cctx->vmcount && scm_done) {
+		u64 src_perms = 0;
+		struct qcom_scm_vmperm dst_perms;
+		u32 i;
+
+		for (i = 0; i < fl->cctx->vmcount; i++)
+			src_perms |= BIT(fl->cctx->vmperms[i].vmid);
+
+		dst_perms.vmid = QCOM_SCM_VMID_HLOS;
+		dst_perms.perm = QCOM_SCM_PERM_RWX;
+		err = qcom_scm_assign_mem(fl->cctx->remote_heap->dma_addr,
+						(u64)fl->cctx->remote_heap->size,
+						&src_perms, &dst_perms, 1);
+		if (err)
+			dev_err(fl->sctx->dev, "Failed to assign memory dma_addr %pad size 0x%llx err %d\n",
+				&fl->cctx->remote_heap->dma_addr, fl->cctx->remote_heap->size, err);
+	}
+err_map:
+	fastrpc_buf_free(fl->cctx->remote_heap);
+	fl->cctx->remote_heap = NULL;
+err_name:
 	kfree(name);
 err:
 	kfree(args);
@@ -2565,7 +2590,7 @@ static int fastrpc_rpmsg_probe(struct rpmsg_device *rpdev)
 		}
 	}
 
-	if (domain_id == SDSP_DOMAIN_ID || domain_id == ADSP_DOMAIN_ID) {
+	if (domain_id == SDSP_DOMAIN_ID) {
 		struct resource res;
 		u64 src_perms;
 
@@ -2579,15 +2604,6 @@ static int fastrpc_rpmsg_probe(struct rpmsg_device *rpdev)
 				goto err_free_data;
 		}
 
-		if (domain_id == ADSP_DOMAIN_ID) {
-			data->remote_heap =
-				kzalloc_obj(*data->remote_heap, GFP_KERNEL);
-			if (!data->remote_heap)
-				return -ENOMEM;
-
-			data->remote_heap->dma_addr = res.start;
-			data->remote_heap->size = resource_size(&res);
-		}
 	}
 
 	secure_dsp = !(of_property_read_bool(rdev->of_node, "qcom,non-secure-domain"));
@@ -2668,7 +2684,6 @@ static void fastrpc_rpmsg_remove(struct rpmsg_device *rpdev)
 	struct fastrpc_buf *buf, *b;
 	struct fastrpc_user *user;
 	unsigned long flags;
-	int err;
 
 	/* No invocations past this point */
 	spin_lock_irqsave(&cctx->lock, flags);
@@ -2686,22 +2701,8 @@ static void fastrpc_rpmsg_remove(struct rpmsg_device *rpdev)
 	list_for_each_entry_safe(buf, b, &cctx->invoke_interrupted_mmaps, node)
 		list_del(&buf->node);
 
-	if (cctx->remote_heap && cctx->vmcount) {
-		u64 src_perms = 0;
-		struct qcom_scm_vmperm dst_perms;
-
-		for (u32 i = 0; i < cctx->vmcount; i++)
-			src_perms |= BIT(cctx->vmperms[i].vmid);
-
-		dst_perms.vmid = QCOM_SCM_VMID_HLOS;
-		dst_perms.perm = QCOM_SCM_PERM_RWX;
-
-		err = qcom_scm_assign_mem(cctx->remote_heap->dma_addr,
-					  cctx->remote_heap->size, &src_perms,
-					  &dst_perms, 1);
-		if (!err)
-			fastrpc_buf_free(cctx->remote_heap);
-	}
+	if (cctx->remote_heap)
+		fastrpc_buf_free(cctx->remote_heap);
 
 	of_platform_depopulate(&rpdev->dev);
 
