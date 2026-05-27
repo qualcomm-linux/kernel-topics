@@ -310,6 +310,11 @@ enum {
 	VA_MACRO_CLK_DIV_16,
 };
 
+enum {
+	MSM_DMIC,
+	SWR_MIC,
+};
+
 #define VA_NUM_CLKS_MAX		3
 
 struct va_macro {
@@ -820,12 +825,30 @@ static int va_macro_put_dec_enum(struct snd_kcontrol *kcontrol,
 		return -EINVAL;
 	}
 
-	if (val != 0)
-		snd_soc_component_update_bits(component, mic_sel_reg,
-					      CDC_VA_TX_PATH_ADC_DMIC_SEL_MASK,
-					      CDC_VA_TX_PATH_ADC_DMIC_SEL_DMIC);
+	if (val != 0) {
+		if (strnstr(widget->name, "SMIC", strlen(widget->name)))
+			snd_soc_component_update_bits(component, mic_sel_reg,
+						      CDC_VA_TX_PATH_ADC_DMIC_SEL_MASK, 0);
+		else
+			snd_soc_component_update_bits(component, mic_sel_reg,
+						      CDC_VA_TX_PATH_ADC_DMIC_SEL_MASK,
+						      CDC_VA_TX_PATH_ADC_DMIC_SEL_DMIC);
+	}
 
 	return snd_soc_dapm_put_enum_double(kcontrol, ucontrol);
+}
+
+static bool is_amic_enabled(struct snd_soc_component *comp, int decimator)
+{
+	u16 adc_mux_reg = 0;
+	bool ret = false;
+
+	adc_mux_reg = CDC_VA_INP_MUX_ADC_MUX0_CFG1 +
+		      VA_MACRO_ADC_MUX_CFG_OFFSET * decimator;
+	if (snd_soc_component_read(comp, adc_mux_reg) & SWR_MIC)
+		return true;
+
+	return ret;
 }
 
 static int va_macro_tx_mixer_get(struct snd_kcontrol *kcontrol,
@@ -1012,6 +1035,8 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 	u16 tx_vol_ctl_reg, dec_cfg_reg, hpf_gate_reg;
 	u16 tx_gain_ctl_reg;
 	u8 hpf_cut_off_freq;
+	u16 adc_mux0_reg = 0;
+	u16 adapt_ctrl = 0;
 
 	struct va_macro *va = snd_soc_component_get_drvdata(comp);
 
@@ -1025,6 +1050,10 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 				VA_MACRO_TX_PATH_OFFSET * decimator;
 	tx_gain_ctl_reg = CDC_VA_TX0_TX_VOL_CTL +
 				VA_MACRO_TX_PATH_OFFSET * decimator;
+	adc_mux0_reg = CDC_VA_INP_MUX_ADC_MUX0_CFG0 +
+				VA_MACRO_ADC_MUX_CFG_OFFSET * decimator;
+	adapt_ctrl = CDC_VA_CDC_ADPT0_ADPT_CTRL +
+				VA_MACRO_TX_PATH_OFFSET *decimator;
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -1034,6 +1063,9 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 		/* Enable TX PGA Mute */
 		break;
 	case SND_SOC_DAPM_POST_PMU:
+		if (va->codec_version == LPASS_CODEC_VERSION_4_0)
+			snd_soc_component_update_bits(comp, adapt_ctrl, 0xFF, 0x00);
+
 		/* Enable TX CLK */
 		snd_soc_component_update_bits(comp, tx_vol_ctl_reg,
 					      CDC_VA_TX_PATH_CLK_EN_MASK,
@@ -1042,7 +1074,13 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 					      CDC_VA_TX_HPF_ZERO_GATE_MASK,
 					      CDC_VA_TX_HPF_ZERO_GATE);
 
-		usleep_range(1000, 1010);
+		if (!is_amic_enabled(comp, decimator)) {
+			snd_soc_component_update_bits(comp, hpf_gate_reg,
+						      CDC_VA_TX_HPF_ZERO_GATE_MASK,
+						      CDC_VA_TX_HPF_ZERO_GATE);
+			usleep_range(1000, 1010);
+		}
+
 		hpf_cut_off_freq = (snd_soc_component_read(comp, dec_cfg_reg) &
 				    TX_HPF_CUT_OFF_FREQ_MASK) >> 5;
 
@@ -1050,22 +1088,24 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 			snd_soc_component_update_bits(comp, dec_cfg_reg,
 						      TX_HPF_CUT_OFF_FREQ_MASK,
 						      CF_MIN_3DB_150HZ << 5);
-
-			snd_soc_component_update_bits(comp, hpf_gate_reg,
-				      CDC_VA_TX_HPF_CUTOFF_FREQ_CHANGE_MASK,
-				      CDC_VA_TX_HPF_CUTOFF_FREQ_CHANGE_REQ);
-
-			/*
-			 * Minimum 1 clk cycle delay is required as per HW spec
-			 */
-			usleep_range(1000, 1010);
-
-			snd_soc_component_update_bits(comp,
-				hpf_gate_reg,
-				CDC_VA_TX_HPF_CUTOFF_FREQ_CHANGE_MASK,
-				0x0);
 		}
 
+		snd_soc_component_update_bits(comp, hpf_gate_reg,
+					      CDC_VA_TX_HPF_CUTOFF_FREQ_CHANGE_MASK,
+					      CDC_VA_TX_HPF_CUTOFF_FREQ_CHANGE_REQ);
+
+		/*
+		 * Minimum 1 clk cycle delay is required as per HW spec
+		 */
+
+		usleep_range(1000, 1010);
+
+		if (!is_amic_enabled(comp, decimator)) {
+			snd_soc_component_update_bits(comp,
+						      hpf_gate_reg,
+						      CDC_VA_TX_HPF_CUTOFF_FREQ_CHANGE_MASK,
+						      0x0);
+		}
 
 		usleep_range(1000, 1010);
 		snd_soc_component_update_bits(comp, hpf_gate_reg,
@@ -1544,6 +1584,12 @@ static const struct snd_soc_dapm_route va_audio_map[] = {
 	{"VA DMIC MUX3", "DMIC5", "VA DMIC5"},
 	{"VA DMIC MUX3", "DMIC6", "VA DMIC6"},
 	{"VA DMIC MUX3", "DMIC7", "VA DMIC7"},
+
+	/* SWR_MIC routes: connect each VA DECx MUX to its SWR_MIC input */
+	{"VA DEC0 MUX", "SWR_MIC", "VA SWR_MIC0"},
+	{"VA DEC1 MUX", "SWR_MIC", "VA SWR_MIC1"},
+	{"VA DEC2 MUX", "SWR_MIC", "VA SWR_MIC2"},
+	{"VA DEC3 MUX", "SWR_MIC", "VA SWR_MIC3"},
 
 	{ "VA DMIC0", NULL, "DMIC0 Pin" },
 	{ "VA DMIC1", NULL, "DMIC1 Pin" },
