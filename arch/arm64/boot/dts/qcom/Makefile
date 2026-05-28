@@ -474,6 +474,11 @@ x1p64100-microsoft-denali-el2-dtbs	:= x1p64100-microsoft-denali.dtb x1-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= x1p64100-microsoft-denali.dtb x1p64100-microsoft-denali-el2.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= x1-el2.dtbo
 
+glymur-crd-camx-dtbs    := glymur-crd.dtb glymur-crd-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= glymur-crd-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= glymur-crd-camx.dtbo
+
 hamoa-evk-camx-dtbs  := hamoa-iot-evk.dtb hamoa-evk-camx.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-evk-camx.dtb
