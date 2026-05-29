@@ -20,6 +20,7 @@ properties:
   compatible:
     enum:
       - focaltech,ft8112
+      - focaltech,ft3d81
 
   reg:
     maxItems: 1
