@@ -40,12 +40,15 @@
 	wcn3988-pmu {
 		compatible = "qcom,wcn3988-pmu";
 
+		pinctrl-0 = <&sw_ctrl_default>;
+		pinctrl-names = "default";
+
 		vddio-supply = <&pm4125_l7>;
 		vddxo-supply = <&pm4125_l13>;
 		vddrf-supply = <&pm4125_l10>;
 		vddch0-supply = <&pm4125_l22>;
 
-		bt-enable-gpios = <&tlmm 88 GPIO_ACTIVE_HIGH>;
+		swctrl-gpios = <&tlmm 88 GPIO_ACTIVE_HIGH>;
 
 		regulators {
 			vreg_pmu_io: ldo0 {
@@ -62,6 +65,10 @@
 
 			vreg_pmu_ch0: ldo3 {
 				regulator-name = "vreg_pmu_ch0";
+			};
+
+			vreg_pmu_ch1: ldo4 {
+				regulator-name = "vreg_pmu_ch1";
 			};
 		};
 	};
@@ -208,6 +215,13 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+
+	sw_ctrl_default: sw-ctrl-default-state {
+		pins = "gpio88";
+		function = "gpio";
+		bias-pull-down;
+	};
+
 };
 
 &uart0 {
