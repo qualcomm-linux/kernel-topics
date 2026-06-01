@@ -276,9 +276,14 @@
 		};
 	};
 
-	pmu {
-		compatible = "arm,armv8-pmuv3";
-		interrupts = <GIC_PPI 5 IRQ_TYPE_LEVEL_HIGH>;
+	pmu-a55 {
+		compatible = "arm,cortex-a55-pmu";
+		interrupts = <GIC_PPI 5 IRQ_TYPE_LEVEL_HIGH &ppi_cluster0>;
+	};
+
+	pmu-a78c {
+		compatible = "arm,cortex-a78-pmu";
+		interrupts = <GIC_PPI 5 IRQ_TYPE_LEVEL_HIGH &ppi_cluster1>;
 	};
 
 	psci: psci {
@@ -2141,6 +2146,16 @@
 			#address-cells = <2>;
 			#size-cells = <2>;
 			ranges;
+
+			ppi-partitions {
+				ppi_cluster0: interrupt-partition-0 {
+					affinity = <&cpu0 &cpu1 &cpu2>;
+				};
+
+				ppi_cluster1: interrupt-partition-1 {
+					affinity = <&cpu3>;
+				};
+			};
 		};
 
 		apcs_glb: mailbox@f400000 {
