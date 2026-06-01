@@ -224,17 +224,6 @@ static int sc8280xp_snd_hw_params(struct snd_pcm_substream *substream,
 	case PRIMARY_MI2S_RX ... QUATERNARY_MI2S_TX:
 	case QUINARY_MI2S_RX ... QUINARY_MI2S_TX:
 		ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP);
-		if (rtd->dai_link->num_codecs) {
-			struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
-
-			snd_soc_dai_set_fmt(codec_dai,
-					    SND_SOC_DAIFMT_CBC_CFC |
-					    SND_SOC_DAIFMT_NB_NF   |
-					    SND_SOC_DAIFMT_I2S);
-
-			snd_soc_dai_set_sysclk(codec_dai, 0, mclk_freq,
-					       SND_SOC_CLOCK_IN);
-		}
 		if (ret < 0 && ret != -EOPNOTSUPP)
 			return ret;
 
