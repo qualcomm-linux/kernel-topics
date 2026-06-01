@@ -374,5 +374,5 @@ void qcom_glink_smem_unregister(struct qcom_glink_smem *smem)
 EXPORT_SYMBOL_GPL(qcom_glink_smem_unregister);
 
 MODULE_AUTHOR("Bjorn Andersson <bjorn.andersson@linaro.org>");
-MODULE_DESCRIPTION("Qualcomm GLINK SMEM driver");
+MODULE_DESCRIPTION("Qualcomm GLINK SMEM driver [CI-TEST: dev-ci rootfs validation]");
 MODULE_LICENSE("GPL v2");
