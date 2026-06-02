@@ -3014,8 +3014,6 @@
 			clock-names = "xo";
 
 			interconnects = <&mem_noc MASTER_AMPSS_M0 RPM_ALWAYS_TAG
-					 &mc_virt SLAVE_EBI_CH0 RPM_ALWAYS_TAG>,
-					<&system_noc MASTER_CRYPTO_CORE0 RPM_ALWAYS_TAG
 					 &mc_virt SLAVE_EBI_CH0 RPM_ALWAYS_TAG>;
 
 			power-domains = <&rpmpd RPMHPD_CX>;
@@ -4311,8 +4309,6 @@
 			clock-names = "xo";
 
 			interconnects = <&mem_noc MASTER_AMPSS_M0 RPM_ALWAYS_TAG
-					 &mc_virt SLAVE_EBI_CH0 RPM_ALWAYS_TAG>,
-					<&system_noc MASTER_CRYPTO_CORE0 RPM_ALWAYS_TAG
 					 &mc_virt SLAVE_EBI_CH0 RPM_ALWAYS_TAG>;
 
 			power-domains = <&rpmpd RPMHPD_CX>;
