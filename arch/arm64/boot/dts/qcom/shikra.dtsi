@@ -195,10 +195,10 @@
 		};
 	};
 
-	memory@a0000000 {
+	memory@80000000 {
 		device_type = "memory";
 		/* We expect the bootloader to fill in the size */
-		reg = <0x0 0xa0000000 0x0 0x0>;
+		reg = <0x0 0x80000000 0x0 0x0>;
 	};
 
 	modem-etm0 {
