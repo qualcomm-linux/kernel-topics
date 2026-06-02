@@ -1224,19 +1224,19 @@
 			interconnect-names = "memory";
 		};
 
-		qfprom: efuse@1b40000 {
+		qfprom: efuse@1b44000 {
 			compatible = "qcom,shikra-qfprom", "qcom,qfprom";
-			reg = <0x0 0x01b40000 0x0 0x700>;
+			reg = <0x0 0x01b44000 0x0 0x3000>;
 			#address-cells = <1>;
 			#size-cells = <1>;
 
-			qusb2_hstx_trim_1: hstx-trim@258 {
+			qusb2_hstx_trim_1: hstx-trim@25b {
 				reg = <0x25b 0x1>;
 				bits = <1 4>;
 			};
 
-			gpu_speed_bin: gpu-speed-bin@6006 {
-				reg = <0x6006 0x2>;
+			gpu_speed_bin: gpu-speed-bin@2006 {
+				reg = <0x2006 0x2>;
 				bits = <5 8>;
 			};
 		};
