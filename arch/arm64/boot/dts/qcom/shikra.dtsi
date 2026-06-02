@@ -1062,8 +1062,10 @@
 			reg = <0x0 0x00e00000 0x0 0x80000>,
 			      <0x0 0x0f00000 0x0 0x80000>,
 			      <0x0 0x1000000 0x0 0x80000>;
-			reg-names = "llcc0_base", "llcc1_base", "llcc_broadcast_base";
-			interrupts = <GIC_SPI 571 IRQ_TYPE_LEVEL_HIGH 0>;
+			reg-names = "llcc0_base",
+				    "llcc1_base",
+				    "llcc_broadcast_base";
+			interrupts = <GIC_SPI 539 IRQ_TYPE_LEVEL_HIGH 0>;
 		};
 
 		gcc: clock-controller@1400000 {
