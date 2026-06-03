@@ -3,6 +3,7 @@
 
 #include <dt-bindings/sound/qcom,lpass.h>
 #include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <sound/soc.h>
@@ -13,7 +14,6 @@
 #include <sound/jack.h>
 #include <linux/input-event-codes.h>
 #include "qdsp6/q6afe.h"
-#include "qdsp6/q6apm.h"
 #include "qdsp6/q6prm.h"
 #include "common.h"
 #include "sdw.h"
@@ -21,7 +21,7 @@
 #define MCLK_FREQ		12288000
 #define MCLK_NATIVE_FREQ	11289600
 
-static struct snd_soc_dapm_widget sc8280xp_dapm_widgets[] = {
+static const struct snd_soc_dapm_widget sc8280xp_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone Jack", NULL),
 	SND_SOC_DAPM_MIC("Mic Jack", NULL),
 	SND_SOC_DAPM_SPK("DP0 Jack", NULL),
@@ -35,7 +35,7 @@ static struct snd_soc_dapm_widget sc8280xp_dapm_widgets[] = {
 };
 
 struct snd_soc_common {
-	char *driver_name;
+	const char *driver_name;
 	const struct snd_soc_dapm_widget *dapm_widgets;
 	int num_dapm_widgets;
 	const struct snd_soc_dapm_route *dapm_routes;
@@ -48,25 +48,69 @@ struct sc8280xp_snd_data {
 	struct snd_soc_card *card;
 	struct snd_soc_jack jack;
 	struct snd_soc_jack dp_jack[8];
-	struct snd_soc_common *snd_soc_common_priv;
+	const struct snd_soc_common *snd_soc_common_priv;
 	bool jack_setup;
 };
 
-static inline int sc8280xp_get_mclk_feq(unsigned int rate)
+static int sc8280xp_tdm_set_dai_fmt(struct snd_soc_pcm_runtime *rtd,
+				    struct snd_soc_dai *cpu_dai)
 {
-	int freq = MCLK_FREQ;
+	int ret;
 
-	switch (rate) {
-	case SNDRV_PCM_RATE_11025:
-	case SNDRV_PCM_RATE_44100:
-	case SNDRV_PCM_RATE_88200:
-		freq = MCLK_NATIVE_FREQ;
-		break;
-	default:
-		break;
+	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP);
+	if (ret && ret != -EOPNOTSUPP)
+		dev_err(rtd->dev, "%s: failed to set cpu fmt: %d\n", __func__, ret);
+
+	return ret < 0 && ret != -EOPNOTSUPP ? ret : 0;
+}
+
+static int sc8280xp_tdm_hw_params(struct snd_pcm_substream *substream,
+				  struct snd_pcm_hw_params *params)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	struct snd_soc_dai *codec_dai;
+	struct qcom_snd_tdm_slot_cfg cpu_cfg;
+	struct qcom_snd_tdm_slot_cfg codec_cfg;
+	unsigned int bclk_freq;
+	int ret;
+	int i;
+
+	ret = qcom_snd_get_dai_tdm_slots(rtd, &cpu_cfg, &codec_cfg);
+	if (ret)
+		return ret == -EINVAL ? 0 : ret;
+
+	if (!cpu_cfg.slots)
+		return 0;
+
+	ret = sc8280xp_tdm_set_dai_fmt(rtd, cpu_dai);
+	if (ret)
+		return ret;
+
+	ret = qcom_snd_apply_dai_tdm_slots(rtd);
+	if (ret)
+		return ret;
+
+	bclk_freq = snd_soc_tdm_params_to_bclk(params, cpu_cfg.slot_width, cpu_cfg.slots, 1);
+	if (!bclk_freq)
+		return -EINVAL;
+
+	ret = snd_soc_dai_set_sysclk(cpu_dai, LPAIF_MI2S_TDM_BCLK, bclk_freq, SND_SOC_CLOCK_IN);
+	if (ret < 0 && ret != -EOPNOTSUPP) {
+		dev_err(rtd->dev, "%s: failed to set cpu sysclk: %d\n", __func__, ret);
+		return ret;
 	}
 
-	return freq;
+	for_each_rtd_codec_dais(rtd, i, codec_dai) {
+		ret = snd_soc_dai_set_sysclk(codec_dai, 0, bclk_freq, SND_SOC_CLOCK_IN);
+		if (ret < 0 && ret != -EOPNOTSUPP) {
+			dev_err(rtd->dev, "%s: failed to set codec sysclk on %s: %d\n",
+				__func__, codec_dai->name, ret);
+			return ret;
+		}
+	}
+
+	return 0;
 }
 
 static int sc8280xp_snd_init(struct snd_soc_pcm_runtime *rtd)
@@ -78,6 +122,8 @@ static int sc8280xp_snd_init(struct snd_soc_pcm_runtime *rtd)
 	int dp_pcm_id = 0;
 
 	switch (cpu_dai->id) {
+	case PRIMARY_TDM_RX_0 ... QUINARY_TDM_TX_7:
+		return sc8280xp_tdm_set_dai_fmt(rtd, cpu_dai);
 	case WSA_CODEC_DMA_RX_0:
 	case WSA_CODEC_DMA_RX_1:
 		/*
@@ -107,6 +153,23 @@ static int sc8280xp_snd_init(struct snd_soc_pcm_runtime *rtd)
 		return qcom_snd_dp_jack_setup(rtd, dp_jack, dp_pcm_id);
 
 	return qcom_snd_wcd_jack_setup(rtd, &data->jack, &data->jack_setup);
+}
+
+static inline int sc8280xp_get_mclk_feq(unsigned int rate)
+{
+	int freq = MCLK_FREQ;
+
+	switch (rate) {
+	case SNDRV_PCM_RATE_11025:
+	case SNDRV_PCM_RATE_44100:
+	case SNDRV_PCM_RATE_88200:
+		freq = MCLK_NATIVE_FREQ;
+		break;
+	default:
+		break;
+	}
+
+	return freq;
 }
 
 static int sc8280xp_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
@@ -139,31 +202,6 @@ static int sc8280xp_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
-static int sc8280xp_snd_hw_params(struct snd_pcm_substream *substream,
-				  struct snd_pcm_hw_params *params)
-{
-	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
-	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
-	struct sc8280xp_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
-	int mclk_freq = sc8280xp_get_mclk_feq(params_rate(params));
-
-	switch (cpu_dai->id) {
-	case PRIMARY_MI2S_RX...QUATERNARY_MI2S_TX:
-	case QUINARY_MI2S_RX...QUINARY_MI2S_TX:
-		snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP);
-
-		if (data->snd_soc_common_priv->mi2s_mclk_enable)
-			snd_soc_dai_set_sysclk(cpu_dai,
-					       LPAIF_MI2S_MCLK, mclk_freq,
-					       SND_SOC_CLOCK_IN);
-		break;
-	default:
-		break;
-	};
-
-	return 0;
-}
-
 static int sc8280xp_snd_prepare(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
@@ -171,6 +209,48 @@ static int sc8280xp_snd_prepare(struct snd_pcm_substream *substream)
 	struct sc8280xp_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
 
 	return qcom_snd_sdw_prepare(substream, &data->stream_prepared[cpu_dai->id]);
+}
+
+static int sc8280xp_snd_hw_params(struct snd_pcm_substream *substream,
+				  struct snd_pcm_hw_params *params)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	struct sc8280xp_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+	unsigned int mclk_freq = sc8280xp_get_mclk_feq(params_rate(params));
+	int ret;
+
+	switch (cpu_dai->id) {
+	case PRIMARY_MI2S_RX ... QUATERNARY_MI2S_TX:
+	case QUINARY_MI2S_RX ... QUINARY_MI2S_TX:
+		ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP);
+		if (rtd->dai_link->num_codecs) {
+			struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
+
+			snd_soc_dai_set_fmt(codec_dai,
+					    SND_SOC_DAIFMT_CBC_CFC |
+					    SND_SOC_DAIFMT_NB_NF   |
+					    SND_SOC_DAIFMT_I2S);
+
+			snd_soc_dai_set_sysclk(codec_dai, 0, mclk_freq,
+					       SND_SOC_CLOCK_IN);
+		}
+		if (ret < 0 && ret != -EOPNOTSUPP)
+			return ret;
+
+		if (!data->snd_soc_common_priv->mi2s_mclk_enable)
+			return 0;
+
+		ret = snd_soc_dai_set_sysclk(cpu_dai, LPAIF_MI2S_MCLK,
+					     mclk_freq, SND_SOC_CLOCK_IN);
+		return ret < 0 && ret != -EOPNOTSUPP ? ret : 0;
+	case PRIMARY_TDM_RX_0 ... QUINARY_TDM_TX_7:
+		return sc8280xp_tdm_hw_params(substream, params);
+	default:
+		break;
+	}
+
+	return 0;
 }
 
 static int sc8280xp_snd_hw_free(struct snd_pcm_substream *substream)
@@ -215,14 +295,13 @@ static int sc8280xp_platform_probe(struct platform_device *pdev)
 	if (!card)
 		return -ENOMEM;
 
-	/* Allocate the private data */
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
-	data->snd_soc_common_priv = (struct snd_soc_common *)of_device_get_match_data(dev);
+	data->snd_soc_common_priv = of_device_get_match_data(dev);
 	if (!data->snd_soc_common_priv)
-		return -ENOMEM;
+		return -EINVAL;
 
 	card->owner = THIS_MODULE;
 	card->dev = dev;
@@ -242,44 +321,44 @@ static int sc8280xp_platform_probe(struct platform_device *pdev)
 	return devm_snd_soc_register_card(dev, card);
 }
 
-static struct snd_soc_common kaanapali_priv_data = {
+static const struct snd_soc_common kaanapali_priv_data = {
 	.driver_name = "kaanapali",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common qcs9100_priv_data = {
-	.driver_name = "sa8775p",
+static const struct snd_soc_common qcm6490_priv_data = {
+	.driver_name = "qcm6490",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common qcs615_priv_data = {
+static const struct snd_soc_common qcs615_priv_data = {
 	.driver_name = "qcs615",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 	.mi2s_mclk_enable = true,
 };
 
-static struct snd_soc_common qcm6490_priv_data = {
-	.driver_name = "qcm6490",
-	.dapm_widgets = sc8280xp_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
-};
-
-static struct snd_soc_common qcs6490_priv_data = {
+static const struct snd_soc_common qcs6490_priv_data = {
 	.driver_name = "qcs6490",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common qcs8275_priv_data = {
+static const struct snd_soc_common qcs8275_priv_data = {
 	.driver_name = "qcs8300",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common sc8280xp_priv_data = {
+static const struct snd_soc_common qcs9100_priv_data = {
+	.driver_name = "sa8775p",
+	.dapm_widgets = sc8280xp_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
+};
+
+static const struct snd_soc_common sc8280xp_priv_data = {
 	.driver_name = "sc8280xp",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
@@ -291,25 +370,25 @@ static const struct snd_soc_common shikra_priv_data = {
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common sm8450_priv_data = {
+static const struct snd_soc_common sm8450_priv_data = {
 	.driver_name = "sm8450",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common sm8550_priv_data = {
+static const struct snd_soc_common sm8550_priv_data = {
 	.driver_name = "sm8550",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common sm8650_priv_data = {
+static const struct snd_soc_common sm8650_priv_data = {
 	.driver_name = "sm8650",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
 };
 
-static struct snd_soc_common sm8750_priv_data = {
+static const struct snd_soc_common sm8750_priv_data = {
 	.driver_name = "sm8750",
 	.dapm_widgets = sc8280xp_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
