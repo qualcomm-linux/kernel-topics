@@ -516,6 +516,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= monaco-camx-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= monaco-evk-staging.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= monaco-staging.dtbo
+dtb-$(CONFIG_ARCH_QCOM)	+= monaco-sail-mb.dtbo
 
 purwa-evk-camx-dtbs     := purwa-iot-evk.dtb purwa-evk-camx.dtbo
 
