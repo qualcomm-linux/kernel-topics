@@ -1321,7 +1321,7 @@ static int wsa885x_i2c_probe(struct i2c_client *client)
 {
 	struct wsa885x_i2c_priv *wsa885x;
 	const char *init_table_prop = "wsa885x-init-table";
-	int ret, i;
+	int ret, i, count;
 	struct device *dev = &client->dev;
 
 	wsa885x = devm_kzalloc(&client->dev, sizeof(struct wsa885x_i2c_priv),
@@ -1338,39 +1338,50 @@ static int wsa885x_i2c_probe(struct i2c_client *client)
 	if (IS_ERR(wsa885x->regmap))
 		return PTR_ERR(wsa885x->regmap);
 
-	wsa885x->init_table_size =
-		of_property_count_u32_elems(dev->of_node, init_table_prop);
+	count = of_property_count_u32_elems(dev->of_node,
+					    "qcom,wsa885x-init-table");
+	if (count > 0)
+		init_table_prop = "qcom,wsa885x-init-table";
+	else
+		count = of_property_count_u32_elems(dev->of_node, init_table_prop);
 
-	if (wsa885x->init_table_size <= 0) {
-		dev_err(dev, "%s: Failed to count elements from %s\n",
+	if (count > 0) {
+		if (count % 2 != 0) {
+			dev_err(dev, "%s: Invalid number of elements in %s\n",
 				__func__, init_table_prop);
-		return -EINVAL;
+			return -EINVAL;
+		}
+
+		wsa885x->init_table_size = count;
+		wsa885x->init_table = devm_kcalloc(dev, wsa885x->init_table_size,
+						   sizeof(*wsa885x->init_table),
+						   GFP_KERNEL);
+		if (!wsa885x->init_table)
+			return -ENOMEM;
+
+		if (of_property_read_u32_array(dev->of_node, init_table_prop, wsa885x->init_table,
+					       wsa885x->init_table_size)) {
+			dev_err(dev, "%s: Failed to read %s\n",
+				__func__, init_table_prop);
+			return -EINVAL;
+		}
+	} else {
+		dev_dbg(dev, "%s: init table absent, relying on reg_defaults\n",
+			__func__);
 	}
 
-	if (wsa885x->init_table_size % 2 != 0) {
-		dev_err(dev, "%s: Invalid number of elements in %s\n",
-				__func__, init_table_prop);
-		return -EINVAL;
-	}
-
-	wsa885x->init_table = devm_kzalloc(
-		dev, wsa885x->init_table_size * sizeof(u32), GFP_KERNEL);
-	if (!wsa885x->init_table)
-		return -ENOMEM;
-
-	if (of_property_read_u32_array(dev->of_node, init_table_prop,
-					wsa885x->init_table,
-					wsa885x->init_table_size)) {
-		dev_err(dev,
-				"%s: Failed to read %s\n",
-				__func__, init_table_prop);
-		return -EINVAL;
-	}
-
-	ret = of_property_read_u32(dev->of_node, "qcom,battery_config", &wsa885x->batt_conf);
+	ret = of_property_read_u32(dev->of_node, "qcom,battery-config",
+				   &wsa885x->batt_conf);
+	if (ret)
+		ret = of_property_read_u32(dev->of_node, "qcom,battery_config",
+					   &wsa885x->batt_conf);
 	if (ret) {
-		dev_err(dev, "battery_config not specified, 1S is default: %d\n", ret);
+		dev_dbg(dev, "battery-config not specified, defaulting to 1S\n");
 		wsa885x->batt_conf = batt_1s;
+	} else if (wsa885x->batt_conf != batt_1s && wsa885x->batt_conf != batt_2s) {
+		return dev_err_probe(dev, -EINVAL,
+				     "Invalid battery-config value %u (expected 1 or 2)\n",
+				     wsa885x->batt_conf);
 	}
 
 	for (i = 0; i < SUPPLIES_NUM; i++)
