@@ -2,6 +2,7 @@
 
 #ifndef __AUDIOREACH_H__
 #define __AUDIOREACH_H__
+#include <dt-bindings/soc/qcom,gpr.h>
 #include <linux/types.h>
 #include <linux/soc/qcom/apr.h>
 #include <uapi/sound/snd_ar_tokens.h>
@@ -878,17 +879,20 @@ struct audioreach_module_config {
 };
 
 /* Packet Allocation routines */
-void *audioreach_alloc_apm_cmd_pkt(int pkt_size, uint32_t opcode, uint32_t
-				    token);
+static inline u16 audioreach_gpr_dest_domain(gpr_device_t *gdev)
+{
+	return gdev && gdev->domain_id ? gdev->domain_id : GPR_DOMAIN_ID_ADSP;
+}
+
+void *audioreach_alloc_apm_cmd_pkt(int pkt_size, u32 opcode, u32 token,
+				   u16 dest_domain);
 void audioreach_set_default_channel_mapping(u8 *ch_map, int num_channels);
-void *audioreach_alloc_cmd_pkt(int payload_size, uint32_t opcode,
-			       uint32_t token, uint32_t src_port,
-			       uint32_t dest_port);
-void *audioreach_alloc_apm_pkt(int pkt_size, uint32_t opcode, uint32_t token,
-				uint32_t src_port);
-void *audioreach_alloc_pkt(int payload_size, uint32_t opcode,
-			   uint32_t token, uint32_t src_port,
-			   uint32_t dest_port);
+void *audioreach_alloc_cmd_pkt(int payload_size, u32 opcode, u32 token,
+			       u32 src_port, u32 dest_port, u16 dest_domain);
+void *audioreach_alloc_apm_pkt(int pkt_size, u32 opcode, u32 token,
+			       u32 src_port, u16 dest_domain);
+void *audioreach_alloc_pkt(int payload_size, u32 opcode, u32 token,
+			   u32 src_port, u32 dest_port, u16 dest_domain);
 void *audioreach_alloc_graph_pkt(struct q6apm *apm,
 				 const struct audioreach_graph_info *info);
 /* Topology specific */
