@@ -42,7 +42,13 @@ properties:
     description: 1.8V analog/digital core supply.
 
   qcom,battery_config:
+    deprecated: true
     description: Battery topology configuration.
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [1, 2]
+
+  qcom,battery-config:
+    description: Speaker battery configuration, 1 for 1S and 2S.
     $ref: /schemas/types.yaml#/definitions/uint32
     enum: [1, 2]
 
@@ -52,13 +58,18 @@ properties:
     minItems: 2
     maxItems: 512
 
+  qcom,wsa885x-init-table:
+    description: Register/value initialization table as <reg val> pairs.
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    minItems: 2
+    maxItems: 256
+
 required:
   - compatible
   - reg
   - '#sound-dai-cells'
   - vdd-io-supply
   - vdd-1p8-supply
-  - wsa885x-init-table
 
 unevaluatedProperties: false
 
