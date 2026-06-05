@@ -4328,6 +4328,7 @@ static const struct qcom_reset_map gcc_shikra_resets[] = {
 	[GCC_USB20_BCR] = { 0xb0000 },
 	[GCC_USB30_PRIM_BCR] = { 0x1a000 },
 	[GCC_USB3PHY_PHY_PRIM_SP0_BCR] = { 0x1b008 },
+	[GCC_USB3_DP_PHY_PRIM_BCR] = { 0x1b020 },
 	[GCC_USB3_PHY_PRIM_SP0_BCR] = { 0x1b000 },
 	[GCC_USB_PHY_CFG_AHB2PHY_BCR] = { 0x1d000 },
 	[GCC_VCODEC0_BCR] = { 0x6d034 },
