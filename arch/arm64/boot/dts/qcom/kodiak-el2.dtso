@@ -27,7 +27,10 @@
 };
 
 &venus {
-	status = "disabled";
+	status = "okay";
+	video-firmware {
+		iommus = <&apps_smmu 0x21A2 0x0000>;
+	};
 };
 
 &watchdog {
