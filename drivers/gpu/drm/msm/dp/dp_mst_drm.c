@@ -66,6 +66,8 @@ struct msm_dp_mst {
 	u32 max_streams;
 	/* Protects MST bridge enable/disable handling. */
 	struct mutex mst_lock;
+	/* Serializes HPD IRQ handling between IRQ handler and poll_hpd_irq. */
+	struct mutex hpd_irq_lock;
 };
 
 static struct drm_private_state *msm_dp_mst_create_bridge_state(struct drm_private_obj *obj)
@@ -533,10 +535,12 @@ void msm_dp_mst_display_hpd_irq(struct msm_dp *dp_display)
 	unsigned int esi_res = DP_SINK_COUNT_ESI + 1;
 	bool handled;
 
+	mutex_lock(&mst->hpd_irq_lock);
+
 	rc = drm_dp_dpcd_read_data(mst->dp_aux, DP_SINK_COUNT_ESI, esi, 4);
 	if (rc < 0) {
 		DRM_ERROR("DPCD sink status read failed, rlen=%d\n", rc);
-		return;
+		goto out_unlock;
 	}
 
 	drm_dbg_dp(dp_display->drm_dev, "MST irq: esi1[0x%x] esi2[0x%x] esi3[%x]\n",
@@ -549,12 +553,15 @@ void msm_dp_mst_display_hpd_irq(struct msm_dp *dp_display)
 		rc = drm_dp_dpcd_write_byte(mst->dp_aux, esi_res, ack[1]);
 		if (rc < 0) {
 			DRM_ERROR("DPCD esi_res failed. rc=%d\n", rc);
-			return;
+			goto out_unlock;
 		}
 
 		drm_dp_mst_hpd_irq_send_new_request(&mst->mst_mgr);
 	}
 	drm_dbg_dp(dp_display->drm_dev, "MST display hpd_irq handled:%d rc:%d\n", handled, rc);
+
+out_unlock:
+	mutex_unlock(&mst->hpd_irq_lock);
 }
 
 /* DP MST Connector OPs */
@@ -854,8 +861,16 @@ msm_dp_mst_add_connector(struct drm_dp_mst_topology_mgr *mgr,
 	return connector;
 }
 
+static void msm_dp_mst_poll_hpd_irq(struct drm_dp_mst_topology_mgr *mgr)
+{
+	struct msm_dp_mst *mst = container_of(mgr, struct msm_dp_mst, mst_mgr);
+
+	msm_dp_mst_display_hpd_irq(mst->msm_dp);
+}
+
 static const struct drm_dp_mst_topology_cbs msm_dp_mst_drm_cbs = {
 	.add_connector = msm_dp_mst_add_connector,
+	.poll_hpd_irq  = msm_dp_mst_poll_hpd_irq,
 };
 
 int msm_dp_mst_init(struct msm_dp *dp_display, u32 max_streams, struct drm_dp_aux *drm_aux)
@@ -896,5 +911,6 @@ int msm_dp_mst_init(struct msm_dp *dp_display, u32 max_streams, struct drm_dp_au
 	dp_display->msm_dp_mst = msm_dp_mst;
 
 	mutex_init(&msm_dp_mst->mst_lock);
+	mutex_init(&msm_dp_mst->hpd_irq_lock);
 	return ret;
 }
