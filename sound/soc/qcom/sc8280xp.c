@@ -34,13 +34,32 @@ static const struct snd_soc_dapm_widget sc8280xp_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("DP7 Jack", NULL),
 };
 
+static const struct snd_soc_dapm_widget shikra_dapm_widgets[] = {
+	SND_SOC_DAPM_HP("Headphone", NULL),
+	SND_SOC_DAPM_MIC("Headset Mic", NULL),
+	SND_SOC_DAPM_MIC("Int Mic", NULL),
+	SND_SOC_DAPM_SPK("Speaker", NULL),
+};
+
+static const struct snd_kcontrol_new shikra_controls[] = {
+	SOC_DAPM_PIN_SWITCH("Headset Mic"),
+	SOC_DAPM_PIN_SWITCH("Headphone"),
+	SOC_DAPM_PIN_SWITCH("Int Mic"),
+	SOC_DAPM_PIN_SWITCH("Speaker"),
+};
+
 struct snd_soc_common {
 	const char *driver_name;
 	const struct snd_soc_dapm_widget *dapm_widgets;
 	int num_dapm_widgets;
 	const struct snd_soc_dapm_route *dapm_routes;
 	int num_dapm_routes;
+	const struct snd_kcontrol_new *controls;
+	int num_controls;
 	bool mi2s_mclk_enable;
+	bool mi2s_bclk_enable;
+	unsigned int codec_dai_fmt;
+	bool codec_sysclk_set;
 };
 
 struct sc8280xp_snd_data {
@@ -49,6 +68,7 @@ struct sc8280xp_snd_data {
 	struct snd_soc_jack jack;
 	struct snd_soc_jack dp_jack[8];
 	const struct snd_soc_common *snd_soc_common_priv;
+	bool dsp_bypass_mode;
 	bool jack_setup;
 };
 
@@ -122,8 +142,6 @@ static int sc8280xp_snd_init(struct snd_soc_pcm_runtime *rtd)
 	int dp_pcm_id = 0;
 
 	switch (cpu_dai->id) {
-	case PRIMARY_TDM_RX_0 ... QUINARY_TDM_TX_7:
-		return sc8280xp_tdm_set_dai_fmt(rtd, cpu_dai);
 	case WSA_CODEC_DMA_RX_0:
 	case WSA_CODEC_DMA_RX_1:
 		/*
@@ -220,6 +238,10 @@ static int sc8280xp_snd_hw_params(struct snd_pcm_substream *substream,
 	struct sc8280xp_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
 	unsigned int mclk_freq = sc8280xp_get_mclk_feq(params_rate(params));
 	int ret;
+	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
+
+	if (data->dsp_bypass_mode)
+		return 0;
 
 	switch (cpu_dai->id) {
 	case PRIMARY_MI2S_RX ... QUATERNARY_MI2S_TX:
@@ -228,7 +250,15 @@ static int sc8280xp_snd_hw_params(struct snd_pcm_substream *substream,
 		if (ret < 0 && ret != -EOPNOTSUPP)
 			return ret;
 
-		if (!data->snd_soc_common_priv->mi2s_mclk_enable)
+		if (data->snd_soc_common_priv->codec_dai_fmt)
+			snd_soc_dai_set_fmt(codec_dai,
+					    data->snd_soc_common_priv->codec_dai_fmt);
+
+		if (data->snd_soc_common_priv->codec_sysclk_set)
+			snd_soc_dai_set_sysclk(codec_dai, 0, mclk_freq,
+					       SND_SOC_CLOCK_IN);
+
+		if (!data->snd_soc_common_priv->mi2s_bclk_enable)
 			return 0;
 
 		ret = snd_soc_dai_set_sysclk(cpu_dai, LPAIF_MI2S_MCLK,
@@ -301,10 +331,15 @@ static int sc8280xp_platform_probe(struct platform_device *pdev)
 	card->num_dapm_widgets = data->snd_soc_common_priv->num_dapm_widgets;
 	card->dapm_routes = data->snd_soc_common_priv->dapm_routes;
 	card->num_dapm_routes = data->snd_soc_common_priv->num_dapm_routes;
+	card->controls = data->snd_soc_common_priv->controls;
+	card->num_controls = data->snd_soc_common_priv->num_controls;
 
 	ret = qcom_snd_parse_of(card);
 	if (ret)
 		return ret;
+
+	data->dsp_bypass_mode = of_property_read_bool(dev->of_node,
+						     "qcom,adsp-bypass-mode");
 
 	card->driver_name = data->snd_soc_common_priv->driver_name;
 	sc8280xp_add_be_ops(card);
@@ -356,8 +391,15 @@ static const struct snd_soc_common sc8280xp_priv_data = {
 
 static const struct snd_soc_common shikra_priv_data = {
 	.driver_name = "shikra",
-	.dapm_widgets = sc8280xp_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
+	.dapm_widgets = shikra_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(shikra_dapm_widgets),
+	.controls = shikra_controls,
+	.num_controls = ARRAY_SIZE(shikra_controls),
+	.mi2s_bclk_enable = true,
+	.codec_dai_fmt = SND_SOC_DAIFMT_CBP_CFP |
+			 SND_SOC_DAIFMT_NB_NF |
+			 SND_SOC_DAIFMT_I2S,
+	.codec_sysclk_set = true,
 };
 
 static const struct snd_soc_common sm8450_priv_data = {
