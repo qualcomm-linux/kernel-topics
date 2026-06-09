@@ -63,6 +63,7 @@
 		compatible = "qcom,shikra-sndcard";
 		model = "shikra-cqm-evk";
 
+		qcom,adsp-bypass-mode;
 		audio-routing = "IN1_HPHL", "HPHL_OUT",
 				"IN2_HPHR", "HPHR_OUT",
 				"AMIC2", "MIC BIAS2",
