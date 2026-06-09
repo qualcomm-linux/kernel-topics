@@ -770,15 +770,6 @@
 	pinctrl-names = "default";
 };
 
-&pcie3b_phy {
-	vdda-phy-supply = <&vreg_l3c_e1_0p89>;
-	vdda-pll-supply = <&vreg_l2c_e1_1p14>;
-	vdda-qref-supply = <&vreg_l1f_e1_0p82>;
-	vdda-qref2-supply = <&vreg_l2f_e1_0p83>;
-	vdda-refgen0p9-supply = <&vreg_l1c_e1_0p82>;
-	vdda-refgen1p2-supply = <&vreg_l4f_e1_1p08>;
-};
-
 &pcie3b_port0 {
 	reset-gpios = <&tlmm 155 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 157 GPIO_ACTIVE_LOW>;
