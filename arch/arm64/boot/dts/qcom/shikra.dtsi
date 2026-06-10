@@ -1856,7 +1856,7 @@
 		};
 
 		mdss: display-subsystem@5e00000 {
-			compatible = "qcom,shikra-mdss";
+			compatible = "qcom,shikra-mdss", "qcom,qcm2290-mdss";
 			reg = <0x0 0x05e00000 0x0 0x1000>;
 			reg-names = "mdss";
 			interrupts = <GIC_SPI 186 IRQ_TYPE_LEVEL_HIGH 0>;
@@ -1889,7 +1889,7 @@
 			status = "disabled";
 
 			mdp: display-controller@5e01000 {
-				compatible = "qcom,shikra-dpu";
+				compatible = "qcom,shikra-dpu", "qcom,qcm2290-dpu";
 				reg = <0x0 0x05e01000 0x0 0x8f000>,
 				      <0x0 0x05eb0000 0x0 0x3000>;
 				reg-names = "mdp",
@@ -1956,6 +1956,7 @@
 
 			mdss_dsi0: dsi@5e94000 {
 				compatible = "qcom,shikra-dsi-ctrl",
+					     "qcom,qcm2290-dsi-ctrl",
 					     "qcom,mdss-dsi-ctrl";
 				reg = <0x0 0x05e94000 0x0 0x400>;
 				reg-names = "dsi_ctrl";
