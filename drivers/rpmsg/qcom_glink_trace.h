@@ -395,6 +395,74 @@ TRACE_EVENT(qcom_glink_cmd_signal,
 #define trace_qcom_glink_cmd_signal_tx(...) trace_qcom_glink_cmd_signal(__VA_ARGS__, true)
 #define trace_qcom_glink_cmd_signal_rx(...) trace_qcom_glink_cmd_signal(__VA_ARGS__, false)
 
+TRACE_EVENT(qcom_glink_channel_state,
+	TP_PROTO(const char *remote, const char *channel, u16 lcid, u16 rcid,
+		 unsigned int old_state, unsigned int new_state, bool error),
+	TP_ARGS(remote, channel, lcid, rcid, old_state, new_state, error),
+	TP_STRUCT__entry(
+		__string(remote, remote)
+		__string(channel, channel)
+		__field(u16, lcid)
+		__field(u16, rcid)
+		__field(u32, old_state)
+		__field(u32, new_state)
+		__field(bool, error)
+	),
+	TP_fast_assign(
+		__assign_str(remote);
+		__assign_str(channel);
+		__entry->lcid = lcid;
+		__entry->rcid = rcid;
+		__entry->old_state = old_state;
+		__entry->new_state = new_state;
+		__entry->error = error;
+	),
+	TP_printk("remote: %s channel: %s[%u/%u] %s -> %s%s",
+		  __get_str(remote),
+		  __get_str(channel),
+		  __entry->lcid,
+		  __entry->rcid,
+		  __print_symbolic(__entry->old_state,
+			{ 0, "CLOSED" },
+			{ 1, "OPENING" },
+			{ 2, "OPENED" },
+			{ 3, "CLOSING" }),
+		  __print_symbolic(__entry->new_state,
+			{ 0, "CLOSED" },
+			{ 1, "OPENING" },
+			{ 2, "OPENED" },
+			{ 3, "CLOSING" }),
+		  __entry->error ? " [INVALID]" : ""
+	)
+);
+
+TRACE_EVENT(qcom_glink_channel_info,
+	TP_PROTO(const char *remote, const char *channel, u16 lcid, u16 rcid,
+		 const char *info),
+	TP_ARGS(remote, channel, lcid, rcid, info),
+	TP_STRUCT__entry(
+		__string(remote, remote)
+		__string(channel, channel)
+		__field(u16, lcid)
+		__field(u16, rcid)
+		__string(info, info)
+	),
+	TP_fast_assign(
+		__assign_str(remote);
+		__assign_str(channel);
+		__entry->lcid = lcid;
+		__entry->rcid = rcid;
+		__assign_str(info);
+	),
+	TP_printk("remote: %s channel: %s[%u/%u] %s",
+		  __get_str(remote),
+		  __get_str(channel),
+		  __entry->lcid,
+		  __entry->rcid,
+		  __get_str(info)
+	)
+);
+
 #endif
 
 #undef TRACE_INCLUDE_PATH
