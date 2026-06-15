@@ -128,11 +128,11 @@ struct qcom_glink {
 	bool abort_tx;
 };
 
-enum {
-	GLINK_STATE_CLOSED,
-	GLINK_STATE_OPENING,
-	GLINK_STATE_OPEN,
-	GLINK_STATE_CLOSING,
+enum glink_channel_state {
+	GLINK_CHANNEL_CLOSED,
+	GLINK_CHANNEL_OPENING,
+	GLINK_CHANNEL_OPENED,
+	GLINK_CHANNEL_CLOSING,
 };
 
 /**
@@ -142,9 +142,12 @@ enum {
  * @glink:	qcom_glink context handle
  * @refcount:	refcount for the channel object
  * @recv_lock:	guard for @ept.cb
+ * @state_lock:	guard for glink channel state
  * @name:	unique channel name/identifier
  * @lcid:	channel id, in local space
  * @rcid:	channel id, in remote space
+ * @local_state:	local channel state
+ * @remote_opened:	remote channel state
  * @intent_lock: lock for protection of @liids, @riids
  * @liids:	idr of all local intents
  * @riids:	idr of all remote intents
@@ -169,10 +172,14 @@ struct glink_channel {
 	struct kref refcount;
 
 	spinlock_t recv_lock;
+	spinlock_t state_lock; /* protects local_state and remote_opened */
 
 	char *name;
 	unsigned int lcid;
 	unsigned int rcid;
+
+	enum glink_channel_state local_state;
+	bool remote_opened;
 
 	spinlock_t intent_lock;
 	struct idr liids;
@@ -222,6 +229,67 @@ static const struct rpmsg_endpoint_ops glink_endpoint_ops;
 
 static void qcom_glink_rx_done_work(struct work_struct *work);
 
+static bool qcom_glink_channel_update_local_state(struct glink_channel *channel,
+						  enum glink_channel_state state)
+{
+	enum glink_channel_state old_state;
+	bool is_fully_closed = false;
+	unsigned long flags;
+
+	if (!channel)
+		return false;
+
+	spin_lock_irqsave(&channel->state_lock, flags);
+	old_state = channel->local_state;
+
+	switch (old_state) {
+	case GLINK_CHANNEL_CLOSED:
+		if (state != GLINK_CHANNEL_OPENING)
+			goto unlock;
+		break;
+	case GLINK_CHANNEL_OPENING:
+		if (state != GLINK_CHANNEL_OPENED && state != GLINK_CHANNEL_CLOSED &&
+		    state != GLINK_CHANNEL_CLOSING)
+			goto unlock;
+		break;
+	case GLINK_CHANNEL_OPENED:
+		if (state != GLINK_CHANNEL_CLOSING)
+			goto unlock;
+		break;
+	case GLINK_CHANNEL_CLOSING:
+		if (state != GLINK_CHANNEL_CLOSED)
+			goto unlock;
+		break;
+	default:
+		goto unlock;
+	}
+
+	channel->local_state = state;
+	is_fully_closed = (channel->local_state == GLINK_CHANNEL_CLOSED &&
+			   !channel->remote_opened);
+
+unlock:
+	spin_unlock_irqrestore(&channel->state_lock, flags);
+	return is_fully_closed;
+}
+
+static bool qcom_glink_channel_update_remote_state(struct glink_channel *channel, bool opened)
+{
+	bool is_fully_closed;
+	unsigned long flags;
+
+	if (!channel)
+		return false;
+
+	spin_lock_irqsave(&channel->state_lock, flags);
+	channel->remote_opened = opened;
+	is_fully_closed = (channel->local_state == GLINK_CHANNEL_CLOSED &&
+			   !channel->remote_opened);
+	spin_unlock_irqrestore(&channel->state_lock, flags);
+
+	return is_fully_closed;
+}
+
 static struct glink_channel *qcom_glink_alloc_channel(struct qcom_glink *glink,
 						      const char *name)
 {
@@ -234,6 +302,7 @@ static struct glink_channel *qcom_glink_alloc_channel(struct qcom_glink *glink,
 	/* Setup glink internal glink_channel data */
 	spin_lock_init(&channel->recv_lock);
 	spin_lock_init(&channel->intent_lock);
+	spin_lock_init(&channel->state_lock);
 	mutex_init(&channel->intent_req_lock);
 
 	channel->glink = glink;
@@ -246,6 +315,9 @@ static struct glink_channel *qcom_glink_alloc_channel(struct qcom_glink *glink,
 	init_completion(&channel->open_req);
 	init_completion(&channel->open_ack);
 	init_waitqueue_head(&channel->intent_req_wq);
+
+	channel->local_state = GLINK_CHANNEL_CLOSED;
+	channel->remote_opened = false;
 
 	INIT_LIST_HEAD(&channel->done_intents);
 	INIT_WORK(&channel->intent_work, qcom_glink_rx_done_work);
@@ -486,6 +558,16 @@ static int qcom_glink_send_open_req(struct qcom_glink *glink,
 	int ret;
 	unsigned long flags;
 
+	qcom_glink_channel_update_local_state(channel, GLINK_CHANNEL_OPENING);
+
+	/*
+	 * If the state transition was rejected (e.g. a concurrent destroy_ept
+	 * already moved the channel to CLOSING), bail out before allocating a
+	 * lcid or transmitting anything.
+	 */
+	if (channel->local_state != GLINK_CHANNEL_OPENING)
+		return -EINVAL;
+
 	kref_get(&channel->refcount);
 
 	spin_lock_irqsave(&glink->idr_lock, flags);
@@ -493,8 +575,10 @@ static int qcom_glink_send_open_req(struct qcom_glink *glink,
 			       RPM_GLINK_CID_MIN, RPM_GLINK_CID_MAX,
 			       GFP_ATOMIC);
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
-	if (ret < 0)
+	if (ret < 0) {
+		qcom_glink_channel_update_local_state(channel, GLINK_CHANNEL_CLOSED);
 		return ret;
+	}
 
 	channel->lcid = ret;
 
@@ -515,8 +599,9 @@ static int qcom_glink_send_open_req(struct qcom_glink *glink,
 remove_idr:
 	spin_lock_irqsave(&glink->idr_lock, flags);
 	idr_remove(&glink->lcids, channel->lcid);
-	channel->lcid = 0;
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
+	qcom_glink_channel_update_local_state(channel, GLINK_CHANNEL_CLOSED);
+	channel->lcid = 0;
 
 	return ret;
 }
@@ -525,6 +610,8 @@ static void qcom_glink_send_close_req(struct qcom_glink *glink,
 				      struct glink_channel *channel)
 {
 	struct glink_msg req;
+
+	qcom_glink_channel_update_local_state(channel, GLINK_CHANNEL_CLOSING);
 
 	req.cmd = cpu_to_le16(GLINK_CMD_CLOSE);
 	req.param1 = cpu_to_le16(channel->lcid);
@@ -1110,6 +1197,11 @@ static int qcom_glink_rx_open_ack(struct qcom_glink *glink, unsigned int lcid)
 		return -EINVAL;
 	}
 
+	if (channel->local_state != GLINK_CHANNEL_OPENING)
+		return -EINVAL;
+
+	qcom_glink_channel_update_local_state(channel, GLINK_CHANNEL_OPENED);
+
 	complete_all(&channel->open_ack);
 
 	return 0;
@@ -1270,7 +1362,26 @@ static struct glink_channel *qcom_glink_create_local(struct qcom_glink *glink,
 	return channel;
 
 err_timeout:
-	/* qcom_glink_send_open_req() did register the channel in lcids*/
+	if (channel->local_state == GLINK_CHANNEL_OPENED) {
+		/*
+		 * The remote already acknowledged our CMD_OPEN (open_ack
+		 * completed) so it believes the channel is open. Send
+		 * CMD_CLOSE now to cancel it; without this the remote keeps
+		 * the channel open and sees a duplicate open on the next
+		 * attempt, triggering a fatal assert.
+		 *
+		 * Leave the channel in lcids so rx_close_ack can clean it up.
+		 * Drop only the alloc ref here; rx_close_ack will drop the
+		 * send_open_req ref when it processes the close acknowledgment.
+		 */
+		qcom_glink_send_close_req(glink, channel);
+		kref_put(&channel->refcount, qcom_glink_channel_release);
+		return ERR_PTR(-ETIMEDOUT);
+	}
+
+	/* open_ack never arrived — remote has not acknowledged our CMD_OPEN,
+	 * so no close is needed. Remove from lcids and drop both refs.
+	 */
 	spin_lock_irqsave(&glink->idr_lock, flags);
 	idr_remove(&glink->lcids, channel->lcid);
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
@@ -1290,6 +1401,16 @@ static int qcom_glink_create_remote(struct qcom_glink *glink,
 {
 	int ret;
 
+	/*
+	 * Only proceed if the local side is cleanly CLOSED.  Any other state
+	 * means we are mid-teardown (CLOSING) or already in progress
+	 * (OPENING/OPENED) from a previous attempt.  Sending CMD_OPEN_ACK
+	 * before this check would spam the remote with spurious acks and risk
+	 * a duplicate-open assert.
+	 */
+	if (channel->local_state != GLINK_CHANNEL_CLOSED)
+		return -EINVAL;
+
 	qcom_glink_send_open_ack(glink, channel);
 
 	ret = qcom_glink_send_open_req(glink, channel);
@@ -1306,12 +1427,16 @@ static int qcom_glink_create_remote(struct qcom_glink *glink,
 
 close_link:
 	/*
-	 * Send a close request to "undo" our open-ack. The close-ack will
-	 * release qcom_glink_send_open_req() reference and the last reference
-	 * will be relesed after receiving remote_close or transport unregister
-	 * by calling qcom_glink_native_remove().
+	 * Send a close request to "undo" our open-ack. Only do this if
+	 * send_open_req() succeeded and the cmd_open actually went out
+	 * (channel is OPENING). If send_open_req() failed before
+	 * transmitting, lcid is 0 and sending close(lcid=0) is a protocol
+	 * violation that crashes the remote. If the channel is already
+	 * CLOSING (concurrent destroy_ept), a close is already in flight
+	 * — sending another one would cause a duplicate CMD_CLOSE.
 	 */
-	qcom_glink_send_close_req(glink, channel);
+	if (channel->local_state == GLINK_CHANNEL_OPENING)
+		qcom_glink_send_close_req(glink, channel);
 
 	return ret;
 }
@@ -1336,7 +1461,33 @@ static struct rpmsg_endpoint *qcom_glink_create_ept(struct rpmsg_device *rpdev,
 		if (!strcmp(channel->name, name))
 			break;
 	}
+	/*
+	 * Take a reference before dropping idr_lock. Without this, rx_close
+	 * can free the channel between the search and create_remote's
+	 * send_open_req, triggering a kref_get-on-zero use-after-free.
+	 */
+	if (channel)
+		kref_get(&channel->refcount);
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
+
+	/*
+	 * Guard against rx_close racing with this create_remote attempt.
+	 * rx_close sets remote_opened=false before its is_fully_closed
+	 * cleanup block, so checking it here (after taking the search kref)
+	 * catches the common case where the channel is already closing.
+	 * Proceed to create_local so the app retries when the channel
+	 * is re-opened by the remote.
+	 */
+	if (channel) {
+		spin_lock_irqsave(&channel->state_lock, flags);
+		if (!channel->remote_opened) {
+			spin_unlock_irqrestore(&channel->state_lock, flags);
+			kref_put(&channel->refcount, qcom_glink_channel_release);
+			channel = NULL;
+		} else {
+			spin_unlock_irqrestore(&channel->state_lock, flags);
+		}
+	}
 
 	if (!channel) {
 		channel = qcom_glink_create_local(glink, name);
@@ -1344,6 +1495,8 @@ static struct rpmsg_endpoint *qcom_glink_create_ept(struct rpmsg_device *rpdev,
 			return NULL;
 	} else {
 		ret = qcom_glink_create_remote(glink, channel);
+		/* Release the search reference taken above */
+		kref_put(&channel->refcount, qcom_glink_channel_release);
 		if (ret)
 			return NULL;
 	}
@@ -1421,7 +1574,9 @@ static void qcom_glink_destroy_ept(struct rpmsg_endpoint *ept)
 	/* Decouple the potential rpdev from the channel */
 	qcom_glink_remove_rpmsg_device(glink, channel);
 
-	qcom_glink_send_close_req(glink, channel);
+	if (channel->local_state == GLINK_CHANNEL_OPENED ||
+	    channel->local_state == GLINK_CHANNEL_OPENING)
+		qcom_glink_send_close_req(glink, channel);
 }
 
 static int qcom_glink_request_intent(struct qcom_glink *glink,
@@ -1634,6 +1789,7 @@ static int qcom_glink_rx_open(struct qcom_glink *glink, unsigned int rcid,
 			      char *name)
 {
 	struct glink_channel *channel;
+	struct glink_channel *found;
 	struct rpmsg_device *rpdev;
 	bool create_device = false;
 	struct device_node *node;
@@ -1646,7 +1802,36 @@ static int qcom_glink_rx_open(struct qcom_glink *glink, unsigned int rcid,
 		if (!strcmp(channel->name, name))
 			break;
 	}
+	/*
+	 * Take a reference before dropping idr_lock. Without this,
+	 * err_timeout (the OPENING path) can free the channel between the
+	 * idr_for_each_entry scan and the state_lock acquisition below,
+	 * causing a use-after-free on found->state_lock and inserting the
+	 * freed pointer into rcids — leading to a refcount underflow when
+	 * rx_close later calls kref_put on it.
+	 */
+	if (channel)
+		kref_get(&channel->refcount);
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
+	found = channel;
+
+	if (found) {
+		/*
+		 * Check local_state under state_lock to avoid a race with
+		 * err_timeout in create_local, which drops the alloc kref and
+		 * transitions state to CLOSING while holding state_lock. Reading
+		 * a stale OPENED state here leads to create_device=false and
+		 * update_remote_state(true), after which rx_close performs two
+		 * kref_puts against a kref of 1, causing a refcount underflow.
+		 */
+		spin_lock_irqsave(&found->state_lock, flags);
+		if (found->local_state == GLINK_CHANNEL_CLOSING ||
+		    found->local_state == GLINK_CHANNEL_CLOSED)
+			channel = NULL;
+		spin_unlock_irqrestore(&found->state_lock, flags);
+		/* Release the temporary search reference */
+		kref_put(&found->refcount, qcom_glink_channel_release);
+	}
 
 	if (!channel) {
 		channel = qcom_glink_alloc_channel(glink, name);
@@ -1656,6 +1841,8 @@ static int qcom_glink_rx_open(struct qcom_glink *glink, unsigned int rcid,
 		/* The opening dance was initiated by the remote */
 		create_device = true;
 	}
+
+	qcom_glink_channel_update_remote_state(channel, true);
 
 	trace_qcom_glink_cmd_open_rx(glink->label, name, channel->lcid, rcid);
 
@@ -1714,10 +1901,26 @@ free_channel:
 static void qcom_glink_rx_close(struct qcom_glink *glink, unsigned int rcid)
 {
 	struct glink_channel *channel;
+	struct glink_core_rx_intent *intent;
 	unsigned long flags;
+	bool is_fully_closed;
+	int iid;
 
 	spin_lock_irqsave(&glink->idr_lock, flags);
 	channel = idr_find(&glink->rcids, rcid);
+	/*
+	 * Remove from rcids immediately rather than at the end of this
+	 * function.  Between rx_close_ack removing the channel from lcids
+	 * (local_state → CLOSED) and this function removing it from rcids,
+	 * there is a window where create_ept finds the channel in rcids with
+	 * local_state=CLOSED and remote_opened=true.  create_remote then
+	 * calls send_open_req, which sees CLOSED→OPENING as a valid
+	 * transition, and starts a new session on the same channel struct
+	 * while it still holds stale remote intents from the previous
+	 * session.
+	 */
+	if (channel)
+		idr_remove(&glink->rcids, rcid);
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
 
 	trace_qcom_glink_cmd_close_rx(glink->label, channel ? channel->name : NULL,
@@ -1725,17 +1928,37 @@ static void qcom_glink_rx_close(struct qcom_glink *glink, unsigned int rcid)
 	if (WARN(!channel, "close request on unknown channel\n"))
 		return;
 
-	/* cancel pending rx_done work */
+	if (!channel->remote_opened)
+		return;
+
+	is_fully_closed = qcom_glink_channel_update_remote_state(channel, false);
+
+	/* cancel pending rx_done work before touching riids */
 	cancel_work_sync(&channel->intent_work);
+
+	/*
+	 * The remote frees its intent allocations when it closes the channel.
+	 * Clear riids now so that a channel struct reused for a new session
+	 * cannot send TX_DATA referencing these deallocated intents.  Doing
+	 * so causes the remote to assert lc_intent != NULL and crash.
+	 */
+	spin_lock_irqsave(&channel->intent_lock, flags);
+	idr_for_each_entry(&channel->riids, intent, iid) {
+		idr_remove(&channel->riids, iid);
+		kfree(intent);
+	}
+	spin_unlock_irqrestore(&channel->intent_lock, flags);
 
 	qcom_glink_remove_rpmsg_device(glink, channel);
 
 	qcom_glink_send_close_ack(glink, channel);
-
-	spin_lock_irqsave(&glink->idr_lock, flags);
-	idr_remove(&glink->rcids, channel->rcid);
 	channel->rcid = 0;
-	spin_unlock_irqrestore(&glink->idr_lock, flags);
+
+	if (is_fully_closed) {
+		reinit_completion(&channel->open_ack);
+		reinit_completion(&channel->open_req);
+		kref_put(&channel->refcount, qcom_glink_channel_release);
+	}
 
 	kref_put(&channel->refcount, qcom_glink_channel_release);
 }
@@ -1744,6 +1967,7 @@ static void qcom_glink_rx_close_ack(struct qcom_glink *glink, unsigned int lcid)
 {
 	struct glink_channel *channel;
 	unsigned long flags;
+	bool is_fully_closed;
 
 	/* To wakeup any blocking writers */
 	wake_up_all(&glink->tx_avail_notify);
@@ -1758,13 +1982,47 @@ static void qcom_glink_rx_close_ack(struct qcom_glink *glink, unsigned int lcid)
 		return;
 	}
 
+	if (channel->local_state != GLINK_CHANNEL_CLOSING) {
+		spin_unlock_irqrestore(&glink->idr_lock, flags);
+		return;
+	}
+
+	/*
+	 * Remove lcid unconditionally now.  Once CLOSE_ACK arrives this lcid
+	 * is retired; any new session will get a fresh lcid from
+	 * idr_alloc_cyclic.  Deferring removal to is_fully_closed was the
+	 * root cause: create_remote could overwrite channel->lcid with the
+	 * new session's id while the old slot still referenced the channel,
+	 * leaving a permanent stale entry that caused strcmp-on-freed-memory
+	 * crashes in rx_open's idr_for_each_entry loop.
+	 */
 	idr_remove(&glink->lcids, channel->lcid);
 	channel->lcid = 0;
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
 
+	is_fully_closed = qcom_glink_channel_update_local_state(channel, GLINK_CHANNEL_CLOSED);
+
 	/* Decouple the potential rpdev from the channel */
 	qcom_glink_remove_rpmsg_device(glink, channel);
 
+	if (is_fully_closed) {
+		spin_lock_irqsave(&glink->idr_lock, flags);
+		if (channel->rcid) {
+			idr_remove(&glink->rcids, channel->rcid);
+			channel->rcid = 0;
+		}
+		spin_unlock_irqrestore(&glink->idr_lock, flags);
+		reinit_completion(&channel->open_ack);
+		reinit_completion(&channel->open_req);
+	}
+
+	/*
+	 * Release the send_open_req reference.  Once CLOSE_ACK arrives our
+	 * CMD_CLOSE has been acknowledged; the local side of this session is
+	 * done regardless of whether the remote has closed yet.  rx_close()
+	 * holds the alloc reference and drops it inside the is_fully_closed
+	 * block once both sides are closed.
+	 */
 	kref_put(&channel->refcount, qcom_glink_channel_release);
 }
 
