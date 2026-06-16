@@ -23,6 +23,7 @@
 #include <uapi/misc/fastrpc.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/bits.h>
+#include <linux/bitops.h>
 #include <linux/compiler.h>
 #include <linux/iopoll.h>
 
@@ -39,6 +40,11 @@
 #define FASTRPC_CTX_MAX (256)
 #define FASTRPC_INIT_HANDLE	1
 #define FASTRPC_DSP_UTILITIES_HANDLE	2
+/*
+ * Maximum handle value for static handles.
+ * Static handles are pre-defined, fixed numeric values statically assigned
+ * in the IDL file or FastRPC framework.
+ */
 #define FASTRPC_MAX_STATIC_HANDLE (20)
 #define FASTRPC_CTXID_MASK GENMASK(15, 8)
 #define INIT_FILELEN_MAX (2 * 1024 * 1024)
@@ -107,7 +113,6 @@
 #define SENSORS_PD	(2)
 
 #define miscdev_to_fdevice(d) container_of(d, struct fastrpc_device, miscdev)
-
 /* Poll response number from remote processor for call completion */
 #define FASTRPC_POLL_RESPONSE (0xdecaf)
 
@@ -245,7 +250,7 @@ struct fastrpc_invoke_ctx {
 	u64 *fdlist;
 	u32 *crc;
 	/* Poll memory that DSP updates */
-	u32 *poll;
+	u32 *poll_addr;
 	u64 ctxid;
 	u64 msg_sz;
 	/* work done status flag */
@@ -279,6 +284,7 @@ struct fastrpc_soc_data {
 	u32 sid_pos;
 	u32 dma_addr_bits_cdsp;
 	u32 dma_addr_bits_default;
+	bool poll_mode_supported;
 };
 
 struct fastrpc_channel_ctx {
@@ -303,6 +309,7 @@ struct fastrpc_channel_ctx {
 	struct list_head invoke_interrupted_mmaps;
 	bool secure;
 	bool unsigned_support;
+	bool poll_mode_supported;
 	u64 dma_mask;
 	const struct fastrpc_soc_data *soc_data;
 };
@@ -1127,7 +1134,7 @@ static int fastrpc_get_args(u32 kernel, struct fastrpc_invoke_ctx *ctx)
 	list = fastrpc_invoke_buf_start(rpra, ctx->nscalars);
 	pages = fastrpc_phy_page_start(list, ctx->nscalars);
 	ctx->fdlist = (u64 *)(pages + ctx->nscalars);
-	ctx->poll = (u32 *)((uintptr_t)ctx->fdlist + sizeof(u64) * FASTRPC_MAX_FDLIST +
+	ctx->poll_addr = (u32 *)((uintptr_t)ctx->fdlist + sizeof(u64) * FASTRPC_MAX_FDLIST +
 			     sizeof(u32) * FASTRPC_MAX_CRCLIST);
 
 	args = (uintptr_t)ctx->buf->virt + metalen;
@@ -1232,6 +1239,7 @@ static int fastrpc_put_args(struct fastrpc_invoke_ctx *ctx,
 	union fastrpc_remote_arg *rpra = ctx->rpra;
 	struct fastrpc_user *fl = ctx->fl;
 	struct fastrpc_map *mmap = NULL;
+	u64 *fdlist = ctx->fdlist;
 	int i, inbufs;
 	int ret = 0;
 
@@ -1257,9 +1265,9 @@ static int fastrpc_put_args(struct fastrpc_invoke_ctx *ctx,
 cleanup_fdlist:
 	/* Clean up fdlist which is updated by DSP */
 	for (i = 0; i < FASTRPC_MAX_FDLIST; i++) {
-		if (!ctx->fdlist[i])
+		if (!fdlist[i])
 			break;
-		if (!fastrpc_map_lookup(fl, (int)ctx->fdlist[i], &mmap))
+		if (!fastrpc_map_lookup(fl, (int)fdlist[i], &mmap))
 			fastrpc_map_put(mmap);
 	}
 
@@ -1298,12 +1306,10 @@ static int fastrpc_invoke_send(struct fastrpc_session_ctx *sctx,
 
 }
 
-static inline u32 fastrpc_poll_op(void *p)
+static u32 fastrpc_read_poll_addr(struct fastrpc_invoke_ctx *ctx)
 {
-	struct fastrpc_invoke_ctx *ctx = p;
-
 	dma_rmb();
-	return READ_ONCE(*ctx->poll);
+	return READ_ONCE(*ctx->poll_addr);
 }
 
 static int poll_for_remote_response(struct fastrpc_invoke_ctx *ctx)
@@ -1312,15 +1318,18 @@ static int poll_for_remote_response(struct fastrpc_invoke_ctx *ctx)
 	int ret;
 
 	/*
-	 * Poll until DSP writes FASTRPC_POLL_RESPONSE into *ctx->poll
+	 * Poll until DSP writes FASTRPC_POLL_RESPONSE into *ctx->poll_addr
 	 * or until another path marks the work done.
 	 */
-	ret = read_poll_timeout_atomic(fastrpc_poll_op, val,
-				       (val == FASTRPC_POLL_RESPONSE) ||
-				       ctx->is_work_done, 1,
+	ret = read_poll_timeout_atomic(fastrpc_read_poll_addr, val,
+				       (val == FASTRPC_POLL_RESPONSE) || ctx->is_work_done, 1,
 				       FASTRPC_POLL_MAX_TIMEOUT_US, false, ctx);
 
 	if (!ret && val == FASTRPC_POLL_RESPONSE) {
+		/*
+		 * DSP writes FASTRPC_POLL_RESPONSE to signal successful
+		 * completion via the poll path.
+		 */
 		ctx->is_work_done = true;
 		ctx->retval = 0;
 	}
@@ -1351,20 +1360,15 @@ static int fastrpc_wait_for_completion(struct fastrpc_invoke_ctx *ctx,
 {
 	int err;
 
-	do {
-		if (ctx->is_polled) {
-			err = poll_for_remote_response(ctx);
-			/* If polling timed out, move to normal response mode */
-			if (err)
-				ctx->is_polled = false;
-		} else {
-			err = fastrpc_wait_for_response(ctx, kernel);
-			if (err)
-				return err;
-		}
-	} while (!ctx->is_work_done);
+	if (ctx->is_polled) {
+		err = poll_for_remote_response(ctx);
+		if (!err)
+			return 0;
+		/* If polling timed out or failed, move to normal response mode */
+		ctx->is_polled = false;
+	}
 
-	return err;
+	return fastrpc_wait_for_response(ctx, kernel);
 }
 
 static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
@@ -1406,21 +1410,13 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
 	 * Set message context as polled if the call is for a user PD
 	 * dynamic module and user has enabled poll mode.
 	 */
-	if (handle > FASTRPC_MAX_STATIC_HANDLE && fl->pd == USER_PD &&
-	    fl->poll_mode)
+	if (handle > FASTRPC_MAX_STATIC_HANDLE && fl->pd == USER_PD && fl->poll_mode)
 		ctx->is_polled = true;
 
 	err = fastrpc_wait_for_completion(ctx, kernel);
 
 	if (err)
 		goto bail;
-
-	if (!ctx->is_work_done) {
-		err = -ETIMEDOUT;
-		dev_dbg(fl->sctx->dev, "Invalid workdone state for handle 0x%x, sc 0x%x\n",
-			handle, sc);
-		goto bail;
-	}
 
 	/* make sure that all memory writes by DSP are seen by CPU */
 	dma_rmb();
@@ -1968,13 +1964,18 @@ static int fastrpc_set_option(struct fastrpc_user *fl, char __user *argp)
 			return -EINVAL;
 	}
 
-	if (opt.req != FASTRPC_POLL_MODE)
+	if (opt.request_id != FASTRPC_POLL_MODE)
 		return -EINVAL;
 
-	if (opt.value)
+	if (!fl->cctx->poll_mode_supported)
+		return -EOPNOTSUPP;
+
+	if (opt.value == FASTRPC_POLL_MODE_ENABLE)
 		fl->poll_mode = true;
-	else
+	else if (opt.value == FASTRPC_POLL_MODE_DISABLE)
 		fl->poll_mode = false;
+	else
+		return -EINVAL;
 
 	return 0;
 }
@@ -2507,12 +2508,36 @@ static const struct fastrpc_soc_data kaanapali_soc_data = {
 	.sid_pos = 56,
 	.dma_addr_bits_cdsp = 34,
 	.dma_addr_bits_default = 32,
+	.poll_mode_supported = true,
 };
 
 static const struct fastrpc_soc_data default_soc_data = {
 	.sid_pos = 32,
 	.dma_addr_bits_cdsp = 32,
 	.dma_addr_bits_default = 32,
+};
+
+/*
+ * Exception list for older platforms that use default_soc_data but whose
+ * DSP firmware supports FastRPC polling mode.
+ *
+ * NOTE: This list is intentionally closed.
+ * Do NOT add new platforms here. New SoCs must advertise polling mode
+ * support via their soc_data.
+ */
+
+static const struct of_device_id fastrpc_poll_supported_machines[] __maybe_unused = {
+	{ .compatible = "qcom,milos" },
+	{ .compatible = "qcom,qcs8300" },
+	{ .compatible = "qcom,sa8775p" },
+	{ .compatible = "qcom,sar2130p" },
+	{ .compatible = "qcom,sm8450" },
+	{ .compatible = "qcom,sm8550" },
+	{ .compatible = "qcom,sm8650" },
+	{ .compatible = "qcom,sm8750" },
+	{ .compatible = "qcom,x1e80100" },
+	{ .compatible = "qcom,x1p42100" },
+	{},
 };
 
 static int fastrpc_rpmsg_probe(struct rpmsg_device *rpdev)
@@ -2591,6 +2616,8 @@ static int fastrpc_rpmsg_probe(struct rpmsg_device *rpdev)
 	secure_dsp = !(of_property_read_bool(rdev->of_node, "qcom,non-secure-domain"));
 	data->secure = secure_dsp;
 	data->soc_data = soc_data;
+	data->poll_mode_supported = soc_data->poll_mode_supported ||
+		of_machine_get_match(fastrpc_poll_supported_machines);
 
 	switch (domain_id) {
 	case ADSP_DOMAIN_ID:
