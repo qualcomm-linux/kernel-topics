@@ -92,8 +92,9 @@ static int qce_handle_queue(struct qce_device *qce,
 	struct crypto_async_request *async_req, *backlog;
 	int ret = 0, err;
 
-	ret = pm_runtime_resume_and_get(qce->dev);
-	if (ret < 0)
+	ACQUIRE(pm_runtime_active_try, pm)(qce->dev);
+	ret = ACQUIRE_ERR(pm_runtime_active_auto_try, &pm);
+	if (ret)
 		return ret;
 
 	scoped_guard(mutex, &qce->lock) {
@@ -102,7 +103,7 @@ static int qce_handle_queue(struct qce_device *qce,
 
 		/* busy, do not dequeue request */
 		if (qce->req)
-			goto qce_suspend;
+			return ret;
 
 		backlog = crypto_get_backlog(&qce->queue);
 		async_req = crypto_dequeue_request(&qce->queue);
@@ -111,7 +112,7 @@ static int qce_handle_queue(struct qce_device *qce,
 	}
 
 	if (!async_req)
-		goto qce_suspend;
+		return ret;
 
 	if (backlog) {
 		scoped_guard(mutex, &qce->lock)
@@ -124,8 +125,6 @@ static int qce_handle_queue(struct qce_device *qce,
 		schedule_work(&qce->done_work);
 	}
 
-qce_suspend:
-	pm_runtime_put_autosuspend(qce->dev);
 	return ret;
 }
 
@@ -250,21 +249,22 @@ static int qce_crypto_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = pm_runtime_resume_and_get(dev);
+	ACQUIRE(pm_runtime_active_try, pm)(dev);
+	ret = ACQUIRE_ERR(pm_runtime_active_auto_try, &pm);
 	if (ret)
 		return ret;
 
 	ret = devm_qce_dma_request(qce);
 	if (ret)
-		goto err_pm;
+		return ret;
 
 	ret = qce_check_version(qce);
 	if (ret)
-		goto err_pm;
+		return ret;
 
 	ret = devm_mutex_init(qce->dev, &qce->lock);
 	if (ret)
-		goto err_pm;
+		return ret;
 
 	INIT_WORK(&qce->done_work, qce_req_done_work);
 	crypto_init_queue(&qce->queue, QCE_QUEUE_LENGTH);
@@ -274,7 +274,7 @@ static int qce_crypto_probe(struct platform_device *pdev)
 
 	ret = devm_qce_register_algs(qce);
 	if (ret)
-		goto err_pm;
+		return ret;
 
 	qce->dma_size = resource_size(res);
 	qce->base_dma = dma_map_resource(dev, res->start, qce->dma_size,
@@ -282,24 +282,19 @@ static int qce_crypto_probe(struct platform_device *pdev)
 	qce->base_phys = res->start;
 	ret = dma_mapping_error(dev, qce->base_dma);
 	if (ret)
-		goto err_pm;
+		return ret;
 
 	ret = devm_add_action_or_reset(qce->dev, qce_crypto_unmap_dma, qce);
 	if (ret)
-		goto err_pm;
+		return ret;	
 
 	/* Configure autosuspend after successful init */
 	pm_runtime_set_autosuspend_delay(dev, 100);
 	pm_runtime_use_autosuspend(dev);
 	pm_runtime_mark_last_busy(dev);
-	pm_runtime_put_autosuspend(dev);
 
 	return 0;
 
-err_pm:
-	pm_runtime_put(dev);
-
-	return ret;
 }
 
 static int __maybe_unused qce_runtime_suspend(struct device *dev)
@@ -308,7 +303,7 @@ static int __maybe_unused qce_runtime_suspend(struct device *dev)
 
 	icc_disable(qce->mem_path);
 
-	return 0;
+	return pm_clk_suspend(dev);
 }
 
 static int __maybe_unused qce_runtime_resume(struct device *dev)
@@ -316,7 +311,7 @@ static int __maybe_unused qce_runtime_resume(struct device *dev)
 	struct qce_device *qce = dev_get_drvdata(dev);
 	int ret = 0;
 
-	ret = icc_enable(qce->mem_path);
+	ret = pm_clk_resume(dev);
 	if (ret)
 		return ret;
 
@@ -327,7 +322,7 @@ static int __maybe_unused qce_runtime_resume(struct device *dev)
 	return 0;
 
 err_icc:
-	icc_disable(qce->mem_path);
+	pm_clk_suspend(dev);
 	return ret;
 }
 

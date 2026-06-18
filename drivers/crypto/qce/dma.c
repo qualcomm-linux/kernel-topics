@@ -41,16 +41,16 @@ void qce_clear_bam_transaction(struct qce_device *qce)
 	bam_txn->pre_bam_ce_idx = 0;
 }
 
-static int qce_do_submit_cmd_desc(struct qce_device *qce, unsigned long flags)
+static int qce_do_submit_cmd_desc(struct qce_device *qce, struct bam_desc_metadata *meta)
 {
 	struct qce_desc_info *qce_desc = qce->dma.bam_txn->desc;
 	struct qce_bam_transaction *bam_txn = qce->dma.bam_txn;
 	struct dma_async_tx_descriptor *dma_desc;
 	struct dma_chan *chan = qce->dma.rxchan;
-	unsigned long attrs = DMA_PREP_CMD | flags;
+	unsigned long attrs = DMA_PREP_CMD;
 	dma_cookie_t cookie;
 	unsigned int mapped;
-	int ret;
+	int ret = -ENOMEM;
 
 	mapped = dma_map_sg_attrs(qce->dev, bam_txn->wr_sgl, bam_txn->wr_sgl_cnt,
 				  DMA_TO_DEVICE, attrs);
@@ -59,9 +59,15 @@ static int qce_do_submit_cmd_desc(struct qce_device *qce, unsigned long flags)
 
 	dma_desc = dmaengine_prep_slave_sg(chan, bam_txn->wr_sgl, bam_txn->wr_sgl_cnt,
 					   DMA_MEM_TO_DEV, attrs);
-	if (!dma_desc) {
-		dma_unmap_sg(qce->dev, bam_txn->wr_sgl, bam_txn->wr_sgl_cnt, DMA_TO_DEVICE);
-		return -ENOMEM;
+	if (!dma_desc)
+		goto err_out;
+
+	if (meta) {
+		meta->chan = chan;
+
+		ret = dmaengine_desc_attach_metadata(dma_desc, meta, 0);
+		if (ret)
+			goto err_out;
 	}
 
 	qce_desc->dma_desc = dma_desc;
@@ -74,21 +80,29 @@ static int qce_do_submit_cmd_desc(struct qce_device *qce, unsigned long flags)
 	qce_dma_issue_pending(&qce->dma);
 
 	return 0;
+
+err_out:
+	dma_unmap_sg(qce->dev, bam_txn->wr_sgl, bam_txn->wr_sgl_cnt, DMA_TO_DEVICE);
+	return ret;
 }
 
 int qce_submit_cmd_desc(struct qce_device *qce)
 {
-	return qce_do_submit_cmd_desc(qce, 0);
+	return qce_do_submit_cmd_desc(qce, NULL);
 }
 
 int qce_submit_cmd_desc_lock(struct qce_device *qce)
 {
-	return qce_do_submit_cmd_desc(qce, DMA_PREP_LOCK);
+	struct bam_desc_metadata meta = { .op = BAM_META_CMD_LOCK, };
+
+	return qce_do_submit_cmd_desc(qce, &meta);
 }
 
 int qce_submit_cmd_desc_unlock(struct qce_device *qce)
 {
-	return qce_do_submit_cmd_desc(qce, DMA_PREP_UNLOCK);
+	struct bam_desc_metadata meta = { .op = BAM_META_CMD_UNLOCK };
+
+	return qce_do_submit_cmd_desc(qce, &meta);
 }
 
 static void qce_prep_dma_cmd_desc(struct qce_device *qce, struct qce_dma_data *dma,
@@ -133,7 +147,8 @@ int devm_qce_dma_request(struct qce_device *qce)
 
 	dma->rxchan = devm_dma_request_chan(dev, "rx");
 	if (IS_ERR(dma->rxchan))
-		return PTR_ERR(dma->rxchan);
+		return dev_err_probe(dev, PTR_ERR(dma->rxchan),
+				     "Failed to get RX DMA channel\n");
 
 	dma->result_buf = devm_kmalloc(dev, QCE_RESULT_BUF_SZ + QCE_IGNORE_BUF_SZ, GFP_KERNEL);
 	if (!dma->result_buf)

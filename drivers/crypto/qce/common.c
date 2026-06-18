@@ -597,7 +597,7 @@ int qce_bam_lock(struct qce_device *qce)
 {
 	qce_clear_bam_transaction(qce);
 	/* Dummy write to acquire the lock on the BAM pipe. */
-	qce_write(qce, REG_AUTH_SEG_CFG, 0);
+	qce_write(qce, REG_VERSION, 0);
 
 	return qce_submit_cmd_desc_lock(qce);
 }
@@ -606,7 +606,7 @@ int qce_bam_unlock(struct qce_device *qce)
 {
 	qce_clear_bam_transaction(qce);
 	/* Dummy write to release the lock on the BAM pipe. */
-	qce_write(qce, REG_AUTH_SEG_CFG, 0);
+	qce_write(qce, REG_VERSION, 0);
 
 	return qce_submit_cmd_desc_unlock(qce);
 }
