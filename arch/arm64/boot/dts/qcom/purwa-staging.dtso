@@ -2,7 +2,7 @@
 /*
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
- * Hamoa staging overlay - add staging-specific device tree modifications here.
+ * Purwa staging overlay - add staging-specific device tree modifications here.
  */
 
 /dts-v1/;
