@@ -41,6 +41,12 @@ enum lt9611_chip_type {
 	CHIP_LT9611UXD,
 };
 
+enum lt9611c_PORT_SELECT {
+	PORT_SELECT_A  = 0,
+	PORT_SELECT_B  = 1,
+	PORT_SELECT_AB = 2,
+};
+
 struct lt9611c {
 	struct device *dev;
 	struct i2c_client *client;
@@ -60,6 +66,8 @@ struct lt9611c {
 	enum lt9611_chip_type chip_type;
 	 /* HDMI cable connection status */
 	bool hdmi_connected;
+	/* Selected DSI port configuration */
+	int selected_port;
 };
 
 DECLARE_CRC8_TABLE(lt9611c_crc8_table);
@@ -97,7 +105,7 @@ static int lt9611c_read_write_flow(struct lt9611c *lt9611c, u8 *params,
 	regmap_write(lt9611c->regmap, 0xe0de, 0x01);
 
 	ret = regmap_read_poll_timeout(lt9611c->regmap, 0xe0ae, temp,
-				       temp == 0x01, 1000, 100 * 1000);
+				       temp == 0x01, 1000, 200 * 1000);
 	if (ret)
 		return -ETIMEDOUT;
 
@@ -107,12 +115,40 @@ static int lt9611c_read_write_flow(struct lt9611c *lt9611c, u8 *params,
 	regmap_write(lt9611c->regmap, 0xe0de, 0x02);
 
 	ret = regmap_read_poll_timeout(lt9611c->regmap, 0xe0ae, temp,
-				       temp == 0x02, 1000, 100 * 1000);
+				       temp == 0x02, 1000, 200 * 1000);
 	if (ret)
 		return -ETIMEDOUT;
 
 	return regmap_bulk_read(lt9611c->regmap, 0xe085, return_buffer,
 				return_count);
+}
+
+static int lt9611c_select_port(struct lt9611c *lt9611c, int port_select)
+{
+	int ret;
+	u8 set_port_select_cmd[6] = {0x57, 0x4d, 0x31, 0x3a, 0x01, 0xc0};
+	u8 set_port_select_ret[5];
+
+	if (port_select == PORT_SELECT_B) {
+		set_port_select_cmd[5] = 0x40;
+	} else if (port_select == PORT_SELECT_AB) {
+		set_port_select_cmd[4] = 0x02;
+		set_port_select_cmd[5] = 0xd0;
+	} else if (port_select != PORT_SELECT_A) {
+		return -EINVAL;
+	}
+
+	/* MCU must be running (0xe0ee=0x00) for lt9611c_read_write_flow */
+	guard(mutex)(&lt9611c->ocm_lock);
+
+	ret = lt9611c_read_write_flow(lt9611c, set_port_select_cmd,
+			ARRAY_SIZE(set_port_select_cmd),
+			set_port_select_ret,
+			ARRAY_SIZE(set_port_select_ret));
+	if (ret < 0 || set_port_select_ret[4] == 0)
+		return ret < 0 ? ret : -EIO;
+
+	return 0;
 }
 
 static void lt9611c_config_parameters(struct lt9611c *lt9611c)
@@ -622,7 +658,6 @@ static void lt9611c_bridge_atomic_pre_enable(struct drm_bridge *bridge,
 	ret = regulator_bulk_enable(ARRAY_SIZE(lt9611c->supplies), lt9611c->supplies);
 	if (ret)
 		dev_err(lt9611c->dev, "regulator bulk enable failed.\n");
-	lt9611c_reset(lt9611c);
 }
 
 static void lt9611c_bridge_atomic_enable(struct drm_bridge *bridge,
@@ -777,6 +812,17 @@ static int lt9611c_hdmi_clear_avi_infoframe(struct drm_bridge *bridge)
 	return 0;
 }
 
+static int lt9611c_hdmi_write_hdmi_infoframe(struct drm_bridge *bridge,
+					     const u8 *buffer, size_t len)
+{
+	return 0;
+}
+
+static int lt9611c_hdmi_clear_hdmi_infoframe(struct drm_bridge *bridge)
+{
+	return 0;
+}
+
 static int lt9611c_hdmi_write_audio_infoframe(struct drm_bridge *bridge,
 					      const u8 *buffer, size_t len)
 {
@@ -895,6 +941,8 @@ static const struct drm_bridge_funcs lt9611c_bridge_funcs = {
 	.hdmi_tmds_char_rate_valid = lt9611c_hdmi_tmds_char_rate_valid,
 	.hdmi_write_avi_infoframe = lt9611c_hdmi_write_avi_infoframe,
 	.hdmi_clear_avi_infoframe = lt9611c_hdmi_clear_avi_infoframe,
+	.hdmi_write_hdmi_infoframe = lt9611c_hdmi_write_hdmi_infoframe,
+	.hdmi_clear_hdmi_infoframe = lt9611c_hdmi_clear_hdmi_infoframe,
 	.hdmi_write_audio_infoframe = lt9611c_hdmi_write_audio_infoframe,
 	.hdmi_clear_audio_infoframe = lt9611c_hdmi_clear_audio_infoframe,
 
@@ -911,6 +959,10 @@ static int lt9611c_parse_dt(struct device *dev,
 		return dev_err_probe(dev, -ENODEV, "failed to get remote node for primary dsi\n");
 
 	lt9611c->dsi1_node = of_graph_get_remote_node(dev->of_node, 1, -1);
+
+	if (of_property_read_u32(dev->of_node, "lontium,port-select",
+				 &lt9611c->selected_port))
+		lt9611c->selected_port = 0;
 
 	return drm_of_find_panel_or_bridge(dev->of_node, 2, -1, NULL, &lt9611c->bridge.next_bridge);
 }
@@ -1025,6 +1077,13 @@ static int lt9611c_probe(struct i2c_client *client)
 	lt9611c->dev = dev;
 	lt9611c->client = client;
 	lt9611c->chip_type = id->driver_data;
+
+	if (dev->of_node) {
+		lt9611c->chip_type = (uintptr_t)of_device_get_match_data(dev);
+	} else {
+		lt9611c->chip_type = id->driver_data;
+	}
+
 	ret = devm_mutex_init(dev, &lt9611c->ocm_lock);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to init mutex\n");
@@ -1050,6 +1109,10 @@ static int lt9611c_probe(struct i2c_client *client)
 		goto err_of_put;
 
 	lt9611c_reset(lt9611c);
+
+	ret = lt9611c_select_port(lt9611c, lt9611c->selected_port);
+	if (ret < 0)
+		dev_err(lt9611c->dev, "failed to select port %d\n", lt9611c->selected_port);
 
 	lt9611c_lock(lt9611c);
 
@@ -1111,6 +1174,9 @@ retry:
 			DRM_BRIDGE_OP_HDMI_AUDIO;
 	lt9611c->bridge.type = DRM_MODE_CONNECTOR_HDMIA;
 
+	lt9611c->bridge.vendor = "Lontium";
+	lt9611c->bridge.product = "LT9611C";
+
 	lt9611c->bridge.hdmi_audio_dev = dev;
 	lt9611c->bridge.hdmi_audio_max_i2s_playback_channels = 8;
 	lt9611c->bridge.hdmi_audio_dai_port = 2;
@@ -1136,7 +1202,6 @@ retry:
 	lt9611c->hdmi_connected = false;
 	i2c_set_clientdata(client, lt9611c);
 	enable_irq(client->irq);
-	lt9611c_reset(lt9611c);
 
 	return 0;
 
@@ -1214,9 +1279,9 @@ static struct i2c_device_id lt9611c_id[] = {
 };
 
 static const struct of_device_id lt9611c_match_table[] = {
-	{ .compatible = "lontium,lt9611c" },
-	{ .compatible = "lontium,lt9611ex" },
-	{ .compatible = "lontium,lt9611uxd" },
+	{ .compatible = "lontium,lt9611c",   .data = (void *)CHIP_LT9611C   },
+	{ .compatible = "lontium,lt9611ex",  .data = (void *)CHIP_LT9611EX  },
+	{ .compatible = "lontium,lt9611uxd", .data = (void *)CHIP_LT9611UXD },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, lt9611c_match_table);
