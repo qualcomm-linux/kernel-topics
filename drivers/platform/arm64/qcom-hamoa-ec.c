@@ -9,6 +9,7 @@
 #include <linux/device.h>
 #include <linux/dev_printk.h>
 #include <linux/err.h>
+#include <linux/hwmon.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
@@ -81,6 +82,7 @@ struct qcom_ec {
 	struct qcom_ec_thermal_cap thermal_cap;
 	struct qcom_ec_version version;
 	struct i2c_client *client;
+	struct device *hwmon_dev;
 };
 
 static int qcom_ec_read(struct qcom_ec *ec, u8 cmd, u8 resp_len, u8 *resp)
@@ -326,6 +328,73 @@ static const struct thermal_cooling_device_ops qcom_ec_thermal_ops = {
 	.set_cur_state = qcom_ec_fan_set_cur_state,
 };
 
+static umode_t qcom_ec_hwmon_is_visible(const void *data,
+					enum hwmon_sensor_types type,
+					u32 attr, int channel)
+{
+	const struct qcom_ec *ec = data;
+
+	if (type != hwmon_pwm)
+		return 0;
+	if (channel >= ec->thermal_cap.fan_cnt)
+		return 0;
+
+	switch (attr) {
+	case hwmon_pwm_input:
+		return 0644;
+	default:
+		return 0;
+	}
+}
+
+static int qcom_ec_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+			      u32 attr, int channel, long *val)
+{
+	struct qcom_ec *ec = dev_get_drvdata(dev);
+
+	if (type != hwmon_pwm || attr != hwmon_pwm_input)
+		return -EOPNOTSUPP;
+	if (channel >= ec->thermal_cap.fan_cnt)
+		return -EINVAL;
+
+	/* Read back the cached PWM value — the EC has no read command. */
+	*val = ec->ec_cdev[channel].state;
+	return 0;
+}
+
+static int qcom_ec_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
+			       u32 attr, int channel, long val)
+{
+	struct qcom_ec *ec = dev_get_drvdata(dev);
+	struct thermal_cooling_device *cdev;
+
+	if (type != hwmon_pwm || attr != hwmon_pwm_input)
+		return -EOPNOTSUPP;
+	if (channel >= ec->thermal_cap.fan_cnt)
+		return -EINVAL;
+
+	val = clamp_val(val, 0, EC_FAN_MAX_PWM);
+	cdev = ec->ec_cdev[channel].cdev;
+
+	return cdev->ops->set_cur_state(cdev, val);
+}
+
+static const struct hwmon_ops qcom_ec_hwmon_ops = {
+	.is_visible = qcom_ec_hwmon_is_visible,
+	.read       = qcom_ec_hwmon_read,
+	.write      = qcom_ec_hwmon_write,
+};
+
+static const struct hwmon_channel_info *qcom_ec_hwmon_info[] = {
+	HWMON_CHANNEL_INFO(pwm, HWMON_PWM_INPUT, HWMON_PWM_INPUT),
+	NULL,
+};
+
+static const struct hwmon_chip_info qcom_ec_hwmon_chip_info = {
+	.ops  = &qcom_ec_hwmon_ops,
+	.info = qcom_ec_hwmon_info,
+};
+
 static int qcom_ec_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -398,6 +467,18 @@ static int qcom_ec_probe(struct i2c_client *client)
 					     "Failed to register fan%d cooling device\n", i);
 		}
 	}
+
+	/*
+	 * Register hwmon device exposing fan PWM set-points as pwm1/pwm2.
+	 * The EC has no RPM read command; the hwmon read returns the cached
+	 * last-written PWM value. Only as many channels as fans are active.
+	 */
+	ec->hwmon_dev = devm_hwmon_device_register_with_info(dev, "qcom_ec", ec,
+							     &qcom_ec_hwmon_chip_info,
+							     NULL);
+	if (IS_ERR(ec->hwmon_dev))
+		return dev_err_probe(dev, PTR_ERR(ec->hwmon_dev),
+				     "Failed to register hwmon device\n");
 
 	return 0;
 }

@@ -95,11 +95,17 @@ config EC_QCOM_HAMOA
 	depends on ARCH_QCOM || COMPILE_TEST
 	depends on I2C
 	depends on THERMAL || THERMAL=n
+	depends on HWMON || HWMON=n
 	help
 	  Say M or Y here to enable the Embedded Controller driver for Qualcomm
 	  Snapdragon-based Hamoa/Glymur reference devices. The driver handles fan
 	  control, temperature sensors, access to EC state changes and supports
 	  reporting suspend entry/exit to the EC.
+
+	  When HWMON is enabled the driver also exposes fan PWM set-points as
+	  pwm1/pwm2 under /sys/class/hwmon/hwmon*/. Note: the EC firmware does
+	  not provide an RPM read-back command; the pwmN read returns the cached
+	  last-written value.
 
 	  This driver currently supports Hamoa/Purwa/Glymur reference devices.
 
