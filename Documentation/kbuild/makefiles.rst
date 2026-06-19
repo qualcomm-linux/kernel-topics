@@ -291,6 +291,10 @@ Example::
   # arch/x86/kernel/Makefile
   extra-y	+= vmlinux.lds
 
+extra-y is now deprecated because this is equivalent to:
+
+  always-$(KBUILD_BUILTIN) += vmlinux.lds
+
 $(extra-y) should only contain targets needed for vmlinux.
 
 Kbuild skips extra-y when vmlinux is apparently not a final goal.
@@ -625,10 +629,10 @@ gcc-min-version
 
   Example::
 
-    cflags-$(call gcc-min-version, 70100) := -foo
+    cflags-$(call gcc-min-version, 110100) := -foo
 
   In this example, cflags-y will be assigned the value -foo if $(CC) is gcc and
-  $(CONFIG_GCC_VERSION) is >= 7.1.
+  $(CONFIG_GCC_VERSION) is >= 11.1.
 
 clang-min-version
   clang-min-version tests if the value of $(CONFIG_CLANG_VERSION) is greater
@@ -1260,7 +1264,7 @@ Add prerequisites to archheaders
 --------------------------------
 
 The archheaders: rule is used to generate header files that
-may be installed into user space by ``make header_install``.
+may be installed into user space by ``make headers_install``.
 
 It is run before ``make archprepare`` when run on the
 architecture itself.

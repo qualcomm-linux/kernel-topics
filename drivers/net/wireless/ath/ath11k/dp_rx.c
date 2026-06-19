@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 /*
  * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+#include <linux/fips.h>
 #include <linux/ieee80211.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
-#include <crypto/hash.h>
 #include "core.h"
 #include "debug.h"
 #include "debugfs_htt_stats.h"
@@ -308,7 +308,7 @@ static u8 *ath11k_dp_rxdesc_mpdu_start_addr2(struct ath11k_base *ab,
 
 static void ath11k_dp_service_mon_ring(struct timer_list *t)
 {
-	struct ath11k_base *ab = from_timer(ab, t, mon_reap_timer);
+	struct ath11k_base *ab = timer_container_of(ab, t, mon_reap_timer);
 	int i;
 
 	for (i = 0; i < ab->hw_params.num_rxdma_per_pdev; i++)
@@ -719,7 +719,7 @@ static void ath11k_dp_reo_cmd_free(struct ath11k_dp *dp, void *ctx,
 static void ath11k_dp_reo_cache_flush(struct ath11k_base *ab,
 				      struct dp_rx_tid *rx_tid)
 {
-	struct ath11k_hal_reo_cmd cmd = {0};
+	struct ath11k_hal_reo_cmd cmd = {};
 	unsigned long tot_desc_sz, desc_sz;
 	int ret;
 
@@ -772,7 +772,7 @@ static void ath11k_dp_rx_tid_del_func(struct ath11k_dp *dp, void *ctx,
 		return;
 	}
 
-	elem = kzalloc(sizeof(*elem), GFP_ATOMIC);
+	elem = kzalloc_obj(*elem, GFP_ATOMIC);
 	if (!elem)
 		goto free_desc;
 
@@ -811,7 +811,7 @@ free_desc:
 void ath11k_peer_rx_tid_delete(struct ath11k *ar,
 			       struct ath11k_peer *peer, u8 tid)
 {
-	struct ath11k_hal_reo_cmd cmd = {0};
+	struct ath11k_hal_reo_cmd cmd = {};
 	struct dp_rx_tid *rx_tid = &peer->rx_tid[tid];
 	int ret;
 
@@ -938,7 +938,7 @@ static int ath11k_peer_rx_tid_reo_update(struct ath11k *ar,
 					 u32 ba_win_sz, u16 ssn,
 					 bool update_ssn)
 {
-	struct ath11k_hal_reo_cmd cmd = {0};
+	struct ath11k_hal_reo_cmd cmd = {};
 	int ret;
 
 	cmd.addr_lo = lower_32_bits(rx_tid->paddr);
@@ -1110,9 +1110,8 @@ int ath11k_dp_rx_ampdu_stop(struct ath11k *ar,
 	struct ath11k_base *ab = ar->ab;
 	struct ath11k_peer *peer;
 	struct ath11k_sta *arsta = ath11k_sta_to_arsta(params->sta);
+	struct dp_rx_tid *rx_tid;
 	int vdev_id = arsta->arvif->vdev_id;
-	dma_addr_t paddr;
-	bool active;
 	int ret;
 
 	spin_lock_bh(&ab->base_lock);
@@ -1124,15 +1123,14 @@ int ath11k_dp_rx_ampdu_stop(struct ath11k *ar,
 		return -ENOENT;
 	}
 
-	paddr = peer->rx_tid[params->tid].paddr;
-	active = peer->rx_tid[params->tid].active;
+	rx_tid = &peer->rx_tid[params->tid];
 
-	if (!active) {
+	if (!rx_tid->active) {
 		spin_unlock_bh(&ab->base_lock);
 		return 0;
 	}
 
-	ret = ath11k_peer_rx_tid_reo_update(ar, peer, peer->rx_tid, 1, 0, false);
+	ret = ath11k_peer_rx_tid_reo_update(ar, peer, rx_tid, 1, 0, false);
 	spin_unlock_bh(&ab->base_lock);
 	if (ret) {
 		ath11k_warn(ab, "failed to update reo for rx tid %d: %d\n",
@@ -1141,7 +1139,8 @@ int ath11k_dp_rx_ampdu_stop(struct ath11k *ar,
 	}
 
 	ret = ath11k_wmi_peer_rx_reorder_queue_setup(ar, vdev_id,
-						     params->sta->addr, paddr,
+						     params->sta->addr,
+						     rx_tid->paddr,
 						     params->tid, 1, 1);
 	if (ret)
 		ath11k_warn(ab, "failed to send wmi to delete rx tid %d\n",
@@ -1157,7 +1156,7 @@ int ath11k_dp_peer_rx_pn_replay_config(struct ath11k_vif *arvif,
 {
 	struct ath11k *ar = arvif->ar;
 	struct ath11k_base *ab = ar->ab;
-	struct ath11k_hal_reo_cmd cmd = {0};
+	struct ath11k_hal_reo_cmd cmd = {};
 	struct ath11k_peer *peer;
 	struct dp_rx_tid *rx_tid;
 	u8 tid;
@@ -1542,7 +1541,7 @@ struct htt_ppdu_stats_info *ath11k_dp_htt_get_ppdu_desc(struct ath11k *ar,
 		}
 	}
 
-	ppdu_info = kzalloc(sizeof(*ppdu_info), GFP_ATOMIC);
+	ppdu_info = kzalloc_obj(*ppdu_info, GFP_ATOMIC);
 	if (!ppdu_info)
 		return NULL;
 
@@ -2591,7 +2590,7 @@ static void ath11k_dp_rx_process_received_packets(struct ath11k_base *ab,
 {
 	struct sk_buff *msdu;
 	struct ath11k *ar;
-	struct ieee80211_rx_status rx_status = {0};
+	struct ieee80211_rx_status rx_status = {};
 	int ret;
 
 	if (skb_queue_empty(msdu_list))
@@ -2626,7 +2625,7 @@ int ath11k_dp_process_rx(struct ath11k_base *ab, int ring_id,
 {
 	struct ath11k_dp *dp = &ab->dp;
 	struct dp_rxdma_ring *rx_ring;
-	int num_buffs_reaped[MAX_RADIOS] = {0};
+	int num_buffs_reaped[MAX_RADIOS] = {};
 	struct sk_buff_head msdu_list[MAX_RADIOS];
 	struct ath11k_skb_rxcb *rxcb;
 	int total_msdu_reaped = 0;
@@ -3167,7 +3166,8 @@ move_next:
 
 static void ath11k_dp_rx_frag_timer(struct timer_list *timer)
 {
-	struct dp_rx_tid *rx_tid = from_timer(rx_tid, timer, frag_timer);
+	struct dp_rx_tid *rx_tid = timer_container_of(rx_tid, timer,
+						      frag_timer);
 
 	spin_lock_bh(&rx_tid->ab->base_lock);
 	if (rx_tid->last_frag_no &&
@@ -3182,16 +3182,13 @@ static void ath11k_dp_rx_frag_timer(struct timer_list *timer)
 int ath11k_peer_rx_frag_setup(struct ath11k *ar, const u8 *peer_mac, int vdev_id)
 {
 	struct ath11k_base *ab = ar->ab;
-	struct crypto_shash *tfm;
 	struct ath11k_peer *peer;
 	struct dp_rx_tid *rx_tid;
 	int i;
 
-	tfm = crypto_alloc_shash("michael_mic", 0, 0);
-	if (IS_ERR(tfm)) {
-		ath11k_warn(ab, "failed to allocate michael_mic shash: %ld\n",
-			    PTR_ERR(tfm));
-		return PTR_ERR(tfm);
+	if (fips_enabled) {
+		ath11k_warn(ab, "This driver is disabled due to FIPS\n");
+		return -ENOENT;
 	}
 
 	spin_lock_bh(&ab->base_lock);
@@ -3200,7 +3197,6 @@ int ath11k_peer_rx_frag_setup(struct ath11k *ar, const u8 *peer_mac, int vdev_id
 	if (!peer) {
 		ath11k_warn(ab, "failed to find the peer to set up fragment info\n");
 		spin_unlock_bh(&ab->base_lock);
-		crypto_free_shash(tfm);
 		return -ENOENT;
 	}
 
@@ -3211,52 +3207,10 @@ int ath11k_peer_rx_frag_setup(struct ath11k *ar, const u8 *peer_mac, int vdev_id
 		skb_queue_head_init(&rx_tid->rx_frags);
 	}
 
-	peer->tfm_mmic = tfm;
 	peer->dp_setup_done = true;
 	spin_unlock_bh(&ab->base_lock);
 
 	return 0;
-}
-
-static int ath11k_dp_rx_h_michael_mic(struct crypto_shash *tfm, u8 *key,
-				      struct ieee80211_hdr *hdr, u8 *data,
-				      size_t data_len, u8 *mic)
-{
-	SHASH_DESC_ON_STACK(desc, tfm);
-	u8 mic_hdr[16] = {0};
-	u8 tid = 0;
-	int ret;
-
-	if (!tfm)
-		return -EINVAL;
-
-	desc->tfm = tfm;
-
-	ret = crypto_shash_setkey(tfm, key, 8);
-	if (ret)
-		goto out;
-
-	ret = crypto_shash_init(desc);
-	if (ret)
-		goto out;
-
-	/* TKIP MIC header */
-	memcpy(mic_hdr, ieee80211_get_DA(hdr), ETH_ALEN);
-	memcpy(mic_hdr + ETH_ALEN, ieee80211_get_SA(hdr), ETH_ALEN);
-	if (ieee80211_is_data_qos(hdr->frame_control))
-		tid = ieee80211_get_tid(hdr);
-	mic_hdr[12] = tid;
-
-	ret = crypto_shash_update(desc, mic_hdr, 16);
-	if (ret)
-		goto out;
-	ret = crypto_shash_update(desc, data, data_len);
-	if (ret)
-		goto out;
-	ret = crypto_shash_final(desc, mic);
-out:
-	shash_desc_zero(desc);
-	return ret;
 }
 
 static int ath11k_dp_rx_h_verify_tkip_mic(struct ath11k *ar, struct ath11k_peer *peer,
@@ -3267,7 +3221,7 @@ static int ath11k_dp_rx_h_verify_tkip_mic(struct ath11k *ar, struct ath11k_peer 
 	struct ieee80211_key_conf *key_conf;
 	struct ieee80211_hdr *hdr;
 	u8 mic[IEEE80211_CCMP_MIC_LEN];
-	int head_len, tail_len, ret;
+	int head_len, tail_len;
 	size_t data_len;
 	u32 hdr_len, hal_rx_desc_sz = ar->ab->hw_params.hal_desc_sz;
 	u8 *key, *data;
@@ -3293,8 +3247,8 @@ static int ath11k_dp_rx_h_verify_tkip_mic(struct ath11k *ar, struct ath11k_peer 
 	data_len = msdu->len - head_len - tail_len;
 	key = &key_conf->key[NL80211_TKIP_DATA_OFFSET_RX_MIC_KEY];
 
-	ret = ath11k_dp_rx_h_michael_mic(peer->tfm_mmic, key, hdr, data, data_len, mic);
-	if (ret || memcmp(mic, data + data_len, IEEE80211_CCMP_MIC_LEN))
+	michael_mic(key, hdr, data, data_len, mic);
+	if (memcmp(mic, data + data_len, IEEE80211_CCMP_MIC_LEN))
 		goto mic_fail;
 
 	return 0;
@@ -3817,7 +3771,7 @@ int ath11k_dp_process_rx_err(struct ath11k_base *ab, struct napi_struct *napi,
 	struct dp_link_desc_bank *link_desc_banks;
 	enum hal_rx_buf_return_buf_manager rbm;
 	int tot_n_bufs_reaped, quota, ret, i;
-	int n_bufs_reaped[MAX_RADIOS] = {0};
+	int n_bufs_reaped[MAX_RADIOS] = {};
 	struct dp_rxdma_ring *rx_ring;
 	struct dp_srng *reo_except;
 	u32 desc_bank, num_msdus;
@@ -4098,7 +4052,7 @@ static void ath11k_dp_rx_wbm_err(struct ath11k *ar,
 				 struct sk_buff_head *msdu_list)
 {
 	struct ath11k_skb_rxcb *rxcb = ATH11K_SKB_RXCB(msdu);
-	struct ieee80211_rx_status rxs = {0};
+	struct ieee80211_rx_status rxs = {};
 	bool drop = true;
 
 	switch (rxcb->err_rel_src) {
@@ -4134,7 +4088,7 @@ int ath11k_dp_rx_process_wbm_err(struct ath11k_base *ab,
 	struct ath11k_skb_rxcb *rxcb;
 	u32 *rx_desc;
 	int buf_id, mac_id;
-	int num_buffs_reaped[MAX_RADIOS] = {0};
+	int num_buffs_reaped[MAX_RADIOS] = {};
 	int total_num_buffs_reaped = 0;
 	int ret, i;
 
@@ -4614,7 +4568,6 @@ static void ath11k_hal_rx_msdu_list_get(struct ath11k *ar,
 			      msdu_details[i].buf_addr_info.info0) == 0) {
 			msdu_desc_info = &msdu_details[i - 1].rx_msdu_info;
 			msdu_desc_info->info0 |= last;
-			;
 			break;
 		}
 		msdu_desc_info = &msdu_details[i].rx_msdu_info;
@@ -5485,7 +5438,7 @@ static int ath11k_dp_rx_full_mon_prepare_mpdu(struct ath11k_dp *dp,
 					      struct sk_buff *head,
 					      struct sk_buff *tail)
 {
-	mon_mpdu = kzalloc(sizeof(*mon_mpdu), GFP_ATOMIC);
+	mon_mpdu = kzalloc_obj(*mon_mpdu, GFP_ATOMIC);
 	if (!mon_mpdu)
 		return -ENOMEM;
 

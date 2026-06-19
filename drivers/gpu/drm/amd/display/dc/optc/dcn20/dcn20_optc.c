@@ -181,6 +181,7 @@ void optc2_set_odm_bypass(struct timing_generator *optc,
 void optc2_set_odm_combine(struct timing_generator *optc, int *opp_id, int opp_cnt,
 		int segment_width, int last_segment_width)
 {
+	(void)last_segment_width;
 	struct optc *optc1 = DCN10TG_FROM_TG(optc);
 	uint32_t memory_mask;
 
@@ -261,6 +262,7 @@ static void optc2_align_vblanks(
 	uint8_t master_clock_divider,
 	uint8_t slave_clock_divider)
 {
+	(void)slave_clock_divider;
 	/* accessing slave OTG registers */
 	struct optc *optc1 = DCN10TG_FROM_TG(optc_slave);
 
@@ -502,7 +504,7 @@ void optc2_get_last_used_drr_vtotal(struct timing_generator *optc, uint32_t *ref
 	REG_GET(OTG_DRR_CONTROL, OTG_V_TOTAL_LAST_USED_BY_DRR, refresh_rate);
 }
 
-static struct timing_generator_funcs dcn20_tg_funcs = {
+static const struct timing_generator_funcs dcn20_tg_funcs = {
 		.validate_timing = optc1_validate_timing,
 		.program_timing = optc1_program_timing,
 		.setup_vertical_interrupt0 = optc1_setup_vertical_interrupt0,

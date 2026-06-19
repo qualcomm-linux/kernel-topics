@@ -136,12 +136,7 @@ static inline void mm_reset_untag_mask(struct mm_struct *mm)
 }
 #endif
 
-#define enter_lazy_tlb enter_lazy_tlb
-extern void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk);
-
-#define mm_init_global_asid mm_init_global_asid
 extern void mm_init_global_asid(struct mm_struct *mm);
-
 extern void mm_free_global_asid(struct mm_struct *mm);
 
 /*
@@ -190,7 +185,7 @@ extern void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
 #define activate_mm(prev, next)			\
 do {						\
 	paravirt_enter_mmap(next);		\
-	switch_mm((prev), (next), NULL);	\
+	switch_mm_irqs_off((prev), (next), NULL);	\
 } while (0);
 
 #ifdef CONFIG_X86_32
@@ -247,6 +242,16 @@ static inline bool is_64bit_mm(struct mm_struct *mm)
 }
 #endif
 
+static inline bool is_notrack_mm(struct mm_struct *mm)
+{
+	return test_bit(MM_CONTEXT_NOTRACK, &mm->context.flags);
+}
+
+static inline void set_notrack_mm(struct mm_struct *mm)
+{
+	set_bit(MM_CONTEXT_NOTRACK, &mm->context.flags);
+}
+
 /*
  * We only want to enforce protection keys on the current process
  * because we effectively have no access to PKRU for other
@@ -271,5 +276,8 @@ static inline bool arch_vma_access_permitted(struct vm_area_struct *vma,
 unsigned long __get_current_cr3_fast(void);
 
 #include <asm-generic/mmu_context.h>
+
+extern struct mm_struct *use_temporary_mm(struct mm_struct *temp_mm);
+extern void unuse_temporary_mm(struct mm_struct *prev_mm);
 
 #endif /* _ASM_X86_MMU_CONTEXT_H */

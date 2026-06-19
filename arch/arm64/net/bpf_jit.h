@@ -187,7 +187,9 @@
 /* Rn - imm12; set condition flags */
 #define A64_CMP_I(sf, Rn, imm12) A64_SUBS_I(sf, A64_ZR, Rn, imm12)
 /* Rd = Rn */
-#define A64_MOV(sf, Rd, Rn) A64_ADD_I(sf, Rd, Rn, 0)
+#define A64_MOV(sf, Rd, Rn) \
+	(((Rd) == A64_SP || (Rn) == A64_SP) ? A64_ADD_I(sf, Rd, Rn, 0) : \
+	 aarch64_insn_gen_move_reg(Rd, Rn, A64_VARIANT(sf)))
 
 /* Bitfield move */
 #define A64_BITFIELD(sf, Rd, Rn, immr, imms, type) \
@@ -324,5 +326,10 @@
 	aarch64_insn_gen_mrs(Rt, AARCH64_INSN_SYSREG_TPIDR_EL2)
 #define A64_MRS_SP_EL0(Rt) \
 	aarch64_insn_gen_mrs(Rt, AARCH64_INSN_SYSREG_SP_EL0)
+
+/* Barriers */
+#define A64_SB aarch64_insn_get_sb_value()
+#define A64_DSB_NSH (aarch64_insn_get_dsb_base_value() | 0x7 << 8)
+#define A64_ISB aarch64_insn_get_isb_value()
 
 #endif /* _BPF_JIT_H */

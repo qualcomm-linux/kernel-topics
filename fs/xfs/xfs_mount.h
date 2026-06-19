@@ -13,6 +13,7 @@ struct xfs_ail;
 struct xfs_quotainfo;
 struct xfs_da_geometry;
 struct xfs_perag;
+struct xfs_healthmon;
 
 /* dynamic preallocation free space thresholds, 5% down to 1% */
 enum {
@@ -119,6 +120,12 @@ struct xfs_groups {
 	 * SMR hard drives.
 	 */
 	xfs_fsblock_t		start_fsb;
+
+	/*
+	 * Maximum length of an atomic write for files stored in this
+	 * collection of allocation groups, in fsblocks.
+	 */
+	xfs_extlen_t		awu_max;
 };
 
 struct xfs_freecounter {
@@ -231,6 +238,9 @@ typedef struct xfs_mount {
 	unsigned int		m_max_open_zones;
 	unsigned int		m_zonegc_low_space;
 
+	/* max_atomic_write mount option value */
+	unsigned long long	m_awu_max_bytes;
+
 	/*
 	 * Bitsets of per-fs metadata that have been checked and/or are sick.
 	 * Callers must hold m_sb_lock to access these two fields.
@@ -333,6 +343,12 @@ typedef struct xfs_mount {
 
 	/* Hook to feed dirent updates to an active online repair. */
 	struct xfs_hooks	m_dir_update_hooks;
+
+	/* Private data referring to a health monitor object. */
+	struct xfs_healthmon __rcu	*m_healthmon;
+
+	/* Index of uuid record in the uuid xarray. */
+	unsigned int		m_uuid_table_index;
 } xfs_mount_t;
 
 #define M_IGEO(mp)		(&(mp)->m_ino_geo)
@@ -353,7 +369,6 @@ typedef struct xfs_mount {
 #define XFS_FEAT_EXTFLG		(1ULL << 7)	/* unwritten extents */
 #define XFS_FEAT_ASCIICI	(1ULL << 8)	/* ASCII only case-insens. */
 #define XFS_FEAT_LAZYSBCOUNT	(1ULL << 9)	/* Superblk counters */
-#define XFS_FEAT_ATTR2		(1ULL << 10)	/* dynamic attr fork */
 #define XFS_FEAT_PARENT		(1ULL << 11)	/* parent pointers */
 #define XFS_FEAT_PROJID32	(1ULL << 12)	/* 32 bit project id */
 #define XFS_FEAT_CRC		(1ULL << 13)	/* metadata CRCs */
@@ -376,7 +391,6 @@ typedef struct xfs_mount {
 
 /* Mount features */
 #define XFS_FEAT_NOLIFETIME	(1ULL << 47)	/* disable lifetime hints */
-#define XFS_FEAT_NOATTR2	(1ULL << 48)	/* disable attr2 creation */
 #define XFS_FEAT_NOALIGN	(1ULL << 49)	/* ignore alignment */
 #define XFS_FEAT_ALLOCSIZE	(1ULL << 50)	/* user specified allocation size */
 #define XFS_FEAT_LARGE_IOSIZE	(1ULL << 51)	/* report large preferred
@@ -386,7 +400,6 @@ typedef struct xfs_mount {
 #define XFS_FEAT_DISCARD	(1ULL << 54)	/* discard unused blocks */
 #define XFS_FEAT_GRPID		(1ULL << 55)	/* group-ID assigned from directory */
 #define XFS_FEAT_SMALL_INUMS	(1ULL << 56)	/* user wants 32bit inodes */
-#define XFS_FEAT_IKEEP		(1ULL << 57)	/* keep empty inode clusters*/
 #define XFS_FEAT_SWALLOC	(1ULL << 58)	/* stripe width allocation */
 #define XFS_FEAT_FILESTREAMS	(1ULL << 59)	/* use filestreams allocator */
 #define XFS_FEAT_DAX_ALWAYS	(1ULL << 60)	/* DAX always enabled */
@@ -464,6 +477,11 @@ static inline bool xfs_has_nonzoned(const struct xfs_mount *mp)
 	return !xfs_has_zoned(mp);
 }
 
+static inline bool xfs_can_sw_atomic_write(struct xfs_mount *mp)
+{
+	return xfs_has_reflink(mp);
+}
+
 /*
  * Some features are always on for v5 file systems, allow the compiler to
  * eliminiate dead code when building without v4 support.
@@ -489,11 +507,16 @@ __XFS_HAS_V4_FEAT(align, ALIGN)
 __XFS_HAS_V4_FEAT(logv2, LOGV2)
 __XFS_HAS_V4_FEAT(extflg, EXTFLG)
 __XFS_HAS_V4_FEAT(lazysbcount, LAZYSBCOUNT)
-__XFS_ADD_V4_FEAT(attr2, ATTR2)
 __XFS_ADD_V4_FEAT(projid32, PROJID32)
 __XFS_HAS_V4_FEAT(v3inodes, V3INODES)
 __XFS_HAS_V4_FEAT(crc, CRC)
 __XFS_HAS_V4_FEAT(pquotino, PQUOTINO)
+
+static inline void xfs_add_attr2(struct xfs_mount *mp)
+{
+	if (IS_ENABLED(CONFIG_XFS_SUPPORT_V4))
+		xfs_sb_version_addattr2(&mp->m_sb);
+}
 
 /*
  * Mount features
@@ -502,7 +525,6 @@ __XFS_HAS_V4_FEAT(pquotino, PQUOTINO)
  * bit inodes and read-only state, are kept as operational state rather than
  * features.
  */
-__XFS_HAS_FEAT(noattr2, NOATTR2)
 __XFS_HAS_FEAT(noalign, NOALIGN)
 __XFS_HAS_FEAT(allocsize, ALLOCSIZE)
 __XFS_HAS_FEAT(large_iosize, LARGE_IOSIZE)
@@ -511,7 +533,6 @@ __XFS_HAS_FEAT(dirsync, DIRSYNC)
 __XFS_HAS_FEAT(discard, DISCARD)
 __XFS_HAS_FEAT(grpid, GRPID)
 __XFS_HAS_FEAT(small_inums, SMALL_INUMS)
-__XFS_HAS_FEAT(ikeep, IKEEP)
 __XFS_HAS_FEAT(swalloc, SWALLOC)
 __XFS_HAS_FEAT(filestreams, FILESTREAMS)
 __XFS_HAS_FEAT(dax_always, DAX_ALWAYS)
@@ -543,10 +564,6 @@ __XFS_HAS_FEAT(nouuid, NOUUID)
  */
 #define XFS_OPSTATE_BLOCKGC_ENABLED	6
 
-/* Kernel has logged a warning about pNFS being used on this fs. */
-#define XFS_OPSTATE_WARNED_PNFS		7
-/* Kernel has logged a warning about online fsck being used on this fs. */
-#define XFS_OPSTATE_WARNED_SCRUB	8
 /* Kernel has logged a warning about shrink being used on this fs. */
 #define XFS_OPSTATE_WARNED_SHRINK	9
 /* Kernel has logged a warning about logged xattr updates being used. */
@@ -559,10 +576,6 @@ __XFS_HAS_FEAT(nouuid, NOUUID)
 #define XFS_OPSTATE_USE_LARP		13
 /* Kernel has logged a warning about blocksize > pagesize on this fs. */
 #define XFS_OPSTATE_WARNED_LBS		14
-/* Kernel has logged a warning about exchange-range being used on this fs. */
-#define XFS_OPSTATE_WARNED_EXCHRANGE	15
-/* Kernel has logged a warning about parent pointers being used on this fs. */
-#define XFS_OPSTATE_WARNED_PPTR		16
 /* Kernel has logged a warning about metadata dirs being used on this fs. */
 #define XFS_OPSTATE_WARNED_METADIR	17
 /* Filesystem should use qflags to determine quotaon status */
@@ -631,7 +644,6 @@ xfs_should_warn(struct xfs_mount *mp, long nr)
 	{ (1UL << XFS_OPSTATE_READONLY),		"read_only" }, \
 	{ (1UL << XFS_OPSTATE_INODEGC_ENABLED),		"inodegc" }, \
 	{ (1UL << XFS_OPSTATE_BLOCKGC_ENABLED),		"blockgc" }, \
-	{ (1UL << XFS_OPSTATE_WARNED_SCRUB),		"wscrub" }, \
 	{ (1UL << XFS_OPSTATE_WARNED_SHRINK),		"wshrink" }, \
 	{ (1UL << XFS_OPSTATE_WARNED_LARP),		"wlarp" }, \
 	{ (1UL << XFS_OPSTATE_QUOTACHECK_RUNNING),	"quotacheck" }, \
@@ -791,6 +803,26 @@ void xfs_mod_delalloc(struct xfs_inode *ip, int64_t data_delta,
 static inline void xfs_mod_sb_delalloc(struct xfs_mount *mp, int64_t delta)
 {
 	percpu_counter_add(&mp->m_delalloc_blks, delta);
+}
+
+int xfs_set_max_atomic_write_opt(struct xfs_mount *mp,
+		unsigned long long new_max_bytes);
+
+static inline struct xfs_buftarg *
+xfs_group_type_buftarg(
+	struct xfs_mount	*mp,
+	enum xfs_group_type	type)
+{
+	switch (type) {
+	case XG_TYPE_AG:
+		return mp->m_ddev_targp;
+	case XG_TYPE_RTG:
+		return mp->m_rtdev_targp;
+	default:
+		ASSERT(0);
+		break;
+	}
+	return NULL;
 }
 
 #endif	/* __XFS_MOUNT_H__ */

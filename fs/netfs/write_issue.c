@@ -118,12 +118,12 @@ struct netfs_io_request *netfs_create_write_req(struct address_space *mapping,
 	wreq->io_streams[0].prepare_write	= ictx->ops->prepare_write;
 	wreq->io_streams[0].issue_write		= ictx->ops->issue_write;
 	wreq->io_streams[0].collected_to	= start;
-	wreq->io_streams[0].transferred		= LONG_MAX;
+	wreq->io_streams[0].transferred		= 0;
 
 	wreq->io_streams[1].stream_nr		= 1;
 	wreq->io_streams[1].source		= NETFS_WRITE_TO_CACHE;
 	wreq->io_streams[1].collected_to	= start;
-	wreq->io_streams[1].transferred		= LONG_MAX;
+	wreq->io_streams[1].transferred		= 0;
 	if (fscache_resources_valid(&wreq->cache_resources)) {
 		wreq->io_streams[1].avail	= true;
 		wreq->io_streams[1].active	= true;
@@ -133,8 +133,7 @@ struct netfs_io_request *netfs_create_write_req(struct address_space *mapping,
 
 	return wreq;
 nomem:
-	wreq->error = -ENOMEM;
-	netfs_put_request(wreq, false, netfs_rreq_trace_put_failed);
+	netfs_put_failed_request(wreq);
 	return ERR_PTR(-ENOMEM);
 }
 
@@ -155,9 +154,9 @@ EXPORT_SYMBOL(netfs_prepare_write_failed);
  * Prepare a write subrequest.  We need to allocate a new subrequest
  * if we don't have one.
  */
-static void netfs_prepare_write(struct netfs_io_request *wreq,
-				struct netfs_io_stream *stream,
-				loff_t start)
+void netfs_prepare_write(struct netfs_io_request *wreq,
+			 struct netfs_io_stream *stream,
+			 loff_t start)
 {
 	struct netfs_io_subrequest *subreq;
 	struct iov_iter *wreq_iter = &wreq->buffer.iter;
@@ -207,9 +206,8 @@ static void netfs_prepare_write(struct netfs_io_request *wreq,
 	spin_lock(&wreq->lock);
 	list_add_tail(&subreq->rreq_link, &stream->subrequests);
 	if (list_is_first(&subreq->rreq_link, &stream->subrequests)) {
-		stream->front = subreq;
 		if (!stream->active) {
-			stream->collected_to = stream->front->start;
+			stream->collected_to = subreq->start;
 			/* Write list pointers before active flag */
 			smp_store_release(&stream->active, true);
 		}
@@ -233,7 +231,7 @@ static void netfs_do_issue_write(struct netfs_io_stream *stream,
 	_enter("R=%x[%x],%zx", wreq->debug_id, subreq->debug_index, subreq->len);
 
 	if (test_bit(NETFS_SREQ_FAILED, &subreq->flags))
-		return netfs_write_subrequest_terminated(subreq, subreq->error, false);
+		return netfs_write_subrequest_terminated(subreq, subreq->error);
 
 	trace_netfs_sreq(subreq, netfs_sreq_trace_submit);
 	stream->issue_write(subreq);
@@ -251,6 +249,7 @@ void netfs_reissue_write(struct netfs_io_stream *stream,
 	iov_iter_truncate(&subreq->io_iter, size);
 
 	subreq->retry_count++;
+	subreq->error = 0;
 	__clear_bit(NETFS_SREQ_MADE_PROGRESS, &subreq->flags);
 	__set_bit(NETFS_SREQ_IN_PROGRESS, &subreq->flags);
 	netfs_stat(&netfs_n_wh_retry_write_subreq);
@@ -542,7 +541,7 @@ static void netfs_end_issue_write(struct netfs_io_request *wreq)
 	}
 
 	if (needs_poke)
-		netfs_wake_write_collector(wreq, false);
+		netfs_wake_collector(wreq);
 }
 
 /*
@@ -576,6 +575,7 @@ int netfs_writepages(struct address_space *mapping,
 		goto couldnt_start;
 	}
 
+	__set_bit(NETFS_RREQ_OFFLOAD_COLLECTION, &wreq->flags);
 	trace_netfs_write(wreq, netfs_write_trace_writeback);
 	netfs_stat(&netfs_n_wh_writepages);
 
@@ -599,8 +599,9 @@ int netfs_writepages(struct address_space *mapping,
 	netfs_end_issue_write(wreq);
 
 	mutex_unlock(&ictx->wb_lock);
+	netfs_wake_collector(wreq);
 
-	netfs_put_request(wreq, false, netfs_rreq_trace_put_return);
+	netfs_put_request(wreq, netfs_rreq_trace_put_return);
 	_leave(" = %d", error);
 	return error;
 
@@ -673,11 +674,11 @@ int netfs_advance_writethrough(struct netfs_io_request *wreq, struct writeback_c
 /*
  * End a write operation used when writing through the pagecache.
  */
-int netfs_end_writethrough(struct netfs_io_request *wreq, struct writeback_control *wbc,
-			   struct folio *writethrough_cache)
+ssize_t netfs_end_writethrough(struct netfs_io_request *wreq, struct writeback_control *wbc,
+			       struct folio *writethrough_cache)
 {
 	struct netfs_inode *ictx = netfs_inode(wreq->inode);
-	int ret;
+	ssize_t ret;
 
 	_enter("R=%x", wreq->debug_id);
 
@@ -688,51 +689,12 @@ int netfs_end_writethrough(struct netfs_io_request *wreq, struct writeback_contr
 
 	mutex_unlock(&ictx->wb_lock);
 
-	if (wreq->iocb) {
+	if (wreq->iocb)
 		ret = -EIOCBQUEUED;
-	} else {
-		wait_on_bit(&wreq->flags, NETFS_RREQ_IN_PROGRESS, TASK_UNINTERRUPTIBLE);
-		ret = wreq->error;
-	}
-	netfs_put_request(wreq, false, netfs_rreq_trace_put_return);
+	else
+		ret = netfs_wait_for_write(wreq);
+	netfs_put_request(wreq, netfs_rreq_trace_put_return);
 	return ret;
-}
-
-/*
- * Write data to the server without going through the pagecache and without
- * writing it to the local cache.
- */
-int netfs_unbuffered_write(struct netfs_io_request *wreq, bool may_wait, size_t len)
-{
-	struct netfs_io_stream *upload = &wreq->io_streams[0];
-	ssize_t part;
-	loff_t start = wreq->start;
-	int error = 0;
-
-	_enter("%zx", len);
-
-	if (wreq->origin == NETFS_DIO_WRITE)
-		inode_dio_begin(wreq->inode);
-
-	while (len) {
-		// TODO: Prepare content encryption
-
-		_debug("unbuffered %zx", len);
-		part = netfs_advance_write(wreq, upload, start, len, false);
-		start += part;
-		len -= part;
-		rolling_buffer_advance(&wreq->buffer, part);
-		if (test_bit(NETFS_RREQ_PAUSE, &wreq->flags)) {
-			trace_netfs_rreq(wreq, netfs_rreq_trace_wait_pause);
-			wait_event(wreq->waitq, !test_bit(NETFS_RREQ_PAUSE, &wreq->flags));
-		}
-		if (test_bit(NETFS_RREQ_FAILED, &wreq->flags))
-			break;
-	}
-
-	netfs_end_issue_write(wreq);
-	_leave(" = %d", error);
-	return error;
 }
 
 /*
@@ -885,7 +847,8 @@ int netfs_writeback_single(struct address_space *mapping,
 		goto couldnt_start;
 	}
 
-	trace_netfs_write(wreq, netfs_write_trace_writeback);
+	__set_bit(NETFS_RREQ_OFFLOAD_COLLECTION, &wreq->flags);
+	trace_netfs_write(wreq, netfs_write_trace_writeback_single);
 	netfs_stat(&netfs_n_wh_writepages);
 
 	if (__test_and_set_bit(NETFS_RREQ_UPLOAD_TO_SERVER, &wreq->flags))
@@ -914,8 +877,9 @@ stop:
 	set_bit(NETFS_RREQ_ALL_QUEUED, &wreq->flags);
 
 	mutex_unlock(&ictx->wb_lock);
+	netfs_wake_collector(wreq);
 
-	netfs_put_request(wreq, false, netfs_rreq_trace_put_return);
+	netfs_put_request(wreq, netfs_rreq_trace_put_return);
 	_leave(" = %d", ret);
 	return ret;
 

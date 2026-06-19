@@ -279,6 +279,16 @@ nv50_dmac_create(struct nouveau_drm *drm,
 	if (syncbuf < 0)
 		return 0;
 
+	/* No CTXDMAs on Blackwell. */
+	if (disp->oclass >= GB202_DISP) {
+		/* "handle != NULL_HANDLE" is used to determine enable status
+		 * in a number of places, so fill in some fake object handles.
+		 */
+		dmac->sync.handle = NV50_DISP_HANDLE_SYNCBUF;
+		dmac->vram.handle = NV50_DISP_HANDLE_VRAM;
+		return 0;
+	}
+
 	ret = nvif_object_ctor(&dmac->base.user, "kmsSyncCtxDma", NV50_DISP_HANDLE_SYNCBUF,
 			       NV_DMA_IN_MEMORY,
 			       &(struct nv_dma_v0) {
@@ -775,10 +785,8 @@ nv50_hdmi_enable(struct drm_encoder *encoder, struct nouveau_crtc *nv_crtc,
 	union hdmi_infoframe infoframe = { 0 };
 	const u8 rekey = 56; /* binary driver, and tegra, constant */
 	u32 max_ac_packet;
-	struct {
-		struct nvif_outp_infoframe_v0 infoframe;
-		u8 data[17];
-	} args = { 0 };
+	DEFINE_RAW_FLEX(struct nvif_outp_infoframe_v0, args, data, 17);
+	const u8 data_len = __member_size(args->data);
 	int ret, size;
 
 	max_ac_packet  = mode->htotal - mode->hdisplay;
@@ -815,29 +823,29 @@ nv50_hdmi_enable(struct drm_encoder *encoder, struct nouveau_crtc *nv_crtc,
 		return;
 
 	/* AVI InfoFrame. */
-	args.infoframe.version = 0;
-	args.infoframe.head = nv_crtc->index;
+	args->version = 0;
+	args->head = nv_crtc->index;
 
 	if (!drm_hdmi_avi_infoframe_from_display_mode(&infoframe.avi, &nv_connector->base, mode)) {
 		drm_hdmi_avi_infoframe_quant_range(&infoframe.avi, &nv_connector->base, mode,
 						   HDMI_QUANTIZATION_RANGE_FULL);
 
-		size = hdmi_infoframe_pack(&infoframe, args.data, ARRAY_SIZE(args.data));
+		size = hdmi_infoframe_pack(&infoframe, args->data, data_len);
 	} else {
 		size = 0;
 	}
 
-	nvif_outp_infoframe(&nv_encoder->outp, NVIF_OUTP_INFOFRAME_V0_AVI, &args.infoframe, size);
+	nvif_outp_infoframe(&nv_encoder->outp, NVIF_OUTP_INFOFRAME_V0_AVI, args, size);
 
 	/* Vendor InfoFrame. */
-	memset(&args.data, 0, sizeof(args.data));
+	memset(args->data, 0, data_len);
 	if (!drm_hdmi_vendor_infoframe_from_display_mode(&infoframe.vendor.hdmi,
 							 &nv_connector->base, mode))
-		size = hdmi_infoframe_pack(&infoframe, args.data, ARRAY_SIZE(args.data));
+		size = hdmi_infoframe_pack(&infoframe, args->data, data_len);
 	else
 		size = 0;
 
-	nvif_outp_infoframe(&nv_encoder->outp, NVIF_OUTP_INFOFRAME_V0_VSI, &args.infoframe, size);
+	nvif_outp_infoframe(&nv_encoder->outp, NVIF_OUTP_INFOFRAME_V0_VSI, args, size);
 
 	nv_encoder->hdmi.enabled = true;
 }
@@ -1107,7 +1115,7 @@ nv50_msto_new(struct drm_device *dev, struct nv50_head *head, int id)
 	struct nv50_msto *msto;
 	int ret;
 
-	msto = kzalloc(sizeof(*msto), GFP_KERNEL);
+	msto = kzalloc_obj(*msto);
 	if (!msto)
 		return ERR_PTR(-ENOMEM);
 
@@ -1259,7 +1267,7 @@ nv50_mstc_new(struct nv50_mstm *mstm, struct drm_dp_mst_port *port,
 	struct nv50_mstc *mstc;
 	int ret;
 
-	if (!(mstc = *pmstc = kzalloc(sizeof(*mstc), GFP_KERNEL)))
+	if (!(mstc = *pmstc = kzalloc_obj(*mstc)))
 		return -ENOMEM;
 	mstc->mstm = mstm;
 	mstc->port = port;
@@ -1512,7 +1520,7 @@ nv50_mstm_new(struct nouveau_encoder *outp, struct drm_dp_aux *aux, int aux_max,
 	struct nv50_mstm *mstm;
 	int ret;
 
-	if (!(mstm = *pmstm = kzalloc(sizeof(*mstm), GFP_KERNEL)))
+	if (!(mstm = *pmstm = kzalloc_obj(*mstm)))
 		return -ENOMEM;
 	mstm->outp = outp;
 	mstm->mgr.cbs = &nv50_mstm;
@@ -1831,7 +1839,7 @@ nv50_sor_atomic_enable(struct drm_encoder *encoder, struct drm_atomic_state *sta
 		backlight = nv_connector->backlight;
 		if (backlight && backlight->uses_dpcd)
 			drm_edp_backlight_enable(&nv_connector->aux, &backlight->edp_info,
-						 (u16)backlight->dev->props.brightness);
+						 backlight->dev->props.brightness);
 #endif
 
 		break;
@@ -2488,7 +2496,7 @@ nv50_disp_outp_atomic_add(struct nv50_atom *atom, struct drm_encoder *encoder)
 			return outp;
 	}
 
-	outp = kzalloc(sizeof(*outp), GFP_KERNEL);
+	outp = kzalloc_obj(*outp);
 	if (!outp)
 		return ERR_PTR(-ENOMEM);
 
@@ -2635,7 +2643,7 @@ static struct drm_atomic_state *
 nv50_disp_atomic_state_alloc(struct drm_device *dev)
 {
 	struct nv50_atom *atom;
-	if (!(atom = kzalloc(sizeof(*atom), GFP_KERNEL)) ||
+	if (!(atom = kzalloc_obj(*atom)) ||
 	    drm_atomic_state_init(dev, &atom->state) < 0) {
 		kfree(atom);
 		return NULL;
@@ -2810,10 +2818,7 @@ nv50_display_destroy(struct drm_device *dev)
 	nvif_object_dtor(&disp->caps);
 	nv50_core_del(&disp->core);
 
-	nouveau_bo_unmap(disp->sync);
-	if (disp->sync)
-		nouveau_bo_unpin(disp->sync);
-	nouveau_bo_fini(disp->sync);
+	nouveau_bo_unpin_del(&disp->sync);
 
 	nouveau_display(dev)->priv = NULL;
 	kfree(disp);
@@ -2828,7 +2833,7 @@ nv50_display_create(struct drm_device *dev)
 	int ret, i;
 	bool has_mst = false;
 
-	disp = kzalloc(sizeof(*disp), GFP_KERNEL);
+	disp = kzalloc_obj(*disp);
 	if (!disp)
 		return -ENOMEM;
 
@@ -2845,20 +2850,7 @@ nv50_display_create(struct drm_device *dev)
 	dev->mode_config.normalize_zpos = true;
 
 	/* small shared memory area we use for notifiers and semaphores */
-	ret = nouveau_bo_new(&drm->client, 4096, 0x1000,
-			     NOUVEAU_GEM_DOMAIN_VRAM,
-			     0, 0x0000, NULL, NULL, &disp->sync);
-	if (!ret) {
-		ret = nouveau_bo_pin(disp->sync, NOUVEAU_GEM_DOMAIN_VRAM, true);
-		if (!ret) {
-			ret = nouveau_bo_map(disp->sync);
-			if (ret)
-				nouveau_bo_unpin(disp->sync);
-		}
-		if (ret)
-			nouveau_bo_fini(disp->sync);
-	}
-
+	ret = nouveau_bo_new_map(&drm->client, NOUVEAU_GEM_DOMAIN_VRAM, PAGE_SIZE, &disp->sync);
 	if (ret)
 		goto out;
 
@@ -2875,7 +2867,9 @@ nv50_display_create(struct drm_device *dev)
 	}
 
 	/* Assign the correct format modifiers */
-	if (disp->disp->object.oclass >= TU102_DISP)
+	if (disp->disp->object.oclass >= GB202_DISP)
+		nouveau_display(dev)->format_modifiers = wndwca7e_modifiers;
+	else if (disp->disp->object.oclass >= TU102_DISP)
 		nouveau_display(dev)->format_modifiers = wndwc57e_modifiers;
 	else
 	if (drm->client.device.info.family >= NV_DEVICE_INFO_V0_FERMI)
@@ -2906,7 +2900,7 @@ nv50_display_create(struct drm_device *dev)
 	for_each_set_bit(i, &disp->disp->outp_mask, sizeof(disp->disp->outp_mask) * 8) {
 		struct nouveau_encoder *outp;
 
-		outp = kzalloc(sizeof(*outp), GFP_KERNEL);
+		outp = kzalloc_obj(*outp);
 		if (!outp)
 			break;
 
@@ -2927,7 +2921,7 @@ nv50_display_create(struct drm_device *dev)
 		outp->base.base.possible_clones = 0;
 		outp->conn = nouveau_connector(connector);
 
-		outp->dcb = kzalloc(sizeof(*outp->dcb), GFP_KERNEL);
+		outp->dcb = kzalloc_obj(*outp->dcb);
 		if (!outp->dcb)
 			break;
 

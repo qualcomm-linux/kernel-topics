@@ -16,6 +16,7 @@
 / {
 	compatible = "apple,j293", "apple,t8103", "apple,arm-platform";
 	model = "Apple MacBook Pro (13-inch, M1, 2020)";
+	chassis-type = "laptop";
 
 	/*
 	 * All of those are used by the bootloader to pass calibration
@@ -44,6 +45,18 @@
 
 &wifi0 {
 	brcm,board-type = "apple,honshu";
+};
+
+/*
+ * Provide labels for the USB type C ports.
+ */
+
+&typec0 {
+	label = "USB-C Left-back";
+};
+
+&typec1 {
+	label = "USB-C Left-front";
 };
 
 &i2c2 {
@@ -77,6 +90,16 @@
 	};
 };
 
+/*
+ * The driver depends on boot loader initialized state which resets when this
+ * power-domain is powered off. This happens on suspend or when the driver is
+ * missing during boot. Mark the domain as always on until the driver can
+ * handle this.
+ */
+&ps_dispdfr_be {
+	apple,always-on;
+};
+
 &display_dfr {
 	status = "okay";
 };
@@ -90,6 +113,8 @@
 
 &displaydfr_mipi {
 	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
 
 	dfr_panel: panel@0 {
 		compatible = "apple,j293-summit", "apple,summit";

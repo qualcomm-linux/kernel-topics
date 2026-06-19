@@ -110,6 +110,9 @@ void hists__calc_col_len(struct hists *hists, struct hist_entry *h)
 	len = thread__comm_len(h->thread);
 	if (hists__new_col_len(hists, HISTC_COMM, len))
 		hists__set_col_len(hists, HISTC_THREAD, len + 8);
+	if (hists->hpp_list->comm_nodigit)
+		hists__new_col_len(hists, HISTC_COMM_NODIGIT,
+				   (u16) sort__comm_nodigit_len(h));
 
 	if (h->ms.map) {
 		len = dso__name_len(map__dso(h->ms.map));
@@ -251,7 +254,7 @@ void hists__calc_col_len(struct hists *hists, struct hist_entry *h)
 
 	if (h->cgroup) {
 		const char *cgrp_name = "unknown";
-		struct cgroup *cgrp = cgroup__find(maps__machine(h->ms.maps)->env,
+		struct cgroup *cgrp = cgroup__find(maps__machine(thread__maps(h->ms.thread))->env,
 						   h->cgroup);
 		if (cgrp != NULL)
 			cgrp_name = cgrp->name;
@@ -336,6 +339,69 @@ static void he_stat__decay(struct he_stat *he_stat)
 	he_stat->latency = (he_stat->latency * 7) / 8;
 }
 
+static int hists__update_mem_stat(struct hists *hists, struct hist_entry *he,
+				  struct mem_info *mi, u64 period)
+{
+	if (hists->nr_mem_stats == 0)
+		return 0;
+
+	if (he->mem_stat == NULL) {
+		he->mem_stat = calloc(hists->nr_mem_stats, sizeof(*he->mem_stat));
+		if (he->mem_stat == NULL)
+			return -1;
+	}
+
+	for (int i = 0; i < hists->nr_mem_stats; i++) {
+		int idx = mem_stat_index(hists->mem_stat_types[i],
+					 mem_info__const_data_src(mi)->val);
+
+		assert(0 <= idx && idx < MEM_STAT_LEN);
+		he->mem_stat[i].entries[idx] += period;
+		hists->mem_stat_total[i].entries[idx] += period;
+	}
+	return 0;
+}
+
+static void hists__add_mem_stat(struct hists *hists, struct hist_entry *dst,
+				struct hist_entry *src)
+{
+	if (hists->nr_mem_stats == 0)
+		return;
+
+	for (int i = 0; i < hists->nr_mem_stats; i++) {
+		for (int k = 0; k < MEM_STAT_LEN; k++)
+			dst->mem_stat[i].entries[k] += src->mem_stat[i].entries[k];
+	}
+}
+
+static int hists__clone_mem_stat(struct hists *hists, struct hist_entry *dst,
+				  struct hist_entry *src)
+{
+	if (hists->nr_mem_stats == 0)
+		return 0;
+
+	dst->mem_stat = calloc(hists->nr_mem_stats, sizeof(*dst->mem_stat));
+	if (dst->mem_stat == NULL)
+		return -1;
+
+	for (int i = 0; i < hists->nr_mem_stats; i++) {
+		for (int k = 0; k < MEM_STAT_LEN; k++)
+			dst->mem_stat[i].entries[k] = src->mem_stat[i].entries[k];
+	}
+	return 0;
+}
+
+static void hists__decay_mem_stat(struct hists *hists, struct hist_entry *he)
+{
+	if (hists->nr_mem_stats == 0)
+		return;
+
+	for (int i = 0; i < hists->nr_mem_stats; i++) {
+		for (int k = 0; k < MEM_STAT_LEN; k++)
+			he->mem_stat[i].entries[k] = (he->mem_stat[i].entries[k] * 7) / 8;
+	}
+}
+
 static void hists__delete_entry(struct hists *hists, struct hist_entry *he);
 
 static bool hists__decay_entry(struct hists *hists, struct hist_entry *he)
@@ -350,6 +416,7 @@ static bool hists__decay_entry(struct hists *hists, struct hist_entry *he)
 	if (symbol_conf.cumulate_callchain)
 		he_stat__decay(he->stat_acc);
 	decay_callchain(he->callchain);
+	hists__decay_mem_stat(hists, he);
 
 	if (!he->depth) {
 		u64 period_diff = prev_period - he->stat.period;
@@ -472,7 +539,7 @@ static int hist_entry__init(struct hist_entry *he,
 			memset(&he->stat, 0, sizeof(he->stat));
 	}
 
-	he->ms.maps = maps__get(he->ms.maps);
+	he->ms.thread = thread__get(he->ms.thread);
 	he->ms.map = map__get(he->ms.map);
 
 	if (he->branch_info) {
@@ -488,9 +555,9 @@ static int hist_entry__init(struct hist_entry *he,
 		memcpy(he->branch_info, template->branch_info,
 		       sizeof(*he->branch_info));
 
-		he->branch_info->from.ms.maps = maps__get(he->branch_info->from.ms.maps);
+		he->branch_info->from.ms.thread = thread__get(he->branch_info->from.ms.thread);
 		he->branch_info->from.ms.map = map__get(he->branch_info->from.ms.map);
-		he->branch_info->to.ms.maps = maps__get(he->branch_info->to.ms.maps);
+		he->branch_info->to.ms.thread = thread__get(he->branch_info->to.ms.thread);
 		he->branch_info->to.ms.map = map__get(he->branch_info->to.ms.map);
 	}
 
@@ -544,10 +611,8 @@ err_infos:
 		map_symbol__exit(&he->branch_info->to.ms);
 		zfree(&he->branch_info);
 	}
-	if (he->mem_info) {
-		map_symbol__exit(&mem_info__iaddr(he->mem_info)->ms);
-		map_symbol__exit(&mem_info__daddr(he->mem_info)->ms);
-	}
+	if (he->mem_info)
+		mem_info__zput(he->mem_info);
 err:
 	map_symbol__exit(&he->ms);
 	zfree(&he->stat_acc);
@@ -693,6 +758,10 @@ out:
 		he_stat__add_cpumode_period(&he->stat, al->cpumode, period);
 	if (symbol_conf.cumulate_callchain)
 		he_stat__add_cpumode_period(he->stat_acc, al->cpumode, period);
+	if (hists__update_mem_stat(hists, he, entry->mem_info, period) < 0) {
+		hist_entry__delete(he);
+		return NULL;
+	}
 	return he;
 }
 
@@ -744,7 +813,7 @@ __hists__add_entry(struct hists *hists,
 		},
 		.cgroup = sample->cgroup,
 		.ms = {
-			.maps	= al->maps,
+			.thread	= al->thread,
 			.map	= al->map,
 			.sym	= al->sym,
 		},
@@ -761,7 +830,7 @@ __hists__add_entry(struct hists *hists,
 			.period	= sample->period,
 			.weight1 = sample->weight,
 			.weight2 = sample->ins_lat,
-			.weight3 = sample->p_stage_cyc,
+			.weight3 = sample->weight3,
 			.latency = al->latency,
 		},
 		.parent = sym_parent,
@@ -778,7 +847,7 @@ __hists__add_entry(struct hists *hists,
 		.time = hist_time(sample->time),
 		.weight = sample->weight,
 		.ins_lat = sample->ins_lat,
-		.p_stage_cyc = sample->p_stage_cyc,
+		.weight3 = sample->weight3,
 		.simd_flags = sample->simd_flags,
 	}, *he = hists__findnew_entry(hists, &entry, al, sample_self);
 
@@ -824,7 +893,7 @@ struct hist_entry *hists__add_entry_block(struct hists *hists,
 		.block_info = block_info,
 		.hists = hists,
 		.ms = {
-			.maps = al->maps,
+			.thread = al->thread,
 			.map = al->map,
 			.sym = al->sym,
 		},
@@ -954,8 +1023,8 @@ iter_next_branch_entry(struct hist_entry_iter *iter, struct addr_location *al)
 	if (iter->curr >= iter->total)
 		return 0;
 
-	maps__put(al->maps);
-	al->maps = maps__get(bi[i].to.ms.maps);
+	thread__put(al->thread);
+	al->thread = thread__get(bi[i].to.ms.thread);
 	map__put(al->map);
 	al->map = map__get(bi[i].to.ms.map);
 	al->sym = bi[i].to.ms.sym;
@@ -1082,7 +1151,7 @@ iter_prepare_cumulative_entry(struct hist_entry_iter *iter,
 	 * cumulated only one time to prevent entries more than 100%
 	 * overhead.
 	 */
-	he_cache = malloc(sizeof(*he_cache) * (cursor->nr + 1));
+	he_cache = calloc(cursor->nr + 1, sizeof(*he_cache));
 	if (he_cache == NULL)
 		return -ENOMEM;
 
@@ -1166,7 +1235,7 @@ iter_add_next_cumulative_entry(struct hist_entry_iter *iter,
 		.comm = thread__comm(al->thread),
 		.ip = al->addr,
 		.ms = {
-			.maps = al->maps,
+			.thread = al->thread,
 			.map = al->map,
 			.sym = al->sym,
 		},
@@ -1423,6 +1492,7 @@ void hist_entry__delete(struct hist_entry *he)
 	free_callchain(he->callchain);
 	zfree(&he->trace_output);
 	zfree(&he->raw_data);
+	zfree(&he->mem_stat);
 	ops->free(he);
 }
 
@@ -1572,6 +1642,7 @@ static struct hist_entry *hierarchy_insert_entry(struct hists *hists,
 		cmp = hist_entry__collapse_hierarchy(hpp_list, iter, he);
 		if (!cmp) {
 			he_stat__add_stat(&iter->stat, &he->stat);
+			hists__add_mem_stat(hists, iter, he);
 			return iter;
 		}
 
@@ -1611,6 +1682,11 @@ static struct hist_entry *hierarchy_insert_entry(struct hists *hists,
 			he->srcfile = NULL;
 		else
 			new->srcfile = NULL;
+	}
+
+	if (hists__clone_mem_stat(hists, new, he) < 0) {
+		hist_entry__delete(new);
+		return NULL;
 	}
 
 	rb_link_node(&new->rb_node_in, parent, p);
@@ -1695,6 +1771,7 @@ static int hists__collapse_insert_entry(struct hists *hists,
 			he_stat__add_stat(&iter->stat, &he->stat);
 			if (symbol_conf.cumulate_callchain)
 				he_stat__add_stat(iter->stat_acc, he->stat_acc);
+			hists__add_mem_stat(hists, iter, he);
 
 			if (hist_entry__has_callchains(he) && symbol_conf.use_callchain) {
 				struct callchain_cursor *cursor = get_tls_callchain_cursor();
@@ -2978,6 +3055,8 @@ static void hists_evsel__exit(struct evsel *evsel)
 	struct perf_hpp_list_node *node, *tmp;
 
 	hists__delete_all_entries(hists);
+	zfree(&hists->mem_stat_types);
+	zfree(&hists->mem_stat_total);
 
 	list_for_each_entry_safe(node, tmp, &hists->hpp_formats, list) {
 		perf_hpp_list__for_each_format_safe(&node->hpp, fmt, pos) {

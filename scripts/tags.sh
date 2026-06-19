@@ -221,6 +221,7 @@ regex_c=(
 	'/^\<DEFINE_GUARD_COND(\([[:alnum:]_]\+\),[[:space:]]*\([[:alnum:]_]\+\)/class_\1\2/'
 	'/^\<DEFINE_LOCK_GUARD_[[:digit:]](\([[:alnum:]_]\+\)/class_\1/'
 	'/^\<DEFINE_LOCK_GUARD_[[:digit:]]_COND(\([[:alnum:]_]\+\),[[:space:]]*\([[:alnum:]_]\+\)/class_\1\2/'
+	'/^context_lock_struct(\([^,)]*\)[^)]*)/struct \1/'
 )
 regex_kconfig=(
 	'/^[[:blank:]]*\(menu\|\)config[[:blank:]]\+\([[:alnum:]_]\+\)/\2/'
@@ -344,7 +345,7 @@ case "$1" in
 
 	"tags")
 		rm -f tags
-		xtags ctags
+		xtags ${CTAGS:-ctags}
 		remove_structs=y
 		;;
 

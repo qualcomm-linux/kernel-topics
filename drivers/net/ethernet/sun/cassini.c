@@ -465,7 +465,7 @@ static cas_page_t *cas_page_alloc(struct cas *cp, const gfp_t flags)
 {
 	cas_page_t *page;
 
-	page = kmalloc(sizeof(cas_page_t), flags);
+	page = kmalloc_obj(cas_page_t, flags);
 	if (!page)
 		return NULL;
 
@@ -4021,7 +4021,7 @@ done:
 
 static void cas_link_timer(struct timer_list *t)
 {
-	struct cas *cp = from_timer(cp, t, link_timer);
+	struct cas *cp = timer_container_of(cp, t, link_timer);
 	int mask, pending = 0, reset = 0;
 	unsigned long flags;
 

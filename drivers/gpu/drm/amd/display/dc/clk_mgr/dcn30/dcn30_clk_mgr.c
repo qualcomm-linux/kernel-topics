@@ -30,6 +30,7 @@
 #include "dce100/dce_clk_mgr.h"
 #include "dcn30/dcn30_clk_mgr.h"
 #include "dml/dcn30/dcn30_fpu.h"
+#include "dcn30/dcn30m_clk_mgr.h"
 #include "reg_helper.h"
 #include "core_types.h"
 #include "dm_helpers.h"
@@ -420,10 +421,8 @@ static void dcn3_get_memclk_states_from_smu(struct clk_mgr *clk_mgr_base)
 	clk_mgr_base->bw_params->dc_mode_softmax_memclk = dcn30_smu_get_dc_mode_max_dpm_freq(clk_mgr, PPCLK_UCLK);
 
 	/* Refresh bounding box */
-	DC_FP_START();
 	clk_mgr_base->ctx->dc->res_pool->funcs->update_bw_bounding_box(
 			clk_mgr->base.ctx->dc, clk_mgr_base->bw_params);
-	DC_FP_END();
 }
 
 static bool dcn3_is_smu_present(struct clk_mgr *clk_mgr_base)
@@ -498,7 +497,8 @@ static struct clk_mgr_funcs dcn3_funcs = {
 		.are_clock_states_equal = dcn3_are_clock_states_equal,
 		.enable_pme_wa = dcn3_enable_pme_wa,
 		.notify_link_rate_change = dcn30_notify_link_rate_change,
-		.is_smu_present = dcn3_is_smu_present
+		.is_smu_present = dcn3_is_smu_present,
+		.set_smartmux_switch = dcn30m_set_smartmux_switch
 };
 
 static void dcn3_init_clocks_fpga(struct clk_mgr *clk_mgr)
@@ -521,6 +521,7 @@ void dcn3_clk_mgr_construct(
 		struct pp_smu_funcs *pp_smu,
 		struct dccg *dccg)
 {
+	(void)pp_smu;
 	struct clk_state_registers_and_bypass s = { 0 };
 
 	clk_mgr->base.ctx = ctx;
@@ -545,6 +546,7 @@ void dcn3_clk_mgr_construct(
 	/* in case we don't get a value from the register, use default */
 	if (clk_mgr->base.dentist_vco_freq_khz == 0)
 		clk_mgr->base.dentist_vco_freq_khz = 3650000;
+
 	/* Convert dprefclk units from MHz to KHz */
 	/* Value already divided by 10, some resolution lost */
 
@@ -559,7 +561,7 @@ void dcn3_clk_mgr_construct(
 
 	dce_clock_read_ss_info(clk_mgr);
 
-	clk_mgr->base.bw_params = kzalloc(sizeof(*clk_mgr->base.bw_params), GFP_KERNEL);
+	clk_mgr->base.bw_params = kzalloc_obj(*clk_mgr->base.bw_params);
 	if (!clk_mgr->base.bw_params) {
 		BREAK_TO_DEBUGGER();
 		return;

@@ -3,7 +3,7 @@
  * Copyright (c) 2000-2005 Silicon Graphics, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -41,19 +41,39 @@
 #include "xfs_rtrefcount_btree.h"
 #include "scrub/stats.h"
 #include "xfs_zone_alloc.h"
+#include "xfs_healthmon.h"
 
 static DEFINE_MUTEX(xfs_uuid_table_mutex);
-static int xfs_uuid_table_size;
-static uuid_t *xfs_uuid_table;
+static DEFINE_XARRAY_ALLOC(xfs_uuid_table);
+
+static uuid_t *
+xfs_uuid_search(
+	uuid_t		*new_uuid)
+{
+	unsigned long	index = 0;
+	uuid_t		*uuid;
+
+	xa_for_each(&xfs_uuid_table, index, uuid) {
+		if (uuid_equal(uuid, new_uuid))
+			return uuid;
+	}
+	return NULL;
+}
+
+static void
+xfs_uuid_delete(
+	uuid_t		*uuid,
+	unsigned int	index)
+{
+	ASSERT(uuid_equal(xa_load(&xfs_uuid_table, index), uuid));
+	xa_erase(&xfs_uuid_table, index);
+}
 
 void
 xfs_uuid_table_free(void)
 {
-	if (xfs_uuid_table_size == 0)
-		return;
-	kfree(xfs_uuid_table);
-	xfs_uuid_table = NULL;
-	xfs_uuid_table_size = 0;
+	ASSERT(xa_empty(&xfs_uuid_table));
+	xa_destroy(&xfs_uuid_table);
 }
 
 /*
@@ -65,7 +85,7 @@ xfs_uuid_mount(
 	struct xfs_mount	*mp)
 {
 	uuid_t			*uuid = &mp->m_sb.sb_uuid;
-	int			hole, i;
+	int			ret;
 
 	/* Publish UUID in struct super_block */
 	super_set_uuid(mp->m_super, uuid->b, sizeof(*uuid));
@@ -79,30 +99,17 @@ xfs_uuid_mount(
 	}
 
 	mutex_lock(&xfs_uuid_table_mutex);
-	for (i = 0, hole = -1; i < xfs_uuid_table_size; i++) {
-		if (uuid_is_null(&xfs_uuid_table[i])) {
-			hole = i;
-			continue;
-		}
-		if (uuid_equal(uuid, &xfs_uuid_table[i]))
-			goto out_duplicate;
+	if (unlikely(xfs_uuid_search(uuid))) {
+		xfs_warn(mp, "Filesystem has duplicate UUID %pU - can't mount",
+				uuid);
+		mutex_unlock(&xfs_uuid_table_mutex);
+		return -EINVAL;
 	}
 
-	if (hole < 0) {
-		xfs_uuid_table = krealloc(xfs_uuid_table,
-			(xfs_uuid_table_size + 1) * sizeof(*xfs_uuid_table),
-			GFP_KERNEL | __GFP_NOFAIL);
-		hole = xfs_uuid_table_size++;
-	}
-	xfs_uuid_table[hole] = *uuid;
+	ret = xa_alloc(&xfs_uuid_table, &mp->m_uuid_table_index, uuid,
+				xa_limit_32b, GFP_KERNEL);
 	mutex_unlock(&xfs_uuid_table_mutex);
-
-	return 0;
-
- out_duplicate:
-	mutex_unlock(&xfs_uuid_table_mutex);
-	xfs_warn(mp, "Filesystem has duplicate UUID %pU - can't mount", uuid);
-	return -EINVAL;
+	return ret;
 }
 
 STATIC void
@@ -110,21 +117,12 @@ xfs_uuid_unmount(
 	struct xfs_mount	*mp)
 {
 	uuid_t			*uuid = &mp->m_sb.sb_uuid;
-	int			i;
 
 	if (xfs_has_nouuid(mp))
 		return;
 
 	mutex_lock(&xfs_uuid_table_mutex);
-	for (i = 0; i < xfs_uuid_table_size; i++) {
-		if (uuid_is_null(&xfs_uuid_table[i]))
-			continue;
-		if (!uuid_equal(uuid, &xfs_uuid_table[i]))
-			continue;
-		memset(&xfs_uuid_table[i], 0, sizeof(uuid_t));
-		break;
-	}
-	ASSERT(i < xfs_uuid_table_size);
+	xfs_uuid_delete(uuid, mp->m_uuid_table_index);
 	mutex_unlock(&xfs_uuid_table_mutex);
 }
 
@@ -171,19 +169,16 @@ xfs_readsb(
 	ASSERT(mp->m_ddev_targp != NULL);
 
 	/*
-	 * For the initial read, we must guess at the sector
-	 * size based on the block device.  It's enough to
-	 * get the sb_sectsize out of the superblock and
-	 * then reread with the proper length.
-	 * We don't verify it yet, because it may not be complete.
+	 * In the first pass, use the device sector size to just read enough
+	 * of the superblock to extract the XFS sector size.
+	 *
+	 * The device sector size must be smaller than or equal to the XFS
+	 * sector size and thus we can always read the superblock.  Once we know
+	 * the XFS sector size, re-read it and run the buffer verifier.
 	 */
-	sector_size = xfs_getsize_buftarg(mp->m_ddev_targp);
+	sector_size = mp->m_ddev_targp->bt_logical_sectorsize;
 	buf_ops = NULL;
 
-	/*
-	 * Allocate a (locked) buffer to hold the superblock. This will be kept
-	 * around at all times to optimize access to the superblock.
-	 */
 reread:
 	error = xfs_buf_read_uncached(mp->m_ddev_targp, XFS_SB_DADDR,
 				      BTOBB(sector_size), &bp, buf_ops);
@@ -247,6 +242,10 @@ reread:
 	/* no need to be quiet anymore, so reset the buf ops */
 	bp->b_ops = &xfs_sb_buf_ops;
 
+	/*
+	 * Keep a pointer of the sb buffer around instead of caching it in the
+	 * buffer cache because we access it frequently.
+	 */
 	mp->m_sb_bp = bp;
 	xfs_buf_unlock(bp);
 	return 0;
@@ -606,8 +605,9 @@ xfs_unmount_check(
  * have been retrying in the background.  This will prevent never-ending
  * retries in AIL pushing from hanging the unmount.
  *
- * Finally, we can push the AIL to clean all the remaining dirty objects, then
- * reclaim the remaining inodes that are still in memory at this point in time.
+ * Stop inodegc and background reclaim before pushing the AIL so that they
+ * are not running while the AIL is being flushed. Then push the AIL to
+ * clean all the remaining dirty objects and reclaim the remaining inodes.
  */
 static void
 xfs_unmount_flush_inodes(
@@ -619,11 +619,12 @@ xfs_unmount_flush_inodes(
 
 	xfs_set_unmounting(mp);
 
-	xfs_ail_push_all_sync(mp->m_ail);
 	xfs_inodegc_stop(mp);
 	cancel_delayed_work_sync(&mp->m_reclaim_work);
+	xfs_ail_push_all_sync(mp->m_ail);
 	xfs_reclaim_inodes(mp);
 	xfs_health_unmount(mp);
+	xfs_healthmon_unmount(mp);
 }
 
 static void
@@ -664,6 +665,152 @@ xfs_agbtree_compute_maxlevels(
 	levels = max(mp->m_alloc_maxlevels, M_IGEO(mp)->inobt_maxlevels);
 	levels = max(levels, mp->m_rmap_maxlevels);
 	mp->m_agbtree_maxlevels = max(levels, mp->m_refc_maxlevels);
+}
+
+/* Maximum atomic write IO size that the kernel allows. */
+static inline xfs_extlen_t xfs_calc_atomic_write_max(struct xfs_mount *mp)
+{
+	return rounddown_pow_of_two(XFS_B_TO_FSB(mp, MAX_RW_COUNT));
+}
+
+/*
+ * If the underlying device advertises atomic write support, limit the size of
+ * atomic writes to the greatest power-of-two factor of the group size so
+ * that every atomic write unit aligns with the start of every group.  This is
+ * required so that the allocations for an atomic write will always be
+ * aligned compatibly with the alignment requirements of the storage.
+ *
+ * If the device doesn't advertise atomic writes, then there are no alignment
+ * restrictions and the largest out-of-place write we can do ourselves is the
+ * number of blocks that user files can allocate from any group.
+ */
+static xfs_extlen_t
+xfs_calc_group_awu_max(
+	struct xfs_mount	*mp,
+	enum xfs_group_type	type)
+{
+	struct xfs_groups	*g = &mp->m_groups[type];
+	struct xfs_buftarg	*btp = xfs_group_type_buftarg(mp, type);
+
+	if (g->blocks == 0)
+		return 0;
+	if (btp && btp->bt_awu_min > 0)
+		return max_pow_of_two_factor(g->blocks);
+	return rounddown_pow_of_two(g->blocks);
+}
+
+/* Compute the maximum atomic write unit size for each section. */
+static inline void
+xfs_calc_atomic_write_unit_max(
+	struct xfs_mount	*mp,
+	enum xfs_group_type	type)
+{
+	struct xfs_groups	*g = &mp->m_groups[type];
+
+	const xfs_extlen_t	max_write = xfs_calc_atomic_write_max(mp);
+	const xfs_extlen_t	max_ioend = xfs_reflink_max_atomic_cow(mp);
+	const xfs_extlen_t	max_gsize = xfs_calc_group_awu_max(mp, type);
+
+	g->awu_max = min3(max_write, max_ioend, max_gsize);
+	trace_xfs_calc_atomic_write_unit_max(mp, type, max_write, max_ioend,
+			max_gsize, g->awu_max);
+}
+
+/*
+ * Try to set the atomic write maximum to a new value that we got from
+ * userspace via mount option.
+ */
+int
+xfs_set_max_atomic_write_opt(
+	struct xfs_mount	*mp,
+	unsigned long long	new_max_bytes)
+{
+	const xfs_filblks_t	new_max_fsbs = XFS_B_TO_FSBT(mp, new_max_bytes);
+	const xfs_extlen_t	max_write = xfs_calc_atomic_write_max(mp);
+	const xfs_extlen_t	max_group =
+		max(mp->m_groups[XG_TYPE_AG].blocks,
+		    mp->m_groups[XG_TYPE_RTG].blocks);
+	const xfs_extlen_t	max_group_write =
+		max(xfs_calc_group_awu_max(mp, XG_TYPE_AG),
+		    xfs_calc_group_awu_max(mp, XG_TYPE_RTG));
+	int			error;
+
+	if (new_max_bytes == 0)
+		goto set_limit;
+
+	ASSERT(max_write <= U32_MAX);
+
+	/* generic_atomic_write_valid enforces power of two length */
+	if (!is_power_of_2(new_max_bytes)) {
+		xfs_warn(mp,
+ "max atomic write size of %llu bytes is not a power of 2",
+				new_max_bytes);
+		return -EINVAL;
+	}
+
+	if (new_max_bytes & mp->m_blockmask) {
+		xfs_warn(mp,
+ "max atomic write size of %llu bytes not aligned with fsblock",
+				new_max_bytes);
+		return -EINVAL;
+	}
+
+	if (new_max_fsbs > max_write) {
+		xfs_warn(mp,
+ "max atomic write size of %lluk cannot be larger than max write size %lluk",
+				new_max_bytes >> 10,
+				XFS_FSB_TO_B(mp, max_write) >> 10);
+		return -EINVAL;
+	}
+
+	if (new_max_fsbs > max_group) {
+		xfs_warn(mp,
+ "max atomic write size of %lluk cannot be larger than allocation group size %lluk",
+				new_max_bytes >> 10,
+				XFS_FSB_TO_B(mp, max_group) >> 10);
+		return -EINVAL;
+	}
+
+	if (new_max_fsbs > max_group_write) {
+		xfs_warn(mp,
+ "max atomic write size of %lluk cannot be larger than max allocation group write size %lluk",
+				new_max_bytes >> 10,
+				XFS_FSB_TO_B(mp, max_group_write) >> 10);
+		return -EINVAL;
+	}
+
+	if (xfs_has_reflink(mp))
+		goto set_limit;
+
+	if (new_max_fsbs == 1) {
+		if (mp->m_ddev_targp->bt_awu_max ||
+		    (mp->m_rtdev_targp && mp->m_rtdev_targp->bt_awu_max)) {
+		} else {
+			xfs_warn(mp,
+ "cannot support atomic writes of size %lluk with no reflink or HW support",
+				new_max_bytes >> 10);
+			return -EINVAL;
+		}
+	} else {
+		xfs_warn(mp,
+ "cannot support atomic writes of size %lluk with no reflink support",
+				new_max_bytes >> 10);
+		return -EINVAL;
+	}
+
+set_limit:
+	error = xfs_calc_atomic_write_reservation(mp, new_max_fsbs);
+	if (error) {
+		xfs_warn(mp,
+ "cannot support completing atomic writes of %lluk",
+				new_max_bytes >> 10);
+		return error;
+	}
+
+	xfs_calc_atomic_write_unit_max(mp, XG_TYPE_AG);
+	xfs_calc_atomic_write_unit_max(mp, XG_TYPE_RTG);
+	mp->m_awu_max_bytes = new_max_bytes;
+	return 0;
 }
 
 /* Compute maximum possible height for realtime btree types for this fs. */
@@ -910,19 +1057,6 @@ xfs_mountfs(
 	xfs_inodegc_start(mp);
 	xfs_blockgc_start(mp);
 
-	/*
-	 * Now that we've recovered any pending superblock feature bit
-	 * additions, we can finish setting up the attr2 behaviour for the
-	 * mount. The noattr2 option overrides the superblock flag, so only
-	 * check the superblock feature flag if the mount option is not set.
-	 */
-	if (xfs_has_noattr2(mp)) {
-		mp->m_features &= ~XFS_FEAT_ATTR2;
-	} else if (!xfs_has_attr2(mp) &&
-		   (mp->m_sb.sb_features2 & XFS_SB_VERSION2_ATTR2BIT)) {
-		mp->m_features |= XFS_FEAT_ATTR2;
-	}
-
 	if (xfs_has_metadir(mp)) {
 		error = xfs_mount_setup_metadir(mp);
 		if (error)
@@ -1081,6 +1215,15 @@ xfs_mountfs(
 
 		xfs_zone_gc_start(mp);
 	}
+
+	/*
+	 * Pre-calculate atomic write unit max.  This involves computations
+	 * derived from transaction reservations, so we must do this after the
+	 * log is fully initialized.
+	 */
+	error = xfs_set_max_atomic_write_opt(mp, mp->m_awu_max_bytes);
+	if (error)
+		goto out_agresv;
 
 	return 0;
 

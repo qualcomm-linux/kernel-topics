@@ -155,7 +155,7 @@ static int __init _clps711x_intc_init(struct device_node *np,
 {
 	int err;
 
-	clps711x_intc = kzalloc(sizeof(*clps711x_intc), GFP_KERNEL);
+	clps711x_intc = kzalloc_obj(*clps711x_intc);
 	if (!clps711x_intc)
 		return -ENOMEM;
 
@@ -184,8 +184,8 @@ static int __init _clps711x_intc_init(struct device_node *np,
 	clps711x_intc->ops.map = clps711x_intc_irq_map;
 	clps711x_intc->ops.xlate = irq_domain_xlate_onecell;
 	clps711x_intc->domain =
-		irq_domain_add_legacy(np, ARRAY_SIZE(clps711x_irqs),
-				      0, 0, &clps711x_intc->ops, NULL);
+		irq_domain_create_legacy(of_fwnode_handle(np), ARRAY_SIZE(clps711x_irqs), 0, 0,
+					 &clps711x_intc->ops, NULL);
 	if (!clps711x_intc->domain) {
 		err = -ENOMEM;
 		goto out_irqfree;

@@ -120,8 +120,8 @@ static void test_icr(struct xapic_vcpu *x)
 		__test_icr(x, icr | i);
 
 	/*
-	 * Send all flavors of IPIs to non-existent vCPUs.  TODO: use number of
-	 * vCPUs, not vcpu.id + 1.  Arbitrarily use vector 0xff.
+	 * Send all flavors of IPIs to non-existent vCPUs. Arbitrarily use
+	 * vector 0xff.
 	 */
 	icr = APIC_INT_ASSERT | 0xff;
 	for (i = 0; i < 0xff; i++) {
@@ -248,7 +248,7 @@ int main(int argc, char *argv[])
 	 * drops writes, AMD does not).  Account for the errata when checking
 	 * that KVM reads back what was written.
 	 */
-	x.has_xavic_errata = host_cpu_is_amd &&
+	x.has_xavic_errata = host_cpu_is_amd_compatible &&
 			     get_kvm_amd_param_bool("avic");
 
 	vcpu_clear_cpuid_feature(x.vcpu, X86_FEATURE_X2APIC);

@@ -25,15 +25,15 @@
 #include "gt/intel_mocs.h"
 #include "gt/intel_ring.h"
 
+#include "i915_drv.h"
+#include "i915_irq.h"
+#include "i915_reg.h"
+#include "i915_trace.h"
+#include "i915_wait_util.h"
 #include "intel_guc_ads.h"
 #include "intel_guc_capture.h"
 #include "intel_guc_print.h"
 #include "intel_guc_submission.h"
-
-#include "i915_drv.h"
-#include "i915_reg.h"
-#include "i915_irq.h"
-#include "i915_trace.h"
 
 /**
  * DOC: GuC-based command submission
@@ -633,7 +633,7 @@ static int guc_submission_send_busy_loop(struct intel_guc *guc,
 		atomic_inc(&guc->outstanding_submission_g2h);
 
 	ret = intel_guc_send_busy_loop(guc, action, len, g2h_len_dw, loop);
-	if (ret)
+	if (ret && g2h_len_dw)
 		atomic_dec(&guc->outstanding_submission_g2h);
 
 	return ret;
@@ -2110,7 +2110,7 @@ static int init_tlb_lookup(struct intel_guc *guc)
 
 	xa_init_flags(&guc->tlb_lookup, XA_FLAGS_ALLOC);
 
-	wait = kzalloc(sizeof(*wait), GFP_KERNEL);
+	wait = kzalloc_obj(*wait);
 	if (!wait)
 		return -ENOMEM;
 
@@ -3385,7 +3385,7 @@ static void guc_context_sched_disable(struct intel_context *ce)
 	} else if (!intel_context_is_closed(ce) && !guc_id_pressure(guc, ce) &&
 		   delay) {
 		spin_unlock_irqrestore(&ce->guc_state.lock, flags);
-		mod_delayed_work(system_unbound_wq,
+		mod_delayed_work(system_dfl_wq,
 				 &ce->guc_state.sched_disable_delay_work,
 				 msecs_to_jiffies(delay));
 	} else {
@@ -3443,18 +3443,29 @@ static inline int guc_lrc_desc_unpin(struct intel_context *ce)
 	 * GuC is active, lets destroy this context, but at this point we can still be racing
 	 * with suspend, so we undo everything if the H2G fails in deregister_context so
 	 * that GuC reset will find this context during clean up.
+	 *
+	 * There is a race condition where the reset code could have altered
+	 * this context's state and done a wakeref put before we try to
+	 * deregister it here. So check if the context is still set to be
+	 * destroyed before undoing earlier changes, to avoid two wakeref puts
+	 * on the same context.
 	 */
 	ret = deregister_context(ce, ce->guc_id.id);
 	if (ret) {
+		bool pending_destroyed;
 		spin_lock_irqsave(&ce->guc_state.lock, flags);
-		set_context_registered(ce);
-		clr_context_destroyed(ce);
+		pending_destroyed = context_destroyed(ce);
+		if (pending_destroyed) {
+			set_context_registered(ce);
+			clr_context_destroyed(ce);
+		}
 		spin_unlock_irqrestore(&ce->guc_state.lock, flags);
 		/*
 		 * As gt-pm is awake at function entry, intel_wakeref_put_async merely decrements
 		 * the wakeref immediately but per function spec usage call this after unlock.
 		 */
-		intel_wakeref_put_async(&gt->wakeref);
+		if (pending_destroyed)
+			intel_wakeref_put_async(&gt->wakeref);
 	}
 
 	return ret;
@@ -3600,7 +3611,7 @@ static void guc_context_destroy(struct kref *kref)
 	 * take the GT PM for the first time which isn't allowed from an atomic
 	 * context.
 	 */
-	queue_work(system_unbound_wq, &guc->submission_state.destroyed_worker);
+	queue_work(system_dfl_wq, &guc->submission_state.destroyed_worker);
 }
 
 static int guc_context_alloc(struct intel_context *ce)
@@ -4211,9 +4222,7 @@ guc_create_parallel(struct intel_engine_cs **engines,
 	struct intel_context *parent = NULL, *ce, *err;
 	int i, j;
 
-	siblings = kmalloc_array(num_siblings,
-				 sizeof(*siblings),
-				 GFP_KERNEL);
+	siblings = kmalloc_objs(*siblings, num_siblings);
 	if (!siblings)
 		return ERR_PTR(-ENOMEM);
 
@@ -4405,9 +4414,9 @@ static void start_engine(struct intel_engine_cs *engine)
 {
 	ENGINE_WRITE_FW(engine,
 			RING_MODE_GEN7,
-			_MASKED_BIT_ENABLE(GEN11_GFX_DISABLE_LEGACY_MODE));
+			REG_MASKED_FIELD_ENABLE(GEN11_GFX_DISABLE_LEGACY_MODE));
 
-	ENGINE_WRITE_FW(engine, RING_MI_MODE, _MASKED_BIT_DISABLE(STOP_RING));
+	ENGINE_WRITE_FW(engine, RING_MI_MODE, REG_MASKED_FIELD_DISABLE(STOP_RING));
 	ENGINE_POSTING_READ(engine, RING_MI_MODE);
 }
 
@@ -5371,7 +5380,7 @@ int intel_guc_engine_failure_process_msg(struct intel_guc *guc,
 	 * A GT reset flushes this worker queue (G2H handler) so we must use
 	 * another worker to trigger a GT reset.
 	 */
-	queue_work(system_unbound_wq, &guc->submission_state.reset_fail_worker);
+	queue_work(system_dfl_wq, &guc->submission_state.reset_fail_worker);
 
 	return 0;
 }
@@ -5896,7 +5905,7 @@ guc_create_virtual(struct intel_engine_cs **siblings, unsigned int count,
 	unsigned int n;
 	int err;
 
-	ve = kzalloc(sizeof(*ve), GFP_KERNEL);
+	ve = kzalloc_obj(*ve);
 	if (!ve)
 		return ERR_PTR(-ENOMEM);
 

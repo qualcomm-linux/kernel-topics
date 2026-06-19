@@ -7,6 +7,7 @@
 #include "ivpu_hw.h"
 #include "ivpu_ipc.h"
 #include "ivpu_jsm_msg.h"
+#include "ivpu_pm.h"
 #include "vpu_jsm_api.h"
 
 const char *ivpu_jsm_msg_type_to_str(enum vpu_ipc_msg_type type)
@@ -150,10 +151,9 @@ int ivpu_jsm_get_heartbeat(struct ivpu_device *vdev, u32 engine, u64 *heartbeat)
 	return ret;
 }
 
-int ivpu_jsm_reset_engine(struct ivpu_device *vdev, u32 engine)
+int ivpu_jsm_reset_engine(struct ivpu_device *vdev, u32 engine, struct vpu_jsm_msg *resp)
 {
 	struct vpu_jsm_msg req = { .type = VPU_JSM_MSG_ENGINE_RESET };
-	struct vpu_jsm_msg resp;
 	int ret;
 
 	if (engine != VPU_ENGINE_COMPUTE)
@@ -161,12 +161,17 @@ int ivpu_jsm_reset_engine(struct ivpu_device *vdev, u32 engine)
 
 	req.payload.engine_reset.engine_idx = engine;
 
-	ret = ivpu_ipc_send_receive(vdev, &req, VPU_JSM_MSG_ENGINE_RESET_DONE, &resp,
+	ret = ivpu_ipc_send_receive(vdev, &req, VPU_JSM_MSG_ENGINE_RESET_DONE, resp,
 				    VPU_IPC_CHAN_ASYNC_CMD, vdev->timeout.jsm);
-	if (ret)
+	if (ret) {
 		ivpu_err_ratelimited(vdev, "Failed to reset engine %d: %d\n", engine, ret);
+		ivpu_pm_trigger_recovery(vdev, "Engine reset failed");
+		return ret;
+	}
 
-	return ret;
+	atomic_inc(&vdev->pm->engine_reset_counter);
+
+	return 0;
 }
 
 int ivpu_jsm_preempt_engine(struct ivpu_device *vdev, u32 engine, u32 preempt_id)
@@ -354,8 +359,10 @@ int ivpu_jsm_hws_resume_engine(struct ivpu_device *vdev, u32 engine)
 
 	ret = ivpu_ipc_send_receive(vdev, &req, VPU_JSM_MSG_HWS_RESUME_ENGINE_DONE, &resp,
 				    VPU_IPC_CHAN_ASYNC_CMD, vdev->timeout.jsm);
-	if (ret)
+	if (ret) {
 		ivpu_err_ratelimited(vdev, "Failed to resume engine %d: %d\n", engine, ret);
+		ivpu_pm_trigger_recovery(vdev, "Engine resume failed");
+	}
 
 	return ret;
 }
@@ -549,6 +556,15 @@ int ivpu_jsm_dct_disable(struct ivpu_device *vdev)
 }
 
 int ivpu_jsm_state_dump(struct ivpu_device *vdev)
+{
+	struct vpu_jsm_msg req = { .type = VPU_JSM_MSG_STATE_DUMP };
+	struct vpu_jsm_msg resp;
+
+	return ivpu_ipc_send_receive_internal(vdev, &req, VPU_JSM_MSG_STATE_DUMP_RSP, &resp,
+					      VPU_IPC_CHAN_ASYNC_CMD, vdev->timeout.jsm);
+}
+
+int ivpu_jsm_state_dump_no_reply(struct ivpu_device *vdev)
 {
 	struct vpu_jsm_msg req = { .type = VPU_JSM_MSG_STATE_DUMP };
 

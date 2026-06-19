@@ -24,6 +24,7 @@
 #include "fw/api/rfi.h"
 #include "fw/dhc-utils.h"
 #include <linux/dmi.h>
+#include <linux/hex.h>
 
 #define MLD_DEBUGFS_READ_FILE_OPS(name, bufsz)				\
 	_MLD_DEBUGFS_READ_FILE_OPS(name, bufsz, struct iwl_mld)
@@ -86,7 +87,7 @@ static ssize_t iwl_dbgfs_fw_restart_write(struct iwl_mld *mld, char *buf,
 
 	if (count == 6 && !strcmp(buf, "nolog\n")) {
 		mld->fw_status.do_not_dump_once = true;
-		set_bit(STATUS_SUPPRESS_CMD_ERROR_ONCE, &mld->trans->status);
+		mld->trans->suppress_cmd_error_once = true;
 	}
 
 	/* take the return value to make compiler happy - it will
@@ -244,7 +245,7 @@ static size_t iwl_mld_dump_tas_resp(struct iwl_dhc_tas_status_resp *resp,
 	}
 
 	pos += scnprintf(buf + pos, count - pos, "TAS Report\n");
-	switch (resp->tas_config_info.table_source) {
+	switch (resp->tas_config_info.hdr.table_source) {
 	case BIOS_SOURCE_NONE:
 		pos += scnprintf(buf + pos, count - pos,
 				 "BIOS SOURCE NONE ");
@@ -260,13 +261,13 @@ static size_t iwl_mld_dump_tas_resp(struct iwl_dhc_tas_status_resp *resp,
 	default:
 		pos += scnprintf(buf + pos, count - pos,
 				 "BIOS SOURCE UNKNOWN (%d) ",
-				 resp->tas_config_info.table_source);
+				 resp->tas_config_info.hdr.table_source);
 		break;
 	}
 
 	pos += scnprintf(buf + pos, count - pos,
 			 "revision is: %d data is: 0x%08x\n",
-			 resp->tas_config_info.table_revision,
+			 resp->tas_config_info.hdr.table_revision,
 			 resp->tas_config_info.value);
 	pos += scnprintf(buf + pos, count - pos, "Current MCC: 0x%x\n",
 			 le16_to_cpu(resp->curr_mcc));
@@ -545,6 +546,14 @@ iwl_mld_add_debugfs_files(struct iwl_mld *mld, struct dentry *debugfs_dir)
 	MLD_DEBUGFS_ADD_FILE(stop_ctdp, debugfs_dir, 0200);
 #endif
 	MLD_DEBUGFS_ADD_FILE(inject_packet, debugfs_dir, 0200);
+
+#ifdef CONFIG_PM_SLEEP
+	debugfs_create_u32("max_sleep", 0600, debugfs_dir,
+			   &mld->debug_max_sleep);
+#endif
+
+	debugfs_create_bool("rx_ts_ptp", 0600, debugfs_dir,
+			    &mld->monitor.ptp_time);
 
 	/* Create a symlink with mac80211. It will be removed when mac80211
 	 * exits (before the opmode exits which removes the target.)
@@ -993,12 +1002,16 @@ void iwl_mld_add_link_debugfs(struct ieee80211_hw *hw,
 	 * If not, this is a per-link dir of a MLO vif, add in it the iwlmld
 	 * dir.
 	 */
-	if (!mld_link_dir)
+	if (!mld_link_dir) {
 		mld_link_dir = debugfs_create_dir("iwlmld", dir);
+	} else {
+		/* Release the reference from debugfs_lookup */
+		dput(mld_link_dir);
+	}
 }
 
-static ssize_t iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
-					  size_t count, void *data)
+static ssize_t _iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
+					   size_t count, void *data, bool v3)
 {
 	struct ieee80211_link_sta *link_sta = data;
 	struct iwl_mld_link_sta *mld_link_sta;
@@ -1020,6 +1033,10 @@ static ssize_t iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
 	if (iwl_mld_dbgfs_fw_cmd_disabled(mld))
 		return -EIO;
 
+	/* input is in FW format (v2 or v3) so convert to v3 */
+	rate = iwl_v3_rate_from_v2_v3(cpu_to_le32(rate), v3);
+	rate = le32_to_cpu(iwl_v3_rate_to_v2_v3(rate, mld->fw_rates_ver_3));
+
 	ret = iwl_mld_send_tlc_dhc(mld, fw_sta_id,
 				   partial ? IWL_TLC_DEBUG_PARTIAL_FIXED_RATE :
 					     IWL_TLC_DEBUG_FIXED_RATE,
@@ -1031,6 +1048,18 @@ static ssize_t iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
 		       fw_sta_id, pretty_rate, partial, ret);
 
 	return ret ? : count;
+}
+
+static ssize_t iwl_dbgfs_fixed_rate_write(struct iwl_mld *mld, char *buf,
+					  size_t count, void *data)
+{
+	return _iwl_dbgfs_fixed_rate_write(mld, buf, count, data, false);
+}
+
+static ssize_t iwl_dbgfs_fixed_rate_v3_write(struct iwl_mld *mld, char *buf,
+					     size_t count, void *data)
+{
+	return _iwl_dbgfs_fixed_rate_write(mld, buf, count, data, true);
 }
 
 static ssize_t iwl_dbgfs_tlc_dhc_write(struct iwl_mld *mld, char *buf,
@@ -1072,6 +1101,7 @@ static ssize_t iwl_dbgfs_tlc_dhc_write(struct iwl_mld *mld, char *buf,
 
 LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(tlc_dhc, 64);
 LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(fixed_rate, 64);
+LINK_STA_WIPHY_DEBUGFS_WRITE_OPS(fixed_rate_v3, 64);
 
 void iwl_mld_add_link_sta_debugfs(struct ieee80211_hw *hw,
 				  struct ieee80211_vif *vif,
@@ -1079,5 +1109,6 @@ void iwl_mld_add_link_sta_debugfs(struct ieee80211_hw *hw,
 				  struct dentry *dir)
 {
 	LINK_STA_DEBUGFS_ADD_FILE(fixed_rate, dir, 0200);
+	LINK_STA_DEBUGFS_ADD_FILE(fixed_rate_v3, dir, 0200);
 	LINK_STA_DEBUGFS_ADD_FILE(tlc_dhc, dir, 0200);
 }

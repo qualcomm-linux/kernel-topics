@@ -58,15 +58,6 @@
 #define LOCK_CODE				0xffffffff
 #define UNLOCK_CODE				0x00000000
 
-struct bcm_kona_gpio {
-	void __iomem *reg_base;
-	int num_bank;
-	raw_spinlock_t lock;
-	struct gpio_chip gpio_chip;
-	struct irq_domain *irq_domain;
-	struct bcm_kona_gpio_bank *banks;
-};
-
 struct bcm_kona_gpio_bank {
 	int id;
 	int irq;
@@ -88,6 +79,15 @@ struct bcm_kona_gpio_bank {
 	u8 gpio_unlock_count[GPIO_PER_BANK];
 	/* Used in the interrupt handler */
 	struct bcm_kona_gpio *kona_gpio;
+};
+
+struct bcm_kona_gpio {
+	void __iomem *reg_base;
+	int num_bank;
+	raw_spinlock_t lock;
+	struct gpio_chip gpio_chip;
+	struct irq_domain *irq_domain;
+	struct bcm_kona_gpio_bank banks[] __counted_by(num_bank);
 };
 
 static inline void bcm_kona_gpio_write_lock_regs(void __iomem *reg_base,
@@ -339,7 +339,7 @@ static const struct gpio_chip template_chip = {
 	.direction_input = bcm_kona_gpio_direction_input,
 	.get = bcm_kona_gpio_get,
 	.direction_output = bcm_kona_gpio_direction_output,
-	.set_rv = bcm_kona_gpio_set,
+	.set = bcm_kona_gpio_set,
 	.set_config = bcm_kona_gpio_set_config,
 	.to_irq = bcm_kona_gpio_to_irq,
 	.base = 0,
@@ -516,6 +516,7 @@ static struct irq_chip bcm_gpio_irq_chip = {
 	.irq_set_type = bcm_kona_gpio_irq_set_type,
 	.irq_request_resources = bcm_kona_gpio_irq_reqres,
 	.irq_release_resources = bcm_kona_gpio_irq_relres,
+	.flags = IRQCHIP_IMMUTABLE,
 };
 
 static struct of_device_id const bcm_kona_gpio_of_match[] = {
@@ -583,12 +584,6 @@ static int bcm_kona_gpio_probe(struct platform_device *pdev)
 	int ret;
 	int i;
 
-	kona_gpio = devm_kzalloc(dev, sizeof(*kona_gpio), GFP_KERNEL);
-	if (!kona_gpio)
-		return -ENOMEM;
-
-	kona_gpio->gpio_chip = template_chip;
-	chip = &kona_gpio->gpio_chip;
 	ret = platform_irq_count(pdev);
 	if (!ret) {
 		dev_err(dev, "Couldn't determine # GPIO banks\n");
@@ -596,6 +591,11 @@ static int bcm_kona_gpio_probe(struct platform_device *pdev)
 	} else if (ret < 0) {
 		return dev_err_probe(dev, ret, "Couldn't determine GPIO banks\n");
 	}
+
+	kona_gpio = devm_kzalloc(dev, struct_size(kona_gpio, banks, ret), GFP_KERNEL);
+	if (!kona_gpio)
+		return -ENOMEM;
+
 	kona_gpio->num_bank = ret;
 
 	if (kona_gpio->num_bank > GPIO_MAX_BANK_NUM) {
@@ -603,13 +603,9 @@ static int bcm_kona_gpio_probe(struct platform_device *pdev)
 			GPIO_MAX_BANK_NUM);
 		return -ENXIO;
 	}
-	kona_gpio->banks = devm_kcalloc(dev,
-					kona_gpio->num_bank,
-					sizeof(*kona_gpio->banks),
-					GFP_KERNEL);
-	if (!kona_gpio->banks)
-		return -ENOMEM;
 
+	kona_gpio->gpio_chip = template_chip;
+	chip = &kona_gpio->gpio_chip;
 	chip->parent = dev;
 	chip->ngpio = kona_gpio->num_bank * GPIO_PER_BANK;
 

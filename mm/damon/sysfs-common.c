@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Common Primitives for DAMON Sysfs Interface
+ * Common Code for DAMON Sysfs Interface
  *
  * Author: SeongJae Park <sj@kernel.org>
  */
@@ -19,8 +19,7 @@ struct damon_sysfs_ul_range *damon_sysfs_ul_range_alloc(
 		unsigned long min,
 		unsigned long max)
 {
-	struct damon_sysfs_ul_range *range = kmalloc(sizeof(*range),
-			GFP_KERNEL);
+	struct damon_sysfs_ul_range *range = kmalloc_obj(*range);
 
 	if (!range)
 		return NULL;

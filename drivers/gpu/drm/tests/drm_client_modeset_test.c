@@ -5,6 +5,7 @@
 
 #include <kunit/test.h>
 
+#include <drm/drm_atomic_state_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_drv.h>
@@ -48,6 +49,8 @@ static const struct drm_connector_helper_funcs drm_client_modeset_connector_help
 };
 
 static const struct drm_connector_funcs drm_client_modeset_connector_funcs = {
+	.atomic_destroy_state   = drm_atomic_helper_connector_destroy_state,
+	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state
 };
 
 static int drm_client_modeset_test_init(struct kunit *test)
@@ -88,7 +91,8 @@ static void drm_test_pick_cmdline_res_1920_1080_60(struct kunit *test)
 	struct drm_device *drm = priv->drm;
 	struct drm_connector *connector = &priv->connector;
 	struct drm_cmdline_mode *cmdline_mode = &connector->cmdline_mode;
-	struct drm_display_mode *expected_mode, *mode;
+	struct drm_display_mode *expected_mode;
+	const struct drm_display_mode *mode;
 	const char *cmdline = "1920x1080@60";
 	int ret;
 

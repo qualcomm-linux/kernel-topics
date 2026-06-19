@@ -10,14 +10,18 @@
  *  Derived from drivers/gpio/pca953x.c
  */
 
-#include <linux/module.h>
+#include <linux/cleanup.h>
+#include <linux/err.h>
+#include <linux/device.h>
+#include <linux/gpio/driver.h>
+#include <linux/i2c.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/platform_data/max732x.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/gpio/driver.h>
-#include <linux/interrupt.h>
-#include <linux/i2c.h>
-#include <linux/platform_data/max732x.h>
 
 /*
  * Each port of MAX732x (including MAX7319) falls into one of the
@@ -207,34 +211,35 @@ static void max732x_gpio_set_mask(struct gpio_chip *gc, unsigned off, int mask,
 	uint8_t reg_out;
 	int ret;
 
-	mutex_lock(&chip->lock);
+	guard(mutex)(&chip->lock);
 
 	reg_out = (off > 7) ? chip->reg_out[1] : chip->reg_out[0];
 	reg_out = (reg_out & ~mask) | (val & mask);
 
 	ret = max732x_writeb(chip, is_group_a(chip, off), reg_out);
 	if (ret < 0)
-		goto out;
+		return;
 
 	/* update the shadow register then */
 	if (off > 7)
 		chip->reg_out[1] = reg_out;
 	else
 		chip->reg_out[0] = reg_out;
-out:
-	mutex_unlock(&chip->lock);
 }
 
-static void max732x_gpio_set_value(struct gpio_chip *gc, unsigned off, int val)
+static int max732x_gpio_set_value(struct gpio_chip *gc, unsigned int off,
+				  int val)
 {
 	unsigned base = off & ~0x7;
 	uint8_t mask = 1u << (off & 0x7);
 
 	max732x_gpio_set_mask(gc, base, mask, val << (off & 0x7));
+
+	return 0;
 }
 
-static void max732x_gpio_set_multiple(struct gpio_chip *gc,
-				      unsigned long *mask, unsigned long *bits)
+static int max732x_gpio_set_multiple(struct gpio_chip *gc,
+				     unsigned long *mask, unsigned long *bits)
 {
 	unsigned mask_lo = mask[0] & 0xff;
 	unsigned mask_hi = (mask[0] >> 8) & 0xff;
@@ -243,6 +248,8 @@ static void max732x_gpio_set_multiple(struct gpio_chip *gc,
 		max732x_gpio_set_mask(gc, 0, mask_lo, bits[0] & 0xff);
 	if (mask_hi)
 		max732x_gpio_set_mask(gc, 8, mask_hi, (bits[0] >> 8) & 0xff);
+
+	return 0;
 }
 
 static int max732x_gpio_direction_input(struct gpio_chip *gc, unsigned off)
@@ -324,7 +331,7 @@ static void max732x_irq_update_mask(struct max732x_chip *chip)
 	if (chip->irq_features == INT_NO_MASK)
 		return;
 
-	mutex_lock(&chip->lock);
+	guard(mutex)(&chip->lock);
 
 	switch (chip->irq_features) {
 	case INT_INDEP_MASK:
@@ -337,8 +344,6 @@ static void max732x_irq_update_mask(struct max732x_chip *chip)
 		max732x_writeb(chip, 1, (uint8_t)msg);
 		break;
 	}
-
-	mutex_unlock(&chip->lock);
 }
 
 static void max732x_irq_mask(struct irq_data *d)

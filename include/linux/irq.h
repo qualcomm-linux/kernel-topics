@@ -35,6 +35,10 @@ enum irqchip_irq_state;
  *
  * Bits 0-7 are the same as the IRQF_* bits in linux/interrupt.h
  *
+ * Note that the first 6 definitions are shadowed by C preprocessor definitions
+ * in include/dt-bindings/interrupt-controller/irq.h.  This is not an issue, as
+ * the actual values must be the same, due to being part of the stable DT ABI.
+ *
  * IRQ_TYPE_NONE		- default, unspecified type
  * IRQ_TYPE_EDGE_RISING		- rising edge triggered
  * IRQ_TYPE_EDGE_FALLING	- falling edge triggered
@@ -459,6 +463,8 @@ static inline irq_hw_number_t irqd_to_hwirq(struct irq_data *d)
  *			checks against the supplied affinity mask are not
  *			required. This is used for CPU hotplug where the
  *			target CPU is not yet set in the cpu_online_mask.
+ * @irq_pre_redirect:	Optional function to be invoked before redirecting
+ *			an interrupt via irq_work. Called only on CONFIG_SMP.
  * @irq_retrigger:	resend an IRQ to the CPU
  * @irq_set_type:	set the flow type (IRQ_TYPE_LEVEL/etc.) of an IRQ
  * @irq_set_wake:	enable/disable power-management wake-on of an IRQ
@@ -503,6 +509,7 @@ struct irq_chip {
 	void		(*irq_eoi)(struct irq_data *data);
 
 	int		(*irq_set_affinity)(struct irq_data *data, const struct cpumask *dest, bool force);
+	void		(*irq_pre_redirect)(struct irq_data *data);
 	int		(*irq_retrigger)(struct irq_data *data);
 	int		(*irq_set_type)(struct irq_data *data, unsigned int flow_type);
 	int		(*irq_set_wake)(struct irq_data *data, unsigned int on);
@@ -595,10 +602,6 @@ enum {
 
 #define IRQ_DEFAULT_INIT_FLAGS	ARCH_IRQ_INIT_FLAGS
 
-struct irqaction;
-extern int setup_percpu_irq(unsigned int irq, struct irqaction *new);
-extern void remove_percpu_irq(unsigned int irq, struct irqaction *act);
-
 #ifdef CONFIG_DEPRECATED_IRQ_CPU_ONOFFLINE
 extern void irq_cpu_online(void);
 extern void irq_cpu_offline(void);
@@ -656,11 +659,10 @@ extern void handle_bad_irq(struct irq_desc *desc);
 extern void handle_nested_irq(unsigned int irq);
 
 extern void handle_fasteoi_nmi(struct irq_desc *desc);
-extern void handle_percpu_devid_fasteoi_nmi(struct irq_desc *desc);
 
 extern int irq_chip_compose_msi_msg(struct irq_data *data, struct msi_msg *msg);
 extern int irq_chip_pm_get(struct irq_data *data);
-extern int irq_chip_pm_put(struct irq_data *data);
+extern void irq_chip_pm_put(struct irq_data *data);
 #ifdef	CONFIG_IRQ_DOMAIN_HIERARCHY
 extern void handle_fasteoi_ack_irq(struct irq_desc *desc);
 extern void handle_fasteoi_mask_irq(struct irq_desc *desc);
@@ -670,6 +672,8 @@ extern int irq_chip_set_parent_state(struct irq_data *data,
 extern int irq_chip_get_parent_state(struct irq_data *data,
 				     enum irqchip_irq_state which,
 				     bool *state);
+extern void irq_chip_shutdown_parent(struct irq_data *data);
+extern unsigned int irq_chip_startup_parent(struct irq_data *data);
 extern void irq_chip_enable_parent(struct irq_data *data);
 extern void irq_chip_disable_parent(struct irq_data *data);
 extern void irq_chip_ack_parent(struct irq_data *data);
@@ -687,6 +691,13 @@ extern int irq_chip_set_vcpu_affinity_parent(struct irq_data *data,
 extern int irq_chip_set_type_parent(struct irq_data *data, unsigned int type);
 extern int irq_chip_request_resources_parent(struct irq_data *data);
 extern void irq_chip_release_resources_parent(struct irq_data *data);
+#ifdef CONFIG_SMP
+void irq_chip_pre_redirect_parent(struct irq_data *data);
+#endif
+#endif
+
+#ifdef CONFIG_SMP
+int irq_chip_redirect_set_affinity(struct irq_data *data, const struct cpumask *dest, bool force);
 #endif
 
 /* Disable or mask interrupts during a kernel kexec */
@@ -700,7 +711,7 @@ extern void note_interrupt(struct irq_desc *desc, irqreturn_t action_ret);
 extern int noirqdebug_setup(char *str);
 
 /* Checks whether the interrupt can be requested by request_irq(): */
-extern int can_request_irq(unsigned int irq, unsigned long irqflags);
+extern bool can_request_irq(unsigned int irq, unsigned long irqflags);
 
 /* Dummy irq-chip implementations: */
 extern struct irq_chip no_irq_chip;
@@ -718,10 +729,6 @@ static inline void irq_set_chip_and_handler(unsigned int irq,
 }
 
 extern int irq_set_percpu_devid(unsigned int irq);
-extern int irq_set_percpu_devid_partition(unsigned int irq,
-					  const struct cpumask *affinity);
-extern int irq_get_percpu_devid_partition(unsigned int irq,
-					  struct cpumask *affinity);
 
 extern void
 __irq_set_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,
@@ -977,10 +984,6 @@ static inline void irq_free_desc(unsigned int irq)
 	irq_free_descs(irq, 1);
 }
 
-#ifdef CONFIG_GENERIC_IRQ_LEGACY
-void irq_init_desc(unsigned int irq);
-#endif
-
 /**
  * struct irq_chip_regs - register offsets for struct irq_gci
  * @enable:	Enable register offset to reg_base
@@ -1221,31 +1224,6 @@ static inline struct irq_chip_type *irq_data_get_chip_type(struct irq_data *d)
 }
 
 #define IRQ_MSK(n) (u32)((n) < 32 ? ((1 << (n)) - 1) : UINT_MAX)
-
-#ifdef CONFIG_SMP
-static inline void irq_gc_lock(struct irq_chip_generic *gc)
-{
-	raw_spin_lock(&gc->lock);
-}
-
-static inline void irq_gc_unlock(struct irq_chip_generic *gc)
-{
-	raw_spin_unlock(&gc->lock);
-}
-#else
-static inline void irq_gc_lock(struct irq_chip_generic *gc) { }
-static inline void irq_gc_unlock(struct irq_chip_generic *gc) { }
-#endif
-
-/*
- * The irqsave variants are for usage in non interrupt code. Do not use
- * them in irq_chip callbacks. Use irq_gc_lock() instead.
- */
-#define irq_gc_lock_irqsave(gc, flags)	\
-	raw_spin_lock_irqsave(&(gc)->lock, flags)
-
-#define irq_gc_unlock_irqrestore(gc, flags)	\
-	raw_spin_unlock_irqrestore(&(gc)->lock, flags)
 
 static inline void irq_reg_writel(struct irq_chip_generic *gc,
 				  u32 val, int reg_offset)

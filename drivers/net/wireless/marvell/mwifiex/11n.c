@@ -403,14 +403,12 @@ mwifiex_cmd_append_11n_tlv(struct mwifiex_private *priv,
 
 		if (sband->ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40 &&
 		    bss_desc->bcn_ht_oper->ht_param &
-		    IEEE80211_HT_PARAM_CHAN_WIDTH_ANY) {
-			chan_list->chan_scan_param[0].radio_type |=
-				CHAN_BW_40MHZ << 2;
+		    IEEE80211_HT_PARAM_CHAN_WIDTH_ANY)
 			SET_SECONDARYCHAN(chan_list->chan_scan_param[0].
 					  radio_type,
 					  (bss_desc->bcn_ht_oper->ht_param &
 					  IEEE80211_HT_PARAM_CHA_SEC_OFFSET));
-		}
+
 		*buffer += struct_size(chan_list, chan_scan_param, 1);
 		ret_len += struct_size(chan_list, chan_scan_param, 1);
 	}
@@ -549,8 +547,8 @@ void mwifiex_create_ba_tbl(struct mwifiex_private *priv, u8 *ra, int tid,
 	int tid_down;
 
 	if (!mwifiex_get_ba_tbl(priv, tid, ra)) {
-		new_node = kzalloc(sizeof(struct mwifiex_tx_ba_stream_tbl),
-				   GFP_ATOMIC);
+		new_node = kzalloc_obj(struct mwifiex_tx_ba_stream_tbl,
+				       GFP_ATOMIC);
 		if (!new_node)
 			return;
 

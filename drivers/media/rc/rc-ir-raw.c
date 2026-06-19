@@ -552,7 +552,8 @@ EXPORT_SYMBOL(ir_raw_encode_scancode);
  */
 static void ir_raw_edge_handle(struct timer_list *t)
 {
-	struct ir_raw_event_ctrl *raw = from_timer(raw, t, edge_handle);
+	struct ir_raw_event_ctrl *raw = timer_container_of(raw, t,
+							   edge_handle);
 	struct rc_dev *dev = raw->dev;
 	unsigned long flags;
 	ktime_t interval;
@@ -614,7 +615,7 @@ int ir_raw_event_prepare(struct rc_dev *dev)
 	if (!dev)
 		return -EINVAL;
 
-	dev->raw = kzalloc(sizeof(*dev->raw), GFP_KERNEL);
+	dev->raw = kzalloc_obj(*dev->raw);
 	if (!dev->raw)
 		return -ENOMEM;
 
@@ -647,9 +648,6 @@ int ir_raw_event_register(struct rc_dev *dev)
 
 void ir_raw_event_free(struct rc_dev *dev)
 {
-	if (!dev)
-		return;
-
 	kfree(dev->raw);
 	dev->raw = NULL;
 }
@@ -672,8 +670,6 @@ void ir_raw_event_unregister(struct rc_dev *dev)
 			handler->raw_unregister(dev);
 
 	lirc_bpf_free(dev);
-
-	ir_raw_event_free(dev);
 
 	/*
 	 * A user can be calling bpf(BPF_PROG_{QUERY|ATTACH|DETACH}), so

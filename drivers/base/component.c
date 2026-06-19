@@ -363,7 +363,7 @@ static int component_match_realloc(struct component_match *match, size_t num)
 	if (match->alloc == num)
 		return 0;
 
-	new = kmalloc_array(num, sizeof(*new), GFP_KERNEL);
+	new = kmalloc_objs(*new, num);
 	if (!new)
 		return -ENOMEM;
 
@@ -521,7 +521,7 @@ int component_master_add_with_match(struct device *parent,
 	if (ret)
 		return ret;
 
-	adev = kzalloc(sizeof(*adev), GFP_KERNEL);
+	adev = kzalloc_obj(*adev);
 	if (!adev)
 		return -ENOMEM;
 
@@ -586,7 +586,8 @@ EXPORT_SYMBOL_GPL(component_master_is_bound);
 static void component_unbind(struct component *component,
 	struct aggregate_device *adev, void *data)
 {
-	WARN_ON(!component->bound);
+	if (WARN_ON(!component->bound))
+		return;
 
 	dev_dbg(adev->parent, "unbinding %s component %p (ops %ps)\n",
 		dev_name(component->dev), component, component->ops);
@@ -731,7 +732,7 @@ static int __component_add(struct device *dev, const struct component_ops *ops,
 	struct component *component;
 	int ret;
 
-	component = kzalloc(sizeof(*component), GFP_KERNEL);
+	component = kzalloc_obj(*component);
 	if (!component)
 		return -ENOMEM;
 

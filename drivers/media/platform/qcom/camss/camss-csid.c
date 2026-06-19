@@ -613,8 +613,8 @@ u32 csid_hw_version(struct csid_device *csid)
 	hw_gen = (hw_version >> HW_VERSION_GENERATION) & 0xF;
 	hw_rev = (hw_version >> HW_VERSION_REVISION) & 0xFFF;
 	hw_step = (hw_version >> HW_VERSION_STEPPING) & 0xFFFF;
-	dev_info(csid->camss->dev, "CSID:%d HW Version = %u.%u.%u\n",
-		 csid->id, hw_gen, hw_rev, hw_step);
+	dev_dbg(csid->camss->dev, "CSID:%d HW Version = %u.%u.%u\n",
+		csid->id, hw_gen, hw_rev, hw_step);
 
 	return hw_version;
 }
@@ -1187,24 +1187,12 @@ int msm_csid_subdev_init(struct camss *camss, struct csid_device *csid,
 
 	/* Regulator */
 	for (i = 0; i < ARRAY_SIZE(res->regulators); i++) {
-		if (res->regulators[i])
+		if (res->regulators[i].supply)
 			csid->num_supplies++;
 	}
 
-	if (csid->num_supplies) {
-		csid->supplies = devm_kmalloc_array(camss->dev,
-						    csid->num_supplies,
-						    sizeof(*csid->supplies),
-						    GFP_KERNEL);
-		if (!csid->supplies)
-			return -ENOMEM;
-	}
-
-	for (i = 0; i < csid->num_supplies; i++)
-		csid->supplies[i].supply = res->regulators[i];
-
-	ret = devm_regulator_bulk_get(camss->dev, csid->num_supplies,
-				      csid->supplies);
+	ret = devm_regulator_bulk_get_const(camss->dev, csid->num_supplies,
+					    res->regulators, &csid->supplies);
 	if (ret)
 		return ret;
 

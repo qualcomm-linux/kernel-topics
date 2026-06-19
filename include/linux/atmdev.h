@@ -185,6 +185,7 @@ struct atmdev_ops { /* only send is required */
 	int (*compat_ioctl)(struct atm_dev *dev,unsigned int cmd,
 			    void __user *arg);
 #endif
+	int (*pre_send)(struct atm_vcc *vcc, struct sk_buff *skb);
 	int (*send)(struct atm_vcc *vcc,struct sk_buff *skb);
 	int (*send_bh)(struct atm_vcc *vcc, struct sk_buff *skb);
 	int (*send_oam)(struct atm_vcc *vcc,void *cell,int flags);
@@ -249,6 +250,12 @@ static inline void atm_account_tx(struct atm_vcc *vcc, struct sk_buff *skb)
 	ATM_SKB(skb)->atm_options = vcc->atm_options;
 }
 
+static inline void atm_return_tx(struct atm_vcc *vcc, struct sk_buff *skb)
+{
+	WARN_ON_ONCE(refcount_sub_and_test(ATM_SKB(skb)->acct_truesize,
+					   &sk_atm(vcc)->sk_wmem_alloc));
+}
+
 static inline void atm_force_charge(struct atm_vcc *vcc,int truesize)
 {
 	atomic_add(truesize, &sk_atm(vcc)->sk_rmem_alloc);
@@ -302,17 +309,19 @@ struct atm_ioctl {
 
 /**
  * register_atm_ioctl - register handler for ioctl operations
+ * @ioctl: ioctl handler to register
  *
  * Special (non-device) handlers of ioctl's should
  * register here. If you're a normal device, you should
  * set .ioctl in your atmdev_ops instead.
  */
-void register_atm_ioctl(struct atm_ioctl *);
+void register_atm_ioctl(struct atm_ioctl *ioctl);
 
 /**
  * deregister_atm_ioctl - remove the ioctl handler
+ * @ioctl: ioctl handler to deregister
  */
-void deregister_atm_ioctl(struct atm_ioctl *);
+void deregister_atm_ioctl(struct atm_ioctl *ioctl);
 
 
 /* register_atmdevice_notifier - register atm_dev notify events

@@ -86,7 +86,6 @@ int adf_ae_stop(struct adf_accel_dev *accel_dev);
 extern const struct pci_error_handlers adf_err_handler;
 void adf_reset_sbr(struct adf_accel_dev *accel_dev);
 void adf_reset_flr(struct adf_accel_dev *accel_dev);
-int adf_dev_autoreset(struct adf_accel_dev *accel_dev);
 void adf_dev_restore(struct adf_accel_dev *accel_dev);
 int adf_init_aer(void);
 void adf_exit_aer(void);
@@ -112,12 +111,12 @@ void qat_algs_unregister(void);
 int qat_asym_algs_register(void);
 void qat_asym_algs_unregister(void);
 
-struct qat_compression_instance *qat_compression_get_instance_node(int node);
+struct qat_compression_instance *qat_compression_get_instance_node(int node, int alg);
 void qat_compression_put_instance(struct qat_compression_instance *inst);
 int qat_compression_register(void);
 int qat_compression_unregister(void);
-int qat_comp_algs_register(void);
-void qat_comp_algs_unregister(void);
+int qat_comp_algs_register(u32 caps);
+void qat_comp_algs_unregister(u32 caps);
 void qat_comp_alg_callback(void *resp);
 
 int adf_isr_resource_alloc(struct adf_accel_dev *accel_dev);
@@ -189,6 +188,7 @@ void adf_exit_misc_wq(void);
 bool adf_misc_wq_queue_work(struct work_struct *work);
 bool adf_misc_wq_queue_delayed_work(struct delayed_work *work,
 				    unsigned long delay);
+void adf_misc_wq_flush(void);
 #if defined(CONFIG_PCI_IOV)
 int adf_sriov_configure(struct pci_dev *pdev, int numvfs);
 void adf_disable_sriov(struct adf_accel_dev *accel_dev);

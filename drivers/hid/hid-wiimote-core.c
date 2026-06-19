@@ -1240,7 +1240,7 @@ static void wiimote_schedule(struct wiimote_data *wdata)
 
 static void wiimote_init_timeout(struct timer_list *t)
 {
-	struct wiimote_data *wdata = from_timer(wdata, t, timer);
+	struct wiimote_data *wdata = timer_container_of(wdata, t, timer);
 
 	wiimote_schedule(wdata);
 }
@@ -1737,7 +1737,7 @@ static struct wiimote_data *wiimote_create(struct hid_device *hdev)
 {
 	struct wiimote_data *wdata;
 
-	wdata = kzalloc(sizeof(*wdata), GFP_KERNEL);
+	wdata = kzalloc_obj(*wdata);
 	if (!wdata)
 		return NULL;
 

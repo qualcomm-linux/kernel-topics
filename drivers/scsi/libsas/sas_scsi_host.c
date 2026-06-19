@@ -10,6 +10,7 @@
 #include <linux/firmware.h>
 #include <linux/export.h>
 #include <linux/ctype.h>
+#include <linux/hex.h>
 #include <linux/kernel.h>
 
 #include "sas_internal.h"
@@ -157,7 +158,8 @@ static struct sas_task *sas_create_task(struct scsi_cmnd *cmd,
 	return task;
 }
 
-int sas_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
+enum scsi_qc_status sas_queuecommand(struct Scsi_Host *host,
+				     struct scsi_cmnd *cmd)
 {
 	struct sas_internal *i = to_sas_internal(host->transportt);
 	struct domain_device *dev = cmd_to_domain_dev(cmd);
@@ -845,7 +847,7 @@ int sas_change_queue_depth(struct scsi_device *sdev, int depth)
 EXPORT_SYMBOL_GPL(sas_change_queue_depth);
 
 int sas_bios_param(struct scsi_device *scsi_dev,
-			  struct block_device *bdev,
+			  struct gendisk *unused,
 			  sector_t capacity, int *hsc)
 {
 	hsc[0] = 255;
@@ -865,7 +867,7 @@ void sas_task_internal_done(struct sas_task *task)
 
 void sas_task_internal_timedout(struct timer_list *t)
 {
-	struct sas_task_slow *slow = from_timer(slow, t, timer);
+	struct sas_task_slow *slow = timer_container_of(slow, t, timer);
 	struct sas_task *task = slow->task;
 	bool is_completed = true;
 	unsigned long flags;

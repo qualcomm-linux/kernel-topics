@@ -46,10 +46,8 @@ static int __maybe_unused crypto_akcipher_report(
 		       sizeof(rakcipher), &rakcipher);
 }
 
-static void crypto_akcipher_show(struct seq_file *m, struct crypto_alg *alg)
-	__maybe_unused;
-
-static void crypto_akcipher_show(struct seq_file *m, struct crypto_alg *alg)
+static void __maybe_unused crypto_akcipher_show(struct seq_file *m,
+						struct crypto_alg *alg)
 {
 	seq_puts(m, "type         : akcipher\n");
 }
@@ -97,6 +95,7 @@ static const struct crypto_type crypto_akcipher_type = {
 	.maskset = CRYPTO_ALG_TYPE_AHASH_MASK,
 	.type = CRYPTO_ALG_TYPE_AKCIPHER,
 	.tfmsize = offsetof(struct crypto_akcipher, base),
+	.algsize = offsetof(struct akcipher_alg, base),
 };
 
 int crypto_grab_akcipher(struct crypto_akcipher_spawn *spawn,

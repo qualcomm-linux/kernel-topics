@@ -4,7 +4,7 @@
  *
  * Copyright (c) 2009, Jouni Malinen <j@w1.fi>
  * Copyright (c) 2015		Intel Deutschland GmbH
- * Copyright (C) 2019-2020, 2022-2025 Intel Corporation
+ * Copyright (C) 2019-2020, 2022-2026 Intel Corporation
  */
 
 #include <linux/kernel.h>
@@ -352,8 +352,25 @@ cfg80211_mlme_check_mlo_compat(const struct ieee80211_multi_link_elem *mle_a,
 		return -EINVAL;
 	}
 
-	if (ieee80211_mle_get_ext_mld_capa_op((const u8 *)mle_a) !=
-	    ieee80211_mle_get_ext_mld_capa_op((const u8 *)mle_b)) {
+	/*
+	 * Only verify the values in Extended MLD Capabilities that are
+	 * not reserved when transmitted by an AP (and expected to remain the
+	 * same over time).
+	 * The Recommended Max Simultaneous Links subfield in particular is
+	 * reserved when included in a unicast Probe Response frame and may
+	 * also change when the AP adds/removes links. The BTM MLD
+	 * Recommendation For Multiple APs Support subfield is reserved when
+	 * transmitted by an AP. All other bits are currently reserved.
+	 * See IEEE P802.11be/D7.0, Table 9-417o.
+	 */
+	if ((ieee80211_mle_get_ext_mld_capa_op((const u8 *)mle_a) &
+	     (IEEE80211_EHT_ML_EXT_MLD_CAPA_OP_PARAM_UPDATE |
+	      IEEE80211_EHT_ML_EXT_MLD_CAPA_NSTR_UPDATE |
+	      IEEE80211_EHT_ML_EXT_MLD_CAPA_EMLSR_ENA_ON_ONE_LINK)) !=
+	    (ieee80211_mle_get_ext_mld_capa_op((const u8 *)mle_b) &
+	     (IEEE80211_EHT_ML_EXT_MLD_CAPA_OP_PARAM_UPDATE |
+	      IEEE80211_EHT_ML_EXT_MLD_CAPA_NSTR_UPDATE |
+	      IEEE80211_EHT_ML_EXT_MLD_CAPA_EMLSR_ENA_ON_ONE_LINK))) {
 		NL_SET_ERR_MSG(extack,
 			       "extended link MLD capabilities/ops mismatch");
 		return -EINVAL;
@@ -765,8 +782,8 @@ void cfg80211_mlme_unregister_socket(struct wireless_dev *wdev, u32 nlportid)
 		rdev_crit_proto_stop(rdev, wdev);
 	}
 
-	if (nlportid == wdev->ap_unexpected_nlportid)
-		wdev->ap_unexpected_nlportid = 0;
+	if (nlportid == wdev->unexpected_nlportid)
+		wdev->unexpected_nlportid = 0;
 }
 
 void cfg80211_mlme_purge_registrations(struct wireless_dev *wdev)
@@ -850,7 +867,8 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 
 	mgmt = (const struct ieee80211_mgmt *)params->buf;
 
-	if (!ieee80211_is_mgmt(mgmt->frame_control))
+	if (!ieee80211_is_mgmt(mgmt->frame_control) ||
+	    ieee80211_has_order(mgmt->frame_control))
 		return -EINVAL;
 
 	stype = le16_to_cpu(mgmt->frame_control) & IEEE80211_FCTL_STYPE;
@@ -915,12 +933,17 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 			 * cfg80211 doesn't track the stations
 			 */
 			break;
+		case NL80211_IFTYPE_NAN:
+		case NL80211_IFTYPE_NAN_DATA:
+			if (mgmt->u.action.category !=
+			    WLAN_CATEGORY_PROTECTED_DUAL_OF_ACTION)
+				err = -EOPNOTSUPP;
+			break;
 		case NL80211_IFTYPE_P2P_DEVICE:
 			/*
 			 * fall through, P2P device only supports
 			 * public action frames
 			 */
-		case NL80211_IFTYPE_NAN:
 		default:
 			err = -EOPNOTSUPP;
 			break;
@@ -1097,8 +1120,10 @@ void __cfg80211_radar_event(struct wiphy *wiphy,
 	 */
 	cfg80211_set_dfs_state(wiphy, chandef, NL80211_DFS_UNAVAILABLE);
 
-	if (offchan)
+	if (offchan) {
+		cancel_delayed_work(&rdev->background_cac_done_wk);
 		queue_work(cfg80211_wq, &rdev->background_cac_abort_wk);
+	}
 
 	cfg80211_sched_dfs_chan_update(rdev);
 
@@ -1142,9 +1167,11 @@ void cfg80211_cac_event(struct net_device *netdev,
 		fallthrough;
 	case NL80211_RADAR_CAC_ABORTED:
 		wdev->links[link_id].cac_started = false;
+		cfg80211_set_cac_state(wiphy, chandef, false);
 		break;
 	case NL80211_RADAR_CAC_STARTED:
 		wdev->links[link_id].cac_started = true;
+		cfg80211_set_cac_state(wiphy, chandef, true);
 		break;
 	default:
 		WARN_ON(1);
@@ -1169,23 +1196,21 @@ __cfg80211_background_cac_event(struct cfg80211_registered_device *rdev,
 	if (!cfg80211_chandef_valid(chandef))
 		return;
 
-	if (!rdev->background_radar_wdev)
-		return;
-
 	switch (event) {
 	case NL80211_RADAR_CAC_FINISHED:
 		cfg80211_set_dfs_state(wiphy, chandef, NL80211_DFS_AVAILABLE);
+		cfg80211_set_cac_state(wiphy, chandef, false);
 		memcpy(&rdev->cac_done_chandef, chandef, sizeof(*chandef));
 		queue_work(cfg80211_wq, &rdev->propagate_cac_done_wk);
 		cfg80211_sched_dfs_chan_update(rdev);
-		wdev = rdev->background_radar_wdev;
 		break;
 	case NL80211_RADAR_CAC_ABORTED:
+		cfg80211_set_cac_state(wiphy, chandef, false);
 		if (!cancel_delayed_work(&rdev->background_cac_done_wk))
 			return;
-		wdev = rdev->background_radar_wdev;
 		break;
 	case NL80211_RADAR_CAC_STARTED:
+		cfg80211_set_cac_state(wiphy, chandef, true);
 		break;
 	default:
 		return;
@@ -1195,17 +1220,6 @@ __cfg80211_background_cac_event(struct cfg80211_registered_device *rdev,
 	nl80211_radar_notify(rdev, chandef, event, netdev, GFP_KERNEL);
 }
 
-static void
-cfg80211_background_cac_event(struct cfg80211_registered_device *rdev,
-			      const struct cfg80211_chan_def *chandef,
-			      enum nl80211_radar_event event)
-{
-	guard(wiphy)(&rdev->wiphy);
-
-	__cfg80211_background_cac_event(rdev, rdev->background_radar_wdev,
-					chandef, event);
-}
-
 void cfg80211_background_cac_done_wk(struct work_struct *work)
 {
 	struct delayed_work *delayed_work = to_delayed_work(work);
@@ -1213,18 +1227,31 @@ void cfg80211_background_cac_done_wk(struct work_struct *work)
 
 	rdev = container_of(delayed_work, struct cfg80211_registered_device,
 			    background_cac_done_wk);
-	cfg80211_background_cac_event(rdev, &rdev->background_radar_chandef,
-				      NL80211_RADAR_CAC_FINISHED);
+
+	guard(wiphy)(&rdev->wiphy);
+
+	rdev_set_radar_background(rdev, NULL);
+
+	__cfg80211_background_cac_event(rdev, rdev->background_radar_wdev,
+					&rdev->background_radar_chandef,
+					NL80211_RADAR_CAC_FINISHED);
+
+	rdev->background_radar_wdev = NULL;
 }
 
 void cfg80211_background_cac_abort_wk(struct work_struct *work)
 {
 	struct cfg80211_registered_device *rdev;
+	struct wireless_dev *wdev;
 
 	rdev = container_of(work, struct cfg80211_registered_device,
 			    background_cac_abort_wk);
-	cfg80211_background_cac_event(rdev, &rdev->background_radar_chandef,
-				      NL80211_RADAR_CAC_ABORTED);
+
+	guard(wiphy)(&rdev->wiphy);
+
+	wdev = rdev->background_radar_wdev;
+	if (wdev)
+		cfg80211_stop_background_radar_detection(wdev);
 }
 
 void cfg80211_background_cac_abort(struct wiphy *wiphy)
@@ -1277,6 +1304,27 @@ cfg80211_start_background_radar_detection(struct cfg80211_registered_device *rde
 	return 0;
 }
 
+void cfg80211_stop_radar_detection(struct wireless_dev *wdev)
+{
+	struct wiphy *wiphy = wdev->wiphy;
+	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
+	int link_id;
+
+	for_each_valid_link(wdev, link_id) {
+		struct cfg80211_chan_def chandef;
+
+		if (!wdev->links[link_id].cac_started)
+			continue;
+
+		chandef = *wdev_chandef(wdev, link_id);
+		rdev_end_cac(rdev, wdev->netdev, link_id);
+		wdev->links[link_id].cac_started = false;
+		cfg80211_set_cac_state(wiphy, &chandef, false);
+		nl80211_radar_notify(rdev, &chandef, NL80211_RADAR_CAC_ABORTED,
+				     wdev->netdev, GFP_KERNEL);
+	}
+}
+
 void cfg80211_stop_background_radar_detection(struct wireless_dev *wdev)
 {
 	struct wiphy *wiphy = wdev->wiphy;
@@ -1288,11 +1336,12 @@ void cfg80211_stop_background_radar_detection(struct wireless_dev *wdev)
 		return;
 
 	rdev_set_radar_background(rdev, NULL);
-	rdev->background_radar_wdev = NULL; /* Release offchain ownership */
 
 	__cfg80211_background_cac_event(rdev, wdev,
 					&rdev->background_radar_chandef,
 					NL80211_RADAR_CAC_ABORTED);
+
+	rdev->background_radar_wdev = NULL;
 }
 
 int cfg80211_assoc_ml_reconf(struct cfg80211_registered_device *rdev,
@@ -1331,7 +1380,8 @@ void cfg80211_mlo_reconf_add_done(struct net_device *dev,
 	lockdep_assert_wiphy(wiphy);
 
 	trace_cfg80211_mlo_reconf_add_done(dev, data->added_links,
-					   data->buf, data->len);
+					   data->buf, data->len,
+					   data->driver_initiated);
 
 	if (WARN_ON(!wdev->valid_links))
 		return;
@@ -1361,11 +1411,16 @@ void cfg80211_mlo_reconf_add_done(struct net_device *dev,
 			wdev->links[link_id].client.current_bss =
 				bss_from_pub(bss);
 
+			if (data->driver_initiated)
+				cfg80211_hold_bss(bss_from_pub(bss));
+
 			memcpy(wdev->links[link_id].addr,
 			       data->links[link_id].addr,
 			       ETH_ALEN);
 		} else {
-			cfg80211_unhold_bss(bss_from_pub(bss));
+			if (!data->driver_initiated)
+				cfg80211_unhold_bss(bss_from_pub(bss));
+
 			cfg80211_put_bss(wiphy, bss);
 		}
 	}

@@ -50,6 +50,7 @@ static double get_refcyc_per_delivery(struct display_mode_lib *mode_lib,
 	unsigned int delivery_width,
 	unsigned int req_per_swath_ub)
 {
+	(void)mode_lib;
 	double refcyc_per_delivery = 0.0;
 
 	if (vratio <= 1.0) {
@@ -620,7 +621,7 @@ static void get_meta_and_pte_attr(struct display_mode_lib *mode_lib,
 	if (hostvm_enable)
 		rq_sizing_param->dpte_group_bytes = 512;
 	else {
-		if (!surf_linear & (log2_dpte_req_height_ptes == 0) & surf_vert) //reduced, in this case, will have page fault within a group
+		if (!surf_linear && (log2_dpte_req_height_ptes == 0) && surf_vert) //reduced, in this case, will have page fault within a group
 			rq_sizing_param->dpte_group_bytes = 512;
 		else
 			rq_sizing_param->dpte_group_bytes = 2048;
@@ -804,6 +805,7 @@ static void calculate_ttu_cursor(struct display_mode_lib *mode_lib,
 	unsigned int cur_width,
 	enum cursor_bpp cur_bpp)
 {
+	(void)mode_lib;
 	unsigned int cur_src_width = cur_width;
 	unsigned int cur_req_size = 0;
 	unsigned int cur_req_width = 0;
@@ -896,6 +898,9 @@ static void dml_rq_dlg_get_dlg_params(struct display_mode_lib *mode_lib,
 	const bool ignore_viewport_pos,
 	const bool immediate_flip_support)
 {
+	(void)vm_en;
+	(void)ignore_viewport_pos;
+	(void)immediate_flip_support;
 	const display_pipe_source_params_st *src = &e2e_pipe_param[pipe_idx].pipe.src;
 	const display_pipe_dest_params_st *dst = &e2e_pipe_param[pipe_idx].pipe.dest;
 	const display_output_params_st *dout = &e2e_pipe_param[pipe_idx].dout;

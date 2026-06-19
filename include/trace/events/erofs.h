@@ -26,10 +26,9 @@ struct erofs_map_blocks;
 #define show_mflags(flags) __print_flags(flags, "",	\
 	{ EROFS_MAP_MAPPED,		"M" },		\
 	{ EROFS_MAP_META,		"I" },		\
-	{ EROFS_MAP_ENCODED,		"E" },		\
-	{ EROFS_MAP_FULL_MAPPED,	"F" },		\
-	{ EROFS_MAP_FRAGMENT,		"R" },		\
-	{ EROFS_MAP_PARTIAL_REF,	"P" })
+	{ EROFS_MAP_PARTIAL_MAPPED,	"T" },		\
+	{ EROFS_MAP_PARTIAL_REF,	"P" },		\
+	{ EROFS_MAP_FRAGMENT,		"R" })
 
 TRACE_EVENT(erofs_lookup,
 
@@ -82,9 +81,9 @@ TRACE_EVENT(erofs_fill_inode,
 
 TRACE_EVENT(erofs_read_folio,
 
-	TP_PROTO(struct folio *folio, bool raw),
+	TP_PROTO(struct inode *inode, struct folio *folio, bool raw),
 
-	TP_ARGS(folio, raw),
+	TP_ARGS(inode, folio, raw),
 
 	TP_STRUCT__entry(
 		__field(dev_t,		dev	)
@@ -96,9 +95,9 @@ TRACE_EVENT(erofs_read_folio,
 	),
 
 	TP_fast_assign(
-		__entry->dev	= folio->mapping->host->i_sb->s_dev;
-		__entry->nid	= EROFS_I(folio->mapping->host)->nid;
-		__entry->dir	= S_ISDIR(folio->mapping->host->i_mode);
+		__entry->dev	= inode->i_sb->s_dev;
+		__entry->nid	= EROFS_I(inode)->nid;
+		__entry->dir	= S_ISDIR(inode->i_mode);
 		__entry->index	= folio->index;
 		__entry->uptodate = folio_test_uptodate(folio);
 		__entry->raw = raw;
@@ -113,7 +112,7 @@ TRACE_EVENT(erofs_read_folio,
 		__entry->raw)
 );
 
-TRACE_EVENT(erofs_readpages,
+TRACE_EVENT(erofs_readahead,
 
 	TP_PROTO(struct inode *inode, pgoff_t start, unsigned int nrpage,
 		bool raw),
@@ -209,24 +208,6 @@ TRACE_EVENT(erofs_map_blocks_exit,
 		  __entry->flags ? show_map_flags(__entry->flags) : "NULL",
 		  __entry->la, __entry->pa, __entry->llen, __entry->plen,
 		  show_mflags(__entry->mflags), __entry->ret)
-);
-
-TRACE_EVENT(erofs_destroy_inode,
-	TP_PROTO(struct inode *inode),
-
-	TP_ARGS(inode),
-
-	TP_STRUCT__entry(
-		__field(	dev_t,		dev		)
-		__field(	erofs_nid_t,	nid		)
-	),
-
-	TP_fast_assign(
-		__entry->dev	= inode->i_sb->s_dev;
-		__entry->nid	= EROFS_I(inode)->nid;
-	),
-
-	TP_printk("dev = (%d,%d), nid = %llu", show_dev_nid(__entry))
 );
 
 #endif /* _TRACE_EROFS_H */

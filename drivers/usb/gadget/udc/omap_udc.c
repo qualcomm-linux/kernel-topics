@@ -267,7 +267,7 @@ omap_alloc_request(struct usb_ep *ep, gfp_t gfp_flags)
 {
 	struct omap_req	*req;
 
-	req = kzalloc(sizeof(*req), gfp_flags);
+	req = kzalloc_obj(*req, gfp_flags);
 	if (!req)
 		return NULL;
 
@@ -1860,7 +1860,7 @@ static irqreturn_t omap_udc_irq(int irq, void *_udc)
 
 static void pio_out_timer(struct timer_list *t)
 {
-	struct omap_ep	*ep = from_timer(ep, t, timer);
+	struct omap_ep	*ep = timer_container_of(ep, t, timer);
 	unsigned long	flags;
 	u16		stat_flg;
 
@@ -2627,7 +2627,7 @@ omap_udc_setup(struct platform_device *odev, struct usb_phy *xceiv)
 	/* UDC_PULLUP_EN gates the chip clock */
 	/* OTG_SYSCON_1 |= DEV_IDLE_EN; */
 
-	udc = kzalloc(sizeof(*udc), GFP_KERNEL);
+	udc = kzalloc_obj(*udc);
 	if (!udc)
 		return -ENOMEM;
 

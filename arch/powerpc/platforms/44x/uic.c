@@ -233,7 +233,7 @@ static struct uic * __init uic_init_one(struct device_node *node)
 
 	BUG_ON(! of_device_is_compatible(node, "ibm,uic"));
 
-	uic = kzalloc(sizeof(*uic), GFP_KERNEL);
+	uic = kzalloc_obj(*uic);
 	if (! uic)
 		return NULL; /* FIXME: panic? */
 
@@ -254,8 +254,9 @@ static struct uic * __init uic_init_one(struct device_node *node)
 	}
 	uic->dcrbase = *dcrreg;
 
-	uic->irqhost = irq_domain_add_linear(node, NR_UIC_INTS, &uic_host_ops,
-					     uic);
+	uic->irqhost = irq_domain_create_linear(of_fwnode_handle(node),
+						NR_UIC_INTS, &uic_host_ops,
+						uic);
 	if (! uic->irqhost)
 		return NULL; /* FIXME: panic? */
 
@@ -308,8 +309,8 @@ void __init uic_init_tree(void)
 
 			cascade_virq = irq_of_parse_and_map(np, 0);
 
-			irq_set_handler_data(cascade_virq, uic);
-			irq_set_chained_handler(cascade_virq, uic_irq_cascade);
+			irq_set_chained_handler_and_data(cascade_virq,
+							 uic_irq_cascade, uic);
 
 			/* FIXME: setup critical cascade?? */
 		}
@@ -327,5 +328,5 @@ unsigned int uic_get_irq(void)
 	msr = mfdcr(primary_uic->dcrbase + UIC_MSR);
 	src = 32 - ffs(msr);
 
-	return irq_linear_revmap(primary_uic->irqhost, src);
+	return irq_find_mapping(primary_uic->irqhost, src);
 }

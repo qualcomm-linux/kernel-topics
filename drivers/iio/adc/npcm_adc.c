@@ -38,7 +38,7 @@ struct npcm_adc {
 	 * read access from userspace. Reading a raw value requires a sequence
 	 * of register writes, then a wait for a event and finally a register
 	 * read, during which userspace could issue another read request.
-	 * This lock protects a read access from ocurring before another one
+	 * This lock protects a read access from occurring before another one
 	 * has finished.
 	 */
 	struct mutex lock;
@@ -196,7 +196,7 @@ static const struct iio_info npcm_adc_iio_info = {
 static const struct of_device_id npcm_adc_match[] = {
 	{ .compatible = "nuvoton,npcm750-adc", .data = &npxm7xx_adc_info},
 	{ .compatible = "nuvoton,npcm845-adc", .data = &npxm8xx_adc_info},
-	{ /* sentinel */ }
+	{ }
 };
 MODULE_DEVICE_TABLE(of, npcm_adc_match);
 

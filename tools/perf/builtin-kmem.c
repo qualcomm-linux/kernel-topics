@@ -82,7 +82,7 @@ static unsigned long nr_allocs, nr_cross_allocs;
 
 /* filters for controlling start and stop of time of analysis */
 static struct perf_time_interval ptime;
-const char *time_str;
+static const char *time_str;
 
 static int insert_alloc_stat(unsigned long call_site, unsigned long ptr,
 			     int bytes_req, int bytes_alloc, int cpu)
@@ -2024,7 +2024,7 @@ int cmd_kmem(int argc, const char **argv)
 		symbol_conf.use_callchain = true;
 	}
 
-	symbol__init(&session->header.env);
+	symbol__init(perf_session__env(session));
 
 	if (perf_time__parse_str(&ptime, time_str) != 0) {
 		pr_err("Invalid time string\n");

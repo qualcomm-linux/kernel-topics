@@ -32,9 +32,9 @@ struct iwl_mld_phy {
 };
 
 static inline struct iwl_mld_phy *
-iwl_mld_phy_from_mac80211(struct ieee80211_chanctx_conf *channel)
+iwl_mld_phy_from_mac80211(struct ieee80211_chanctx_conf *chanctx)
 {
-	return (void *)channel->drv_priv;
+	return (void *)chanctx->drv_priv;
 }
 
 /* Cleanup function for struct iwl_mld_phy, will be called in restart */
@@ -51,5 +51,10 @@ struct cfg80211_chan_def *
 iwl_mld_get_chandef_from_chanctx(struct iwl_mld *mld,
 				 struct ieee80211_chanctx_conf *ctx);
 u8 iwl_mld_get_fw_ctrl_pos(const struct cfg80211_chan_def *chandef);
+
+int iwl_mld_send_phy_cfg_cmd(struct iwl_mld *mld);
+
+void iwl_mld_update_phy_chandef(struct iwl_mld *mld,
+				struct ieee80211_chanctx_conf *ctx);
 
 #endif /* __iwl_mld_phy_h__ */

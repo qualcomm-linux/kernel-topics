@@ -366,7 +366,7 @@ static int tx_sched_init(struct sge *sge)
 	struct sched *s;
 	int i;
 
-	s = kzalloc(sizeof (struct sched), GFP_KERNEL);
+	s = kzalloc_obj(struct sched);
 	if (!s)
 		return -ENOMEM;
 
@@ -1922,7 +1922,7 @@ send:
 static void sge_tx_reclaim_cb(struct timer_list *t)
 {
 	int i;
-	struct sge *sge = from_timer(sge, t, tx_reclaim_timer);
+	struct sge *sge = timer_container_of(sge, t, tx_reclaim_timer);
 
 	for (i = 0; i < SGE_CMDQ_N; ++i) {
 		struct cmdQ *q = &sge->cmdQ[i];
@@ -2017,7 +2017,7 @@ void t1_sge_start(struct sge *sge)
  */
 static void espibug_workaround_t204(struct timer_list *t)
 {
-	struct sge *sge = from_timer(sge, t, espibug_timer);
+	struct sge *sge = timer_container_of(sge, t, espibug_timer);
 	struct adapter *adapter = sge->adapter;
 	unsigned int nports = adapter->params.nports;
 	u32 seop[MAX_NPORTS];
@@ -2060,7 +2060,7 @@ static void espibug_workaround_t204(struct timer_list *t)
 
 static void espibug_workaround(struct timer_list *t)
 {
-	struct sge *sge = from_timer(sge, t, espibug_timer);
+	struct sge *sge = timer_container_of(sge, t, espibug_timer);
 	struct adapter *adapter = sge->adapter;
 
 	if (netif_running(adapter->port[0].dev)) {
@@ -2095,7 +2095,7 @@ static void espibug_workaround(struct timer_list *t)
  */
 struct sge *t1_sge_create(struct adapter *adapter, struct sge_params *p)
 {
-	struct sge *sge = kzalloc(sizeof(*sge), GFP_KERNEL);
+	struct sge *sge = kzalloc_obj(*sge);
 	int i;
 
 	if (!sge)

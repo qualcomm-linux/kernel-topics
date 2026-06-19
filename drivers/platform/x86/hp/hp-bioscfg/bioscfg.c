@@ -10,6 +10,8 @@
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/printk.h>
+#include <linux/string.h>
 #include <linux/wmi.h>
 #include "bioscfg.h"
 #include "../../firmware_attributes_class.h"
@@ -586,7 +588,7 @@ static int hp_add_other_attributes(int attr_type)
 	int ret;
 	char *attr_name;
 
-	attr_name_kobj = kzalloc(sizeof(*attr_name_kobj), GFP_KERNEL);
+	attr_name_kobj = kzalloc_obj(*attr_name_kobj);
 	if (!attr_name_kobj)
 		return -ENOMEM;
 
@@ -694,6 +696,11 @@ static int hp_init_bios_package_attribute(enum hp_wmi_data_type attr_type,
 		return ret;
 	}
 
+	if (!str_value || !str_value[0]) {
+		pr_debug("Ignoring attribute with empty name\n");
+		goto pack_attr_exit;
+	}
+
 	/* All duplicate attributes found are ignored */
 	duplicate = kset_find_obj(temp_kset, str_value);
 	if (duplicate) {
@@ -704,7 +711,7 @@ static int hp_init_bios_package_attribute(enum hp_wmi_data_type attr_type,
 	}
 
 	/* build attribute */
-	attr_name_kobj = kzalloc(sizeof(*attr_name_kobj), GFP_KERNEL);
+	attr_name_kobj = kzalloc_obj(*attr_name_kobj);
 	if (!attr_name_kobj) {
 		ret = -ENOMEM;
 		goto pack_attr_exit;
@@ -781,6 +788,12 @@ static int hp_init_bios_buffer_attribute(enum hp_wmi_data_type attr_type,
 	if (ret < 0)
 		goto buff_attr_exit;
 
+	if (strlen(str) == 0) {
+		pr_debug("Ignoring attribute with empty name\n");
+		ret = 0;
+		goto buff_attr_exit;
+	}
+
 	if (attr_type == HPWMI_PASSWORD_TYPE ||
 	    attr_type == HPWMI_SECURE_PLATFORM_TYPE)
 		temp_kset = bioscfg_drv.authentication_dir_kset;
@@ -797,7 +810,7 @@ static int hp_init_bios_buffer_attribute(enum hp_wmi_data_type attr_type,
 	}
 
 	/* build attribute */
-	attr_name_kobj = kzalloc(sizeof(*attr_name_kobj), GFP_KERNEL);
+	attr_name_kobj = kzalloc_obj(*attr_name_kobj);
 	if (!attr_name_kobj) {
 		ret = -ENOMEM;
 		goto buff_attr_exit;
@@ -1034,7 +1047,7 @@ err_release_attributes_data:
 	release_attributes_data();
 
 err_destroy_classdev:
-	device_destroy(&firmware_attributes_class, MKDEV(0, 0));
+	device_unregister(bioscfg_drv.class_dev);
 
 err_unregister_class:
 	hp_exit_attr_set_interface();
@@ -1045,7 +1058,7 @@ err_unregister_class:
 static void __exit hp_exit(void)
 {
 	release_attributes_data();
-	device_destroy(&firmware_attributes_class, MKDEV(0, 0));
+	device_unregister(bioscfg_drv.class_dev);
 
 	hp_exit_attr_set_interface();
 }

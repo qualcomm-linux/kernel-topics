@@ -257,7 +257,8 @@ static unsigned long tpt_trig_traffic(struct ieee80211_local *local,
 
 static void tpt_trig_timer(struct timer_list *t)
 {
-	struct tpt_led_trigger *tpt_trig = from_timer(tpt_trig, t, timer);
+	struct tpt_led_trigger *tpt_trig = timer_container_of(tpt_trig, t,
+							      timer);
 	struct ieee80211_local *local = tpt_trig->local;
 	unsigned long on, off, tpt;
 	int i;
@@ -297,7 +298,7 @@ __ieee80211_create_tpt_led_trigger(struct ieee80211_hw *hw,
 	if (WARN_ON(local->tpt_led_trigger))
 		return NULL;
 
-	tpt_trig = kzalloc(sizeof(struct tpt_led_trigger), GFP_KERNEL);
+	tpt_trig = kzalloc_obj(struct tpt_led_trigger);
 	if (!tpt_trig)
 		return NULL;
 

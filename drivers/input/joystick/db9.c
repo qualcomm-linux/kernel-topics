@@ -351,7 +351,7 @@ static int db9_saturn(int mode, struct parport *port, struct input_dev *devs[])
 
 static void db9_timer(struct timer_list *t)
 {
-	struct db9 *db9 = from_timer(db9, t, timer);
+	struct db9 *db9 = timer_container_of(db9, t, timer);
 	struct parport *port = db9->pd->port;
 	struct input_dev *dev = db9->dev[0];
 	struct input_dev *dev2 = db9->dev[1];
@@ -585,7 +585,7 @@ static void db9_attach(struct parport *pp)
 		return;
 	}
 
-	db9 = kzalloc(sizeof(*db9), GFP_KERNEL);
+	db9 = kzalloc_obj(*db9);
 	if (!db9)
 		goto err_unreg_pardev;
 

@@ -360,8 +360,8 @@ static int add_td_to_list(struct ci_hw_ep *hwep, struct ci_hw_req *hwreq,
 {
 	int i;
 	u32 temp;
-	struct td_node *lastnode, *node = kzalloc(sizeof(struct td_node),
-						  GFP_ATOMIC);
+	struct td_node *lastnode, *node = kzalloc_obj(struct td_node,
+						      GFP_ATOMIC);
 
 	if (node == NULL)
 		return -ENOMEM;
@@ -930,6 +930,13 @@ __acquires(hwep->lock)
 
 		list_del_init(&hwreq->queue);
 		hwreq->req.status = -ESHUTDOWN;
+
+		/* Unmap DMA and clean up bounce buffers before giving back */
+		usb_gadget_unmap_request_by_dev(hwep->ci->dev->parent,
+					&hwreq->req, hwep->dir);
+
+		if (hwreq->sgt.sgl)
+			sglist_do_debounce(hwreq, false);
 
 		if (hwreq->req.complete != NULL) {
 			spin_unlock(hwep->lock);
@@ -1638,7 +1645,7 @@ static struct usb_request *ep_alloc_request(struct usb_ep *ep, gfp_t gfp_flags)
 	if (ep == NULL)
 		return NULL;
 
-	hwreq = kzalloc(sizeof(struct ci_hw_req), gfp_flags);
+	hwreq = kzalloc_obj(struct ci_hw_req, gfp_flags);
 	if (hwreq != NULL) {
 		INIT_LIST_HEAD(&hwreq->queue);
 		INIT_LIST_HEAD(&hwreq->tds);
@@ -1970,6 +1977,11 @@ static int ci_udc_pullup(struct usb_gadget *_gadget, int is_on)
 		hw_write(ci, OP_USBCMD, USBCMD_RS, USBCMD_RS);
 	else
 		hw_write(ci, OP_USBCMD, USBCMD_RS, 0);
+
+	if (ci->platdata->notify_event) {
+		_gadget->connected = is_on;
+		ci->platdata->notify_event(ci, CI_HDRC_CONTROLLER_PULLUP_EVENT);
+	}
 	pm_runtime_put_sync(ci->dev);
 
 	return 0;
@@ -2374,6 +2386,10 @@ static void udc_suspend(struct ci_hdrc *ci)
 	 */
 	if (hw_read(ci, OP_ENDPTLISTADDR, ~0) == 0)
 		hw_write(ci, OP_ENDPTLISTADDR, ~0, ~0);
+
+	if (ci->gadget.connected &&
+	    (!ci->suspended || !device_may_wakeup(ci->dev)))
+		usb_gadget_disconnect(&ci->gadget);
 }
 
 static void udc_resume(struct ci_hdrc *ci, bool power_lost)
@@ -2384,6 +2400,9 @@ static void udc_resume(struct ci_hdrc *ci, bool power_lost)
 					OTGSC_BSVIS | OTGSC_BSVIE);
 		if (ci->vbus_active)
 			usb_gadget_vbus_disconnect(&ci->gadget);
+	} else if (ci->vbus_active && ci->driver &&
+		   !ci->gadget.connected) {
+		usb_gadget_connect(&ci->gadget);
 	}
 
 	/* Restore value 0 if it was set for power lost check */

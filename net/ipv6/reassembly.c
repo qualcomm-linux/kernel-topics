@@ -73,7 +73,7 @@ static int ip6_frag_reasm(struct frag_queue *fq, struct sk_buff *skb,
 
 static void ip6_frag_expire(struct timer_list *t)
 {
-	struct inet_frag_queue *frag = from_timer(frag, t, timer);
+	struct inet_frag_queue *frag = timer_container_of(frag, t, timer);
 	struct frag_queue *fq;
 
 	fq = container_of(frag, struct frag_queue, q);
@@ -104,11 +104,11 @@ fq_find(struct net *net, __be32 id, const struct ipv6hdr *hdr, int iif)
 	return container_of(q, struct frag_queue, q);
 }
 
-static int ip6_frag_queue(struct frag_queue *fq, struct sk_buff *skb,
+static int ip6_frag_queue(struct net *net,
+			  struct frag_queue *fq, struct sk_buff *skb,
 			  struct frag_hdr *fhdr, int nhoff,
 			  u32 *prob_offset, int *refs)
 {
-	struct net *net = dev_net(skb_dst(skb)->dev);
 	int offset, end, fragsize;
 	struct sk_buff *prev_tail;
 	struct net_device *dev;
@@ -132,6 +132,9 @@ static int ip6_frag_queue(struct frag_queue *fq, struct sk_buff *skb,
 		/* note that if prob_offset is set, the skb is freed elsewhere,
 		 * we do not free it here.
 		 */
+		inet_frag_kill(&fq->q, refs);
+		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+				IPSTATS_MIB_REASMFAILS);
 		return -1;
 	}
 
@@ -163,6 +166,9 @@ static int ip6_frag_queue(struct frag_queue *fq, struct sk_buff *skb,
 			 * this case. -DaveM
 			 */
 			*prob_offset = offsetof(struct ipv6hdr, payload_len);
+			inet_frag_kill(&fq->q, refs);
+			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+					IPSTATS_MIB_REASMFAILS);
 			return -1;
 		}
 		if (end > fq->q.len) {
@@ -324,10 +330,10 @@ out_fail:
 
 static int ipv6_frag_rcv(struct sk_buff *skb)
 {
+	const struct ipv6hdr *hdr = ipv6_hdr(skb);
+	struct net *net = skb_dst_dev_net(skb);
 	struct frag_hdr *fhdr;
 	struct frag_queue *fq;
-	const struct ipv6hdr *hdr = ipv6_hdr(skb);
-	struct net *net = dev_net(skb_dst(skb)->dev);
 	u8 nexthdr;
 	int iif;
 
@@ -384,7 +390,7 @@ static int ipv6_frag_rcv(struct sk_buff *skb)
 		spin_lock(&fq->q.lock);
 
 		fq->iif = iif;
-		ret = ip6_frag_queue(fq, skb, fhdr, IP6CB(skb)->nhoff,
+		ret = ip6_frag_queue(net, fq, skb, fhdr, IP6CB(skb)->nhoff,
 				     &prob_offset, &refs);
 
 		spin_unlock(&fq->q.lock);

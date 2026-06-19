@@ -24,7 +24,7 @@
 #include <asm/nospec-branch.h>
 #include <xen/interface/elfnote.h>
 
-	__HEAD
+	__INIT
 
 /*
  * Entry point for PVH guests.
@@ -87,15 +87,16 @@ SYM_CODE_START(pvh_start_xen)
 	mov %ebx, %esi
 	movl rva(pvh_start_info_sz)(%ebp), %ecx
 	shr $2,%ecx
-	rep
-	movsl
+	rep movsl
 
 	leal rva(early_stack_end)(%ebp), %esp
 
+#if defined(CONFIG_X86_64) || defined(CONFIG_X86_PAE)
 	/* Enable PAE mode. */
 	mov %cr4, %eax
 	orl $X86_CR4_PAE, %eax
 	mov %eax, %cr4
+#endif
 
 #ifdef CONFIG_X86_64
 	/* Enable Long mode. */

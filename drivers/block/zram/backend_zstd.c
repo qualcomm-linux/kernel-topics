@@ -53,12 +53,12 @@ static int zstd_setup_params(struct zcomp_params *params)
 	zstd_compression_parameters prm;
 	struct zstd_params *zp;
 
-	zp = kzalloc(sizeof(*zp), GFP_KERNEL);
+	zp = kzalloc_obj(*zp);
 	if (!zp)
 		return -ENOMEM;
 
 	params->drv_data = zp;
-	if (params->level == ZCOMP_PARAM_NO_LEVEL)
+	if (params->level == ZCOMP_PARAM_NOT_SET)
 		params->level = zstd_default_clevel();
 
 	zp->cprm = zstd_get_params(params->level, PAGE_SIZE);
@@ -122,7 +122,7 @@ static int zstd_create(struct zcomp_params *params, struct zcomp_ctx *ctx)
 	zstd_parameters prm;
 	size_t sz;
 
-	zctx = kzalloc(sizeof(*zctx), GFP_KERNEL);
+	zctx = kzalloc_obj(*zctx);
 	if (!zctx)
 		return -ENOMEM;
 

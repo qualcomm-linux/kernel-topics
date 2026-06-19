@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0
 
-import time
-from lib.py import ksft_run, ksft_exit, ksft_pr
-from lib.py import ksft_eq, ksft_ge, ksft_busy_wait
-from lib.py import NetdevFamily, NetdevSimDev, ip
+"""
+Tests for the netdev netlink family.
+"""
+
+import errno
+from os import system
+from lib.py import ksft_run, ksft_exit
+from lib.py import ksft_eq, ksft_ge, ksft_ne, ksft_raises, ksft_busy_wait
+from lib.py import NetdevFamily, NetdevSimDev, NlError, ip
 
 
 def empty_check(nf) -> None:
@@ -16,6 +21,15 @@ def lo_check(nf) -> None:
     lo_info = nf.dev_get({"ifindex": 1})
     ksft_eq(len(lo_info['xdp-features']), 0)
     ksft_eq(len(lo_info['xdp-rx-metadata-features']), 0)
+
+
+def dev_dump_reject_attr(nf) -> None:
+    """Test that dev-get dump rejects attributes (no dump request policy)."""
+    with ksft_raises(NlError) as cm:
+        nf.dev_get({'ifindex': 1}, dump=True)
+    ksft_eq(cm.exception.nl_msg.error, -errno.EINVAL)
+    ksft_eq(cm.exception.nl_msg.extack['msg'], 'Unknown attribute type')
+    ksft_eq(cm.exception.nl_msg.extack['bad-attr'], '.ifindex')
 
 
 def napi_list_check(nf) -> None:
@@ -34,6 +48,128 @@ def napi_list_check(nf) -> None:
                 ksft_eq(len(napis), 100,
                         comment=f"queue count after reset queue {q} mode {i}")
 
+def napi_set_threaded(nf) -> None:
+    """
+    Test that verifies various cases of napi threaded
+    set and unset at napi and device level.
+    """
+    with NetdevSimDev(queue_count=2) as nsimdev:
+        nsim = nsimdev.nsims[0]
+
+        ip(f"link set dev {nsim.ifname} up")
+
+        napis = nf.napi_get({'ifindex': nsim.ifindex}, dump=True)
+        ksft_eq(len(napis), 2)
+
+        napi0_id = napis[0]['id']
+        napi1_id = napis[1]['id']
+
+        # set napi threaded and verify
+        nf.napi_set({'id': napi0_id, 'threaded': "enabled"})
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "enabled")
+        ksft_ne(napi0.get('pid'), None)
+
+        # check it is not set for napi1
+        napi1 = nf.napi_get({'id': napi1_id})
+        ksft_eq(napi1['threaded'], "disabled")
+        ksft_eq(napi1.get('pid'), None)
+
+        ip(f"link set dev {nsim.ifname} down")
+        ip(f"link set dev {nsim.ifname} up")
+
+        # verify if napi threaded is still set
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "enabled")
+        ksft_ne(napi0.get('pid'), None)
+
+        # check it is still not set for napi1
+        napi1 = nf.napi_get({'id': napi1_id})
+        ksft_eq(napi1['threaded'], "disabled")
+        ksft_eq(napi1.get('pid'), None)
+
+        # unset napi threaded and verify
+        nf.napi_set({'id': napi0_id, 'threaded': "disabled"})
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "disabled")
+        ksft_eq(napi0.get('pid'), None)
+
+        # set threaded at device level
+        system(f"echo 1 > /sys/class/net/{nsim.ifname}/threaded")
+
+        # check napi threaded is set for both napis
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "enabled")
+        ksft_ne(napi0.get('pid'), None)
+        napi1 = nf.napi_get({'id': napi1_id})
+        ksft_eq(napi1['threaded'], "enabled")
+        ksft_ne(napi1.get('pid'), None)
+
+        # unset threaded at device level
+        system(f"echo 0 > /sys/class/net/{nsim.ifname}/threaded")
+
+        # check napi threaded is unset for both napis
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "disabled")
+        ksft_eq(napi0.get('pid'), None)
+        napi1 = nf.napi_get({'id': napi1_id})
+        ksft_eq(napi1['threaded'], "disabled")
+        ksft_eq(napi1.get('pid'), None)
+
+        # set napi threaded for napi0
+        nf.napi_set({'id': napi0_id, 'threaded': 1})
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "enabled")
+        ksft_ne(napi0.get('pid'), None)
+
+        # unset threaded at device level
+        system(f"echo 0 > /sys/class/net/{nsim.ifname}/threaded")
+
+        # check napi threaded is unset for both napis
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "disabled")
+        ksft_eq(napi0.get('pid'), None)
+        napi1 = nf.napi_get({'id': napi1_id})
+        ksft_eq(napi1['threaded'], "disabled")
+        ksft_eq(napi1.get('pid'), None)
+
+def dev_set_threaded(nf) -> None:
+    """
+    Test that verifies various cases of napi threaded
+    set and unset at device level using sysfs.
+    """
+    with NetdevSimDev(queue_count=2) as nsimdev:
+        nsim = nsimdev.nsims[0]
+
+        ip(f"link set dev {nsim.ifname} up")
+
+        napis = nf.napi_get({'ifindex': nsim.ifindex}, dump=True)
+        ksft_eq(len(napis), 2)
+
+        napi0_id = napis[0]['id']
+        napi1_id = napis[1]['id']
+
+        # set threaded
+        system(f"echo 1 > /sys/class/net/{nsim.ifname}/threaded")
+
+        # check napi threaded is set for both napis
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "enabled")
+        ksft_ne(napi0.get('pid'), None)
+        napi1 = nf.napi_get({'id': napi1_id})
+        ksft_eq(napi1['threaded'], "enabled")
+        ksft_ne(napi1.get('pid'), None)
+
+        # unset threaded
+        system(f"echo 0 > /sys/class/net/{nsim.ifname}/threaded")
+
+        # check napi threaded is unset for both napis
+        napi0 = nf.napi_get({'id': napi0_id})
+        ksft_eq(napi0['threaded'], "disabled")
+        ksft_eq(napi0.get('pid'), None)
+        napi1 = nf.napi_get({'id': napi1_id})
+        ksft_eq(napi1['threaded'], "disabled")
+        ksft_eq(napi1.get('pid'), None)
 
 def nsim_rxq_reset_down(nf) -> None:
     """
@@ -120,9 +256,16 @@ def page_pool_check(nf) -> None:
 
 
 def main() -> None:
+    """ Ksft boiler plate main """
     nf = NetdevFamily()
-    ksft_run([empty_check, lo_check, page_pool_check, napi_list_check,
-              nsim_rxq_reset_down],
+    ksft_run([empty_check,
+              lo_check,
+              dev_dump_reject_attr,
+              napi_list_check,
+              napi_set_threaded,
+              dev_set_threaded,
+              nsim_rxq_reset_down,
+              page_pool_check],
              args=(nf, ))
     ksft_exit()
 

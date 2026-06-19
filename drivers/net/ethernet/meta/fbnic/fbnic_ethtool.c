@@ -2,6 +2,7 @@
 /* Copyright (c) Meta Platforms, Inc. and affiliates. */
 
 #include <linux/ethtool.h>
+#include <linux/ethtool_netlink.h>
 #include <linux/netdevice.h>
 #include <linux/pci.h>
 #include <net/ipv6.h>
@@ -27,6 +28,19 @@ struct fbnic_stat {
 	FBNIC_STAT_FIELDS(fbnic_hw_stats, name, stat)
 
 static const struct fbnic_stat fbnic_gstrings_hw_stats[] = {
+	/* TTI */
+	FBNIC_HW_STAT("tti_cm_drop_frames", tti.cm_drop.frames),
+	FBNIC_HW_STAT("tti_cm_drop_bytes", tti.cm_drop.bytes),
+	FBNIC_HW_STAT("tti_frame_drop_frames", tti.frame_drop.frames),
+	FBNIC_HW_STAT("tti_frame_drop_bytes", tti.frame_drop.bytes),
+	FBNIC_HW_STAT("tti_tbi_drop_frames", tti.tbi_drop.frames),
+	FBNIC_HW_STAT("tti_tbi_drop_bytes", tti.tbi_drop.bytes),
+
+	/* TMI */
+	FBNIC_HW_STAT("ptp_illegal_req", tmi.ptp_illegal_req),
+	FBNIC_HW_STAT("ptp_good_ts", tmi.ptp_good_ts),
+	FBNIC_HW_STAT("ptp_bad_ts", tmi.ptp_bad_ts),
+
 	/* RPC */
 	FBNIC_HW_STAT("rpc_unkn_etype", rpc.unkn_etype),
 	FBNIC_HW_STAT("rpc_unkn_ext_hdr", rpc.unkn_ext_hdr),
@@ -39,7 +53,92 @@ static const struct fbnic_stat fbnic_gstrings_hw_stats[] = {
 };
 
 #define FBNIC_HW_FIXED_STATS_LEN ARRAY_SIZE(fbnic_gstrings_hw_stats)
-#define FBNIC_HW_STATS_LEN	FBNIC_HW_FIXED_STATS_LEN
+
+#define FBNIC_RXB_ENQUEUE_STAT(name, stat) \
+	FBNIC_STAT_FIELDS(fbnic_rxb_enqueue_stats, name, stat)
+
+static const struct fbnic_stat fbnic_gstrings_rxb_enqueue_stats[] = {
+	FBNIC_RXB_ENQUEUE_STAT("rxb_integrity_err%u", integrity_err),
+	FBNIC_RXB_ENQUEUE_STAT("rxb_mac_err%u", mac_err),
+	FBNIC_RXB_ENQUEUE_STAT("rxb_parser_err%u", parser_err),
+	FBNIC_RXB_ENQUEUE_STAT("rxb_frm_err%u", frm_err),
+
+	FBNIC_RXB_ENQUEUE_STAT("rxb_drbo%u_frames", drbo.frames),
+	FBNIC_RXB_ENQUEUE_STAT("rxb_drbo%u_bytes", drbo.bytes),
+};
+
+#define FBNIC_HW_RXB_ENQUEUE_STATS_LEN \
+	ARRAY_SIZE(fbnic_gstrings_rxb_enqueue_stats)
+
+#define FBNIC_RXB_FIFO_STAT(name, stat) \
+	FBNIC_STAT_FIELDS(fbnic_rxb_fifo_stats, name, stat)
+
+static const struct fbnic_stat fbnic_gstrings_rxb_fifo_stats[] = {
+	FBNIC_RXB_FIFO_STAT("rxb_fifo%u_drop", trans_drop),
+	FBNIC_RXB_FIFO_STAT("rxb_fifo%u_dropped_frames", drop.frames),
+	FBNIC_RXB_FIFO_STAT("rxb_fifo%u_ecn", trans_ecn),
+	FBNIC_RXB_FIFO_STAT("rxb_fifo%u_level", level),
+};
+
+#define FBNIC_HW_RXB_FIFO_STATS_LEN ARRAY_SIZE(fbnic_gstrings_rxb_fifo_stats)
+
+#define FBNIC_RXB_DEQUEUE_STAT(name, stat) \
+	FBNIC_STAT_FIELDS(fbnic_rxb_dequeue_stats, name, stat)
+
+static const struct fbnic_stat fbnic_gstrings_rxb_dequeue_stats[] = {
+	FBNIC_RXB_DEQUEUE_STAT("rxb_intf%u_frames", intf.frames),
+	FBNIC_RXB_DEQUEUE_STAT("rxb_intf%u_bytes", intf.bytes),
+	FBNIC_RXB_DEQUEUE_STAT("rxb_pbuf%u_frames", pbuf.frames),
+	FBNIC_RXB_DEQUEUE_STAT("rxb_pbuf%u_bytes", pbuf.bytes),
+};
+
+#define FBNIC_HW_RXB_DEQUEUE_STATS_LEN \
+	ARRAY_SIZE(fbnic_gstrings_rxb_dequeue_stats)
+
+#define FBNIC_HW_Q_STAT(name, stat) \
+	FBNIC_STAT_FIELDS(fbnic_hw_q_stats, name, stat.value)
+
+static const struct fbnic_stat fbnic_gstrings_hw_q_stats[] = {
+	FBNIC_HW_Q_STAT("rde_%u_pkt_err", rde_pkt_err),
+	FBNIC_HW_Q_STAT("rde_%u_pkt_cq_drop", rde_pkt_cq_drop),
+	FBNIC_HW_Q_STAT("rde_%u_pkt_bdq_drop", rde_pkt_bdq_drop),
+};
+
+#define FBNIC_HW_Q_STATS_LEN ARRAY_SIZE(fbnic_gstrings_hw_q_stats)
+#define FBNIC_HW_STATS_LEN \
+	(FBNIC_HW_FIXED_STATS_LEN + \
+	 FBNIC_HW_RXB_ENQUEUE_STATS_LEN * FBNIC_RXB_ENQUEUE_INDICES + \
+	 FBNIC_HW_RXB_FIFO_STATS_LEN * FBNIC_RXB_FIFO_INDICES + \
+	 FBNIC_HW_RXB_DEQUEUE_STATS_LEN * FBNIC_RXB_DEQUEUE_INDICES + \
+	 FBNIC_HW_Q_STATS_LEN * FBNIC_MAX_QUEUES)
+
+#define FBNIC_QUEUE_STAT(name, stat) \
+	FBNIC_STAT_FIELDS(fbnic_ring, name, stat)
+
+static const struct fbnic_stat fbnic_gstrings_xdp_stats[] = {
+	FBNIC_QUEUE_STAT("xdp_tx_queue_%u_packets", stats.packets),
+	FBNIC_QUEUE_STAT("xdp_tx_queue_%u_bytes", stats.bytes),
+	FBNIC_QUEUE_STAT("xdp_tx_queue_%u_dropped", stats.dropped),
+};
+
+#define FBNIC_XDP_STATS_LEN ARRAY_SIZE(fbnic_gstrings_xdp_stats)
+
+#define FBNIC_STATS_LEN \
+	(FBNIC_HW_STATS_LEN + FBNIC_XDP_STATS_LEN * FBNIC_MAX_XDPQS)
+
+enum fbnic_self_test_results {
+	TEST_REG = 0,
+	TEST_MSIX,
+	TEST_MBX,
+};
+
+static const char fbnic_gstrings_self_test[][ETH_GSTRING_LEN] = {
+	[TEST_REG]	= "Register test (offline)",
+	[TEST_MSIX]	= "MSI-X Interrupt test (offline)",
+	[TEST_MBX]      = "FW mailbox test (on/offline)",
+};
+
+#define FBNIC_TEST_LEN ARRAY_SIZE(fbnic_gstrings_self_test)
 
 static void
 fbnic_get_drvinfo(struct net_device *netdev, struct ethtool_drvinfo *drvinfo)
@@ -90,6 +189,7 @@ static void fbnic_clone_swap_cfg(struct fbnic_net *orig,
 	swap(clone->num_rx_queues, orig->num_rx_queues);
 	swap(clone->num_tx_queues, orig->num_tx_queues);
 	swap(clone->num_napi, orig->num_napi);
+	swap(clone->hds_thresh, orig->hds_thresh);
 }
 
 static void fbnic_aggregate_vector_counters(struct fbnic_net *fbn,
@@ -99,13 +199,13 @@ static void fbnic_aggregate_vector_counters(struct fbnic_net *fbn,
 
 	for (i = 0; i < nv->txt_count; i++) {
 		fbnic_aggregate_ring_tx_counters(fbn, &nv->qt[i].sub0);
-		fbnic_aggregate_ring_tx_counters(fbn, &nv->qt[i].sub1);
+		fbnic_aggregate_ring_xdp_counters(fbn, &nv->qt[i].sub1);
 		fbnic_aggregate_ring_tx_counters(fbn, &nv->qt[i].cmpl);
 	}
 
 	for (j = 0; j < nv->rxt_count; j++, i++) {
-		fbnic_aggregate_ring_rx_counters(fbn, &nv->qt[i].sub0);
-		fbnic_aggregate_ring_rx_counters(fbn, &nv->qt[i].sub1);
+		fbnic_aggregate_ring_bdq_counters(fbn, &nv->qt[i].sub0);
+		fbnic_aggregate_ring_bdq_counters(fbn, &nv->qt[i].sub1);
 		fbnic_aggregate_ring_rx_counters(fbn, &nv->qt[i].cmpl);
 	}
 }
@@ -207,15 +307,21 @@ fbnic_get_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring,
 	ring->rx_mini_pending = fbn->hpq_size;
 	ring->rx_jumbo_pending = fbn->ppq_size;
 	ring->tx_pending = fbn->txq_size;
+
+	kernel_ring->tcp_data_split = ETHTOOL_TCP_DATA_SPLIT_ENABLED;
+	kernel_ring->hds_thresh_max = FBNIC_HDS_THRESH_MAX;
+	kernel_ring->hds_thresh = fbn->hds_thresh;
 }
 
 static void fbnic_set_rings(struct fbnic_net *fbn,
-			    struct ethtool_ringparam *ring)
+			    struct ethtool_ringparam *ring,
+			    struct kernel_ethtool_ringparam *kernel_ring)
 {
 	fbn->rcq_size = ring->rx_pending;
 	fbn->hpq_size = ring->rx_mini_pending;
 	fbn->ppq_size = ring->rx_jumbo_pending;
 	fbn->txq_size = ring->tx_pending;
+	fbn->hds_thresh = kernel_ring->hds_thresh;
 }
 
 static int
@@ -246,8 +352,24 @@ fbnic_set_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring,
 		return -EINVAL;
 	}
 
+	if (kernel_ring->tcp_data_split == ETHTOOL_TCP_DATA_SPLIT_DISABLED) {
+		NL_SET_ERR_MSG_MOD(extack, "Cannot disable TCP data split");
+		return -EINVAL;
+	}
+
+	/* If an XDP program is attached, we should check for potential frame
+	 * splitting. If the new HDS threshold can cause splitting, we should
+	 * only allow if the attached XDP program can handle frags.
+	 */
+	if (fbnic_check_split_frames(fbn->xdp_prog, netdev->mtu,
+				     kernel_ring->hds_thresh)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Use higher HDS threshold or multi-buf capable program");
+		return -EINVAL;
+	}
+
 	if (!netif_running(netdev)) {
-		fbnic_set_rings(fbn, ring);
+		fbnic_set_rings(fbn, ring, kernel_ring);
 		return 0;
 	}
 
@@ -255,7 +377,7 @@ fbnic_set_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring,
 	if (!clone)
 		return -ENOMEM;
 
-	fbnic_set_rings(clone, ring);
+	fbnic_set_rings(clone, ring, kernel_ring);
 
 	err = fbnic_alloc_napi_vectors(clone);
 	if (err)
@@ -298,15 +420,110 @@ err_free_clone:
 	return err;
 }
 
+static void fbnic_get_rxb_enqueue_strings(u8 **data, unsigned int idx)
+{
+	const struct fbnic_stat *stat;
+	int i;
+
+	stat = fbnic_gstrings_rxb_enqueue_stats;
+	for (i = 0; i < FBNIC_HW_RXB_ENQUEUE_STATS_LEN; i++, stat++)
+		ethtool_sprintf(data, stat->string, idx);
+}
+
+static void fbnic_get_rxb_fifo_strings(u8 **data, unsigned int idx)
+{
+	const struct fbnic_stat *stat;
+	int i;
+
+	stat = fbnic_gstrings_rxb_fifo_stats;
+	for (i = 0; i < FBNIC_HW_RXB_FIFO_STATS_LEN; i++, stat++)
+		ethtool_sprintf(data, stat->string, idx);
+}
+
+static void fbnic_get_rxb_dequeue_strings(u8 **data, unsigned int idx)
+{
+	const struct fbnic_stat *stat;
+	int i;
+
+	stat = fbnic_gstrings_rxb_dequeue_stats;
+	for (i = 0; i < FBNIC_HW_RXB_DEQUEUE_STATS_LEN; i++, stat++)
+		ethtool_sprintf(data, stat->string, idx);
+}
+
+static void fbnic_get_xdp_queue_strings(u8 **data, unsigned int idx)
+{
+	const struct fbnic_stat *stat;
+	int i;
+
+	stat = fbnic_gstrings_xdp_stats;
+	for (i = 0; i < FBNIC_XDP_STATS_LEN; i++, stat++)
+		ethtool_sprintf(data, stat->string, idx);
+}
+
 static void fbnic_get_strings(struct net_device *dev, u32 sset, u8 *data)
 {
-	int i;
+	const struct fbnic_stat *stat;
+	int i, idx;
 
 	switch (sset) {
 	case ETH_SS_STATS:
-		for (i = 0; i < FBNIC_HW_STATS_LEN; i++)
+		for (i = 0; i < FBNIC_HW_FIXED_STATS_LEN; i++)
 			ethtool_puts(&data, fbnic_gstrings_hw_stats[i].string);
+
+		for (i = 0; i < FBNIC_RXB_ENQUEUE_INDICES; i++)
+			fbnic_get_rxb_enqueue_strings(&data, i);
+
+		for (i = 0; i < FBNIC_RXB_FIFO_INDICES; i++)
+			fbnic_get_rxb_fifo_strings(&data, i);
+
+		for (i = 0; i < FBNIC_RXB_DEQUEUE_INDICES; i++)
+			fbnic_get_rxb_dequeue_strings(&data, i);
+
+		for (idx = 0; idx < FBNIC_MAX_QUEUES; idx++) {
+			stat = fbnic_gstrings_hw_q_stats;
+
+			for (i = 0; i < FBNIC_HW_Q_STATS_LEN; i++, stat++)
+				ethtool_sprintf(&data, stat->string, idx);
+		}
+
+		for (i = 0; i < FBNIC_MAX_XDPQS; i++)
+			fbnic_get_xdp_queue_strings(&data, i);
 		break;
+	case ETH_SS_TEST:
+		memcpy(data, fbnic_gstrings_self_test,
+		       sizeof(fbnic_gstrings_self_test));
+		break;
+	}
+}
+
+static void fbnic_report_hw_stats(const struct fbnic_stat *stat,
+				  const void *base, int len, u64 **data)
+{
+	while (len--) {
+		u8 *curr = (u8 *)base + stat->offset;
+
+		**data = *(u64 *)curr;
+
+		stat++;
+		(*data)++;
+	}
+}
+
+static void fbnic_get_xdp_queue_stats(struct fbnic_ring *ring, u64 **data)
+{
+	const struct fbnic_stat *stat;
+	int i;
+
+	if (!ring) {
+		*data += FBNIC_XDP_STATS_LEN;
+		return;
+	}
+
+	stat = fbnic_gstrings_xdp_stats;
+	for (i = 0; i < FBNIC_XDP_STATS_LEN; i++, stat++, (*data)++) {
+		u8 *p = (u8 *)ring + stat->offset;
+
+		**data = *(u64 *)p;
 	}
 }
 
@@ -314,22 +531,61 @@ static void fbnic_get_ethtool_stats(struct net_device *dev,
 				    struct ethtool_stats *stats, u64 *data)
 {
 	struct fbnic_net *fbn = netdev_priv(dev);
-	const struct fbnic_stat *stat;
+	struct fbnic_dev *fbd = fbn->fbd;
 	int i;
 
 	fbnic_get_hw_stats(fbn->fbd);
 
-	for (i = 0; i < FBNIC_HW_STATS_LEN; i++) {
-		stat = &fbnic_gstrings_hw_stats[i];
-		data[i] = *(u64 *)((u8 *)&fbn->fbd->hw_stats + stat->offset);
+	spin_lock(&fbd->hw_stats.lock);
+	fbnic_report_hw_stats(fbnic_gstrings_hw_stats, &fbd->hw_stats,
+			      FBNIC_HW_FIXED_STATS_LEN, &data);
+
+	for (i = 0; i < FBNIC_RXB_ENQUEUE_INDICES; i++) {
+		const struct fbnic_rxb_enqueue_stats *enq;
+
+		enq = &fbd->hw_stats.rxb.enq[i];
+		fbnic_report_hw_stats(fbnic_gstrings_rxb_enqueue_stats,
+				      enq, FBNIC_HW_RXB_ENQUEUE_STATS_LEN,
+				      &data);
 	}
+
+	for (i = 0; i < FBNIC_RXB_FIFO_INDICES; i++) {
+		const struct fbnic_rxb_fifo_stats *fifo;
+
+		fifo = &fbd->hw_stats.rxb.fifo[i];
+		fbnic_report_hw_stats(fbnic_gstrings_rxb_fifo_stats,
+				      fifo, FBNIC_HW_RXB_FIFO_STATS_LEN,
+				      &data);
+	}
+
+	for (i = 0; i < FBNIC_RXB_DEQUEUE_INDICES; i++) {
+		const struct fbnic_rxb_dequeue_stats *deq;
+
+		deq = &fbd->hw_stats.rxb.deq[i];
+		fbnic_report_hw_stats(fbnic_gstrings_rxb_dequeue_stats,
+				      deq, FBNIC_HW_RXB_DEQUEUE_STATS_LEN,
+				      &data);
+	}
+
+	for (i  = 0; i < FBNIC_MAX_QUEUES; i++) {
+		const struct fbnic_hw_q_stats *hw_q = &fbd->hw_stats.hw_q[i];
+
+		fbnic_report_hw_stats(fbnic_gstrings_hw_q_stats, hw_q,
+				      FBNIC_HW_Q_STATS_LEN, &data);
+	}
+	spin_unlock(&fbd->hw_stats.lock);
+
+	for (i = 0; i < FBNIC_MAX_XDPQS; i++)
+		fbnic_get_xdp_queue_stats(fbn->tx[i + FBNIC_MAX_TXQS], &data);
 }
 
 static int fbnic_get_sset_count(struct net_device *dev, int sset)
 {
 	switch (sset) {
 	case ETH_SS_STATS:
-		return FBNIC_HW_STATS_LEN;
+		return FBNIC_STATS_LEN;
+	case ETH_SS_TEST:
+		return FBNIC_TEST_LEN;
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -365,20 +621,6 @@ static int fbnic_get_rss_hash_idx(u32 flow_type)
 	}
 
 	return -1;
-}
-
-static int
-fbnic_get_rss_hash_opts(struct fbnic_net *fbn, struct ethtool_rxnfc *cmd)
-{
-	int hash_opt_idx = fbnic_get_rss_hash_idx(cmd->flow_type);
-
-	if (hash_opt_idx < 0)
-		return -EINVAL;
-
-	/* Report options from rss_en table in fbn */
-	cmd->data = fbn->rss_flow_hash[hash_opt_idx];
-
-	return 0;
 }
 
 static int fbnic_get_cls_rule_all(struct fbnic_net *fbn,
@@ -603,6 +845,13 @@ static int fbnic_get_cls_rule(struct fbnic_net *fbn, struct ethtool_rxnfc *cmd)
 	return 0;
 }
 
+static u32 fbnic_get_rx_ring_count(struct net_device *netdev)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+
+	return fbn->num_rx_queues;
+}
+
 static int fbnic_get_rxnfc(struct net_device *netdev,
 			   struct ethtool_rxnfc *cmd, u32 *rule_locs)
 {
@@ -611,13 +860,6 @@ static int fbnic_get_rxnfc(struct net_device *netdev,
 	u32 special = 0;
 
 	switch (cmd->cmd) {
-	case ETHTOOL_GRXRINGS:
-		cmd->data = fbn->num_rx_queues;
-		ret = 0;
-		break;
-	case ETHTOOL_GRXFH:
-		ret = fbnic_get_rss_hash_opts(fbn, cmd);
-		break;
 	case ETHTOOL_GRXCLSRULE:
 		ret = fbnic_get_cls_rule(fbn, cmd);
 		break;
@@ -637,41 +879,6 @@ static int fbnic_get_rxnfc(struct net_device *netdev,
 	}
 
 	return ret;
-}
-
-#define FBNIC_L2_HASH_OPTIONS \
-	(RXH_L2DA | RXH_DISCARD)
-#define FBNIC_L3_HASH_OPTIONS \
-	(FBNIC_L2_HASH_OPTIONS | RXH_IP_SRC | RXH_IP_DST)
-#define FBNIC_L4_HASH_OPTIONS \
-	(FBNIC_L3_HASH_OPTIONS | RXH_L4_B_0_1 | RXH_L4_B_2_3)
-
-static int
-fbnic_set_rss_hash_opts(struct fbnic_net *fbn, const struct ethtool_rxnfc *cmd)
-{
-	int hash_opt_idx;
-
-	/* Verify the type requested is correct */
-	hash_opt_idx = fbnic_get_rss_hash_idx(cmd->flow_type);
-	if (hash_opt_idx < 0)
-		return -EINVAL;
-
-	/* Verify the fields asked for can actually be assigned based on type */
-	if (cmd->data & ~FBNIC_L4_HASH_OPTIONS ||
-	    (hash_opt_idx > FBNIC_L4_HASH_OPT &&
-	     cmd->data & ~FBNIC_L3_HASH_OPTIONS) ||
-	    (hash_opt_idx > FBNIC_IP_HASH_OPT &&
-	     cmd->data & ~FBNIC_L2_HASH_OPTIONS))
-		return -EINVAL;
-
-	fbn->rss_flow_hash[hash_opt_idx] = cmd->data;
-
-	if (netif_running(fbn->netdev)) {
-		fbnic_rss_reinit(fbn->fbd, fbn);
-		fbnic_write_rules(fbn->fbd);
-	}
-
-	return 0;
 }
 
 static int fbnic_cls_rule_any_loc(struct fbnic_dev *fbd)
@@ -958,6 +1165,9 @@ ipv6_flow:
 		return -EINVAL;
 	}
 
+	dest |= FIELD_PREP(FBNIC_RPC_ACT_TBL0_DMA_HINT,
+			   FBNIC_RCD_HDR_AL_DMA_HINT_L4);
+
 	/* Write action table values */
 	act_tcam->dest = dest;
 	act_tcam->rss_en_mask = fbnic_flow_hash_2_rss_en_mask(fbn, hash_idx);
@@ -1080,9 +1290,6 @@ static int fbnic_set_rxnfc(struct net_device *netdev, struct ethtool_rxnfc *cmd)
 	int ret = -EOPNOTSUPP;
 
 	switch (cmd->cmd) {
-	case ETHTOOL_SRXFH:
-		ret = fbnic_set_rss_hash_opts(fbn, cmd);
-		break;
 	case ETHTOOL_SRXCLSRLINS:
 		ret = fbnic_set_cls_rule_ins(fbn, cmd);
 		break;
@@ -1183,6 +1390,60 @@ fbnic_set_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *rxfh,
 }
 
 static int
+fbnic_get_rss_hash_opts(struct net_device *netdev,
+			struct ethtool_rxfh_fields *cmd)
+{
+	int hash_opt_idx = fbnic_get_rss_hash_idx(cmd->flow_type);
+	struct fbnic_net *fbn = netdev_priv(netdev);
+
+	if (hash_opt_idx < 0)
+		return -EINVAL;
+
+	/* Report options from rss_en table in fbn */
+	cmd->data = fbn->rss_flow_hash[hash_opt_idx];
+
+	return 0;
+}
+
+#define FBNIC_L2_HASH_OPTIONS \
+	(RXH_L2DA | RXH_DISCARD)
+#define FBNIC_L3_HASH_OPTIONS \
+	(FBNIC_L2_HASH_OPTIONS | RXH_IP_SRC | RXH_IP_DST | RXH_IP6_FL)
+#define FBNIC_L4_HASH_OPTIONS \
+	(FBNIC_L3_HASH_OPTIONS | RXH_L4_B_0_1 | RXH_L4_B_2_3)
+
+static int
+fbnic_set_rss_hash_opts(struct net_device *netdev,
+			const struct ethtool_rxfh_fields *cmd,
+			struct netlink_ext_ack *extack)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	int hash_opt_idx;
+
+	/* Verify the type requested is correct */
+	hash_opt_idx = fbnic_get_rss_hash_idx(cmd->flow_type);
+	if (hash_opt_idx < 0)
+		return -EINVAL;
+
+	/* Verify the fields asked for can actually be assigned based on type */
+	if (cmd->data & ~FBNIC_L4_HASH_OPTIONS ||
+	    (hash_opt_idx > FBNIC_L4_HASH_OPT &&
+	     cmd->data & ~FBNIC_L3_HASH_OPTIONS) ||
+	    (hash_opt_idx > FBNIC_IP_HASH_OPT &&
+	     cmd->data & ~FBNIC_L2_HASH_OPTIONS))
+		return -EINVAL;
+
+	fbn->rss_flow_hash[hash_opt_idx] = cmd->data;
+
+	if (netif_running(fbn->netdev)) {
+		fbnic_rss_reinit(fbn->fbd, fbn);
+		fbnic_write_rules(fbn->fbd);
+	}
+
+	return 0;
+}
+
+static int
 fbnic_modify_rxfh_context(struct net_device *netdev,
 			  struct ethtool_rxfh_context *ctx,
 			  const struct ethtool_rxfh_param *rxfh,
@@ -1237,6 +1498,78 @@ fbnic_remove_rxfh_context(struct net_device *netdev,
 	return 0;
 }
 
+static int fbnic_ethtool_regs_test(struct net_device *netdev, u64 *data)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_dev *fbd = fbn->fbd;
+
+	*data = fbnic_csr_regs_test(fbd);
+
+	return !!*data;
+}
+
+/**
+ * fbnic_ethtool_msix_test - Verify behavior of NIC interrupts
+ * @netdev: netdev device to test
+ * @data: Pointer to results storage
+ *
+ * This function is meant to test the global interrupt registers and the
+ * PCIe IP MSI-X functionality. It essentially goes through and tests
+ * test various combinations of the set, clear, and mask bits in order to
+ * verify the behavior is as we expect it to be from the driver.
+ *
+ * Return: non-zero on failure.
+ **/
+static int fbnic_ethtool_msix_test(struct net_device *netdev, u64 *data)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_dev *fbd = fbn->fbd;
+
+	*data = fbnic_msix_test(fbd);
+
+	return !!*data;
+}
+
+static int fbnic_ethtool_mbx_self_test(struct net_device *netdev, u64 *data)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_dev *fbd = fbn->fbd;
+
+	*data = fbnic_fw_mbx_self_test(fbd);
+
+	return !!*data;
+}
+
+static void fbnic_self_test(struct net_device *netdev,
+			    struct ethtool_test *eth_test, u64 *data)
+{
+	bool if_running = netif_running(netdev);
+
+	if (fbnic_ethtool_mbx_self_test(netdev, &data[TEST_MBX]))
+		eth_test->flags |= ETH_TEST_FL_FAILED;
+
+	if (!(eth_test->flags & ETH_TEST_FL_OFFLINE)) {
+		data[TEST_REG] = 0;
+		data[TEST_MSIX] = 0;
+		return;
+	}
+
+	if (if_running)
+		netif_close(netdev);
+
+	if (fbnic_ethtool_regs_test(netdev, &data[TEST_REG]))
+		eth_test->flags |= ETH_TEST_FL_FAILED;
+
+	if (fbnic_ethtool_msix_test(netdev, &data[TEST_MSIX]))
+		eth_test->flags |= ETH_TEST_FL_FAILED;
+
+	if (if_running && netif_open(netdev, NULL)) {
+		netdev_err(netdev,
+			   "Failed to re-initialize hardware following test\n");
+		eth_test->flags |= ETH_TEST_FL_FAILED;
+	}
+}
+
 static void fbnic_get_channels(struct net_device *netdev,
 			       struct ethtool_channels *ch)
 {
@@ -1282,7 +1615,7 @@ static int fbnic_set_channels(struct net_device *netdev,
 	standalone = ch->rx_count + ch->tx_count;
 
 	/* Limits for standalone queues:
-	 *  - each queue has it's own NAPI (num_napi >= rx + tx + combined)
+	 *  - each queue has its own NAPI (num_napi >= rx + tx + combined)
 	 *  - combining queues (combined not 0, rx or tx must be 0)
 	 */
 	if ((ch->rx_count && ch->tx_count && ch->combined_count) ||
@@ -1400,10 +1733,170 @@ static void fbnic_get_ts_stats(struct net_device *netdev,
 	}
 }
 
+static int fbnic_get_tunable(struct net_device *netdev,
+			     const struct ethtool_tunable *tun,
+			     void *data)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	int err = 0;
+
+	switch (tun->id) {
+	case ETHTOOL_PFC_PREVENTION_TOUT:
+		*(u16 *)data = fbn->fbd->ps_timeout;
+		break;
+	default:
+		err = -EOPNOTSUPP;
+		break;
+	}
+
+	return err;
+}
+
+static int fbnic_set_tunable(struct net_device *netdev,
+			     const struct ethtool_tunable *tun,
+			     const void *data)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	int err;
+
+	switch (tun->id) {
+	case ETHTOOL_PFC_PREVENTION_TOUT: {
+		u16 ps_timeout = *(u16 *)data;
+
+		err = fbnic_mac_ps_protect_to_config(fbn->fbd, ps_timeout);
+		break;
+	}
+	default:
+		err = -EOPNOTSUPP;
+		break;
+	}
+
+	return err;
+}
+
+static int
+fbnic_get_module_eeprom_by_page(struct net_device *netdev,
+				const struct ethtool_module_eeprom *page_data,
+				struct netlink_ext_ack *extack)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_fw_completion *fw_cmpl;
+	struct fbnic_dev *fbd = fbn->fbd;
+	int err;
+
+	if (page_data->i2c_address != 0x50) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Invalid i2c address. Only 0x50 is supported");
+		return -EINVAL;
+	}
+
+	fw_cmpl = __fbnic_fw_alloc_cmpl(FBNIC_TLV_MSG_ID_QSFP_READ_RESP,
+					page_data->length);
+	if (!fw_cmpl)
+		return -ENOMEM;
+
+	/* Initialize completion and queue it for FW to process */
+	fw_cmpl->u.qsfp.length = page_data->length;
+	fw_cmpl->u.qsfp.offset = page_data->offset;
+	fw_cmpl->u.qsfp.page = page_data->page;
+	fw_cmpl->u.qsfp.bank = page_data->bank;
+
+	err = fbnic_fw_xmit_qsfp_read_msg(fbd, fw_cmpl, page_data->page,
+					  page_data->bank, page_data->offset,
+					  page_data->length);
+	if (err) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Failed to transmit EEPROM read request");
+		goto exit_free;
+	}
+
+	if (!fbnic_mbx_wait_for_cmpl(fw_cmpl)) {
+		err = -ETIMEDOUT;
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Timed out waiting for firmware response");
+		goto exit_cleanup;
+	}
+
+	if (fw_cmpl->result) {
+		err = fw_cmpl->result;
+		NL_SET_ERR_MSG_MOD(extack, "Failed to read EEPROM");
+		goto exit_cleanup;
+	}
+
+	memcpy(page_data->data, fw_cmpl->u.qsfp.data, page_data->length);
+
+exit_cleanup:
+	fbnic_mbx_clear_cmpl(fbd, fw_cmpl);
+exit_free:
+	fbnic_fw_put_cmpl(fw_cmpl);
+
+	return err ? : page_data->length;
+}
+
 static void fbnic_set_counter(u64 *stat, struct fbnic_stat_counter *counter)
 {
 	if (counter->reported)
 		*stat = counter->value;
+}
+
+static void
+fbnic_get_pause_stats(struct net_device *netdev,
+		      struct ethtool_pause_stats *pause_stats)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_mac_stats *mac_stats;
+	struct fbnic_dev *fbd = fbn->fbd;
+	u64 tx_ps_events;
+
+	mac_stats = &fbd->hw_stats.mac;
+
+	fbd->mac->get_pause_stats(fbd, false, &mac_stats->pause);
+
+	pause_stats->tx_pause_frames = mac_stats->pause.tx_pause_frames.value;
+	pause_stats->rx_pause_frames = mac_stats->pause.rx_pause_frames.value;
+	tx_ps_events = mac_stats->pause.tx_pause_storm_events.value;
+	pause_stats->tx_pause_storm_events = tx_ps_events;
+}
+
+static void
+fbnic_get_fec_stats(struct net_device *netdev,
+		    struct ethtool_fec_stats *fec_stats,
+		    struct ethtool_fec_hist *hist)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_phy_stats *phy_stats;
+	struct fbnic_dev *fbd = fbn->fbd;
+
+	fbnic_get_hw_stats32(fbd);
+	phy_stats = &fbd->hw_stats.phy;
+
+	spin_lock(&fbd->hw_stats.lock);
+	fec_stats->corrected_blocks.total =
+		phy_stats->fec.corrected_blocks.value;
+	fec_stats->uncorrectable_blocks.total =
+		phy_stats->fec.uncorrectable_blocks.value;
+	spin_unlock(&fbd->hw_stats.lock);
+}
+
+static void
+fbnic_get_eth_phy_stats(struct net_device *netdev,
+			struct ethtool_eth_phy_stats *eth_phy_stats)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_phy_stats *phy_stats;
+	struct fbnic_dev *fbd = fbn->fbd;
+	u64 total = 0;
+	int i;
+
+	fbnic_get_hw_stats32(fbd);
+	phy_stats = &fbd->hw_stats.phy;
+
+	spin_lock(&fbd->hw_stats.lock);
+	for (i = 0; i < FBNIC_PCS_MAX_LANES; i++)
+		total += phy_stats->pcs.SymbolErrorDuringCarrier.lanes[i].value;
+
+	eth_phy_stats->SymbolErrorDuringCarrier = total;
+	spin_unlock(&fbd->hw_stats.lock);
 }
 
 static void
@@ -1448,35 +1941,127 @@ fbnic_get_eth_mac_stats(struct net_device *netdev,
 			  &mac_stats->eth_mac.FrameTooLongErrors);
 }
 
+static void
+fbnic_get_eth_ctrl_stats(struct net_device *netdev,
+			 struct ethtool_eth_ctrl_stats *eth_ctrl_stats)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_mac_stats *mac_stats;
+	struct fbnic_dev *fbd = fbn->fbd;
+
+	mac_stats = &fbd->hw_stats.mac;
+
+	fbd->mac->get_eth_ctrl_stats(fbd, false, &mac_stats->eth_ctrl);
+
+	eth_ctrl_stats->MACControlFramesReceived =
+		mac_stats->eth_ctrl.MACControlFramesReceived.value;
+	eth_ctrl_stats->MACControlFramesTransmitted =
+		mac_stats->eth_ctrl.MACControlFramesTransmitted.value;
+}
+
+static const struct ethtool_rmon_hist_range fbnic_rmon_ranges[] = {
+	{    0,   64 },
+	{   65,  127 },
+	{  128,  255 },
+	{  256,  511 },
+	{  512, 1023 },
+	{ 1024, 1518 },
+	{ 1519, 2047 },
+	{ 2048, 4095 },
+	{ 4096, 8191 },
+	{ 8192, 9216 },
+	{ 9217, FBNIC_MAX_JUMBO_FRAME_SIZE },
+	{}
+};
+
+static void
+fbnic_get_rmon_stats(struct net_device *netdev,
+		     struct ethtool_rmon_stats *rmon_stats,
+		     const struct ethtool_rmon_hist_range **ranges)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+	struct fbnic_mac_stats *mac_stats;
+	struct fbnic_dev *fbd = fbn->fbd;
+	int i;
+
+	mac_stats = &fbd->hw_stats.mac;
+
+	fbd->mac->get_rmon_stats(fbd, false, &mac_stats->rmon);
+
+	rmon_stats->undersize_pkts =
+		mac_stats->rmon.undersize_pkts.value;
+	rmon_stats->oversize_pkts =
+		mac_stats->rmon.oversize_pkts.value;
+	rmon_stats->fragments =
+		mac_stats->rmon.fragments.value;
+	rmon_stats->jabbers =
+		mac_stats->rmon.jabbers.value;
+
+	for (i = 0; fbnic_rmon_ranges[i].high; i++) {
+		rmon_stats->hist[i] = mac_stats->rmon.hist[i].value;
+		rmon_stats->hist_tx[i] = mac_stats->rmon.hist_tx[i].value;
+	}
+
+	*ranges = fbnic_rmon_ranges;
+}
+
+static void fbnic_get_link_ext_stats(struct net_device *netdev,
+				     struct ethtool_link_ext_stats *stats)
+{
+	struct fbnic_net *fbn = netdev_priv(netdev);
+
+	stats->link_down_events = fbn->link_down_events;
+}
+
 static const struct ethtool_ops fbnic_ethtool_ops = {
-	.supported_coalesce_params	=
-				  ETHTOOL_COALESCE_USECS |
-				  ETHTOOL_COALESCE_RX_MAX_FRAMES,
-	.rxfh_max_num_contexts	= FBNIC_RPC_RSS_TBL_COUNT,
-	.get_drvinfo		= fbnic_get_drvinfo,
-	.get_regs_len		= fbnic_get_regs_len,
-	.get_regs		= fbnic_get_regs,
-	.get_coalesce		= fbnic_get_coalesce,
-	.set_coalesce		= fbnic_set_coalesce,
-	.get_ringparam		= fbnic_get_ringparam,
-	.set_ringparam		= fbnic_set_ringparam,
-	.get_strings		= fbnic_get_strings,
-	.get_ethtool_stats	= fbnic_get_ethtool_stats,
-	.get_sset_count		= fbnic_get_sset_count,
-	.get_rxnfc		= fbnic_get_rxnfc,
-	.set_rxnfc		= fbnic_set_rxnfc,
-	.get_rxfh_key_size	= fbnic_get_rxfh_key_size,
-	.get_rxfh_indir_size	= fbnic_get_rxfh_indir_size,
-	.get_rxfh		= fbnic_get_rxfh,
-	.set_rxfh		= fbnic_set_rxfh,
-	.create_rxfh_context	= fbnic_create_rxfh_context,
-	.modify_rxfh_context	= fbnic_modify_rxfh_context,
-	.remove_rxfh_context	= fbnic_remove_rxfh_context,
-	.get_channels		= fbnic_get_channels,
-	.set_channels		= fbnic_set_channels,
-	.get_ts_info		= fbnic_get_ts_info,
-	.get_ts_stats		= fbnic_get_ts_stats,
-	.get_eth_mac_stats	= fbnic_get_eth_mac_stats,
+	.cap_link_lanes_supported	= true,
+	.supported_coalesce_params	= ETHTOOL_COALESCE_USECS |
+					  ETHTOOL_COALESCE_RX_MAX_FRAMES,
+	.supported_ring_params		= ETHTOOL_RING_USE_TCP_DATA_SPLIT |
+					  ETHTOOL_RING_USE_HDS_THRS,
+	.rxfh_max_num_contexts		= FBNIC_RPC_RSS_TBL_COUNT,
+	.get_drvinfo			= fbnic_get_drvinfo,
+	.get_regs_len			= fbnic_get_regs_len,
+	.get_regs			= fbnic_get_regs,
+	.get_link			= ethtool_op_get_link,
+	.get_link_ext_stats		= fbnic_get_link_ext_stats,
+	.get_coalesce			= fbnic_get_coalesce,
+	.set_coalesce			= fbnic_set_coalesce,
+	.get_ringparam			= fbnic_get_ringparam,
+	.set_ringparam			= fbnic_set_ringparam,
+	.get_pause_stats		= fbnic_get_pause_stats,
+	.get_pauseparam			= fbnic_phylink_get_pauseparam,
+	.set_pauseparam			= fbnic_phylink_set_pauseparam,
+	.self_test			= fbnic_self_test,
+	.get_strings			= fbnic_get_strings,
+	.get_ethtool_stats		= fbnic_get_ethtool_stats,
+	.get_sset_count			= fbnic_get_sset_count,
+	.get_rxnfc			= fbnic_get_rxnfc,
+	.set_rxnfc			= fbnic_set_rxnfc,
+	.get_rx_ring_count		= fbnic_get_rx_ring_count,
+	.get_rxfh_key_size		= fbnic_get_rxfh_key_size,
+	.get_rxfh_indir_size		= fbnic_get_rxfh_indir_size,
+	.get_rxfh			= fbnic_get_rxfh,
+	.set_rxfh			= fbnic_set_rxfh,
+	.get_rxfh_fields		= fbnic_get_rss_hash_opts,
+	.set_rxfh_fields		= fbnic_set_rss_hash_opts,
+	.create_rxfh_context		= fbnic_create_rxfh_context,
+	.modify_rxfh_context		= fbnic_modify_rxfh_context,
+	.remove_rxfh_context		= fbnic_remove_rxfh_context,
+	.get_channels			= fbnic_get_channels,
+	.set_channels			= fbnic_set_channels,
+	.get_ts_info			= fbnic_get_ts_info,
+	.get_ts_stats			= fbnic_get_ts_stats,
+	.get_tunable			= fbnic_get_tunable,
+	.set_tunable			= fbnic_set_tunable,
+	.get_link_ksettings		= fbnic_phylink_ethtool_ksettings_get,
+	.get_fec_stats			= fbnic_get_fec_stats,
+	.get_fecparam			= fbnic_phylink_get_fecparam,
+	.get_module_eeprom_by_page	= fbnic_get_module_eeprom_by_page,
+	.get_eth_phy_stats		= fbnic_get_eth_phy_stats,
+	.get_eth_mac_stats		= fbnic_get_eth_mac_stats,
+	.get_eth_ctrl_stats		= fbnic_get_eth_ctrl_stats,
+	.get_rmon_stats			= fbnic_get_rmon_stats,
 };
 
 void fbnic_set_ethtool_ops(struct net_device *dev)

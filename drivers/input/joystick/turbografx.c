@@ -72,7 +72,7 @@ static struct tgfx {
 
 static void tgfx_timer(struct timer_list *t)
 {
-	struct tgfx *tgfx = from_timer(tgfx, t, timer);
+	struct tgfx *tgfx = timer_container_of(tgfx, t, timer);
 	struct input_dev *dev;
 	int data1, data2, i;
 
@@ -170,7 +170,7 @@ static void tgfx_attach(struct parport *pp)
 		return;
 	}
 
-	tgfx = kzalloc(sizeof(*tgfx), GFP_KERNEL);
+	tgfx = kzalloc_obj(*tgfx);
 	if (!tgfx) {
 		printk(KERN_ERR "turbografx.c: Not enough memory\n");
 		goto err_unreg_pardev;

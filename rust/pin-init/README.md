@@ -6,6 +6,18 @@
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/Rust-for-Linux/pin-init/test.yml)
 # `pin-init`
 
+> [!NOTE]
+> 
+> This crate was originally named [`pinned-init`], but the migration to
+> `pin-init` is not yet complete. The `legacy` branch contains the current
+> version of the `pinned-init` crate & the `main` branch already incorporates
+> the rename to `pin-init`.
+>
+> There are still some changes needed on the kernel side before the migration
+> can be completed.
+
+[`pinned-init`]: https://crates.io/crates/pinned-init
+
 <!-- cargo-rdme start -->
 
 Library to safely and fallibly initialize pinned `struct`s using in-place constructors.
@@ -39,6 +51,12 @@ The feature is enabled by default, thus by default `pin-init` will require a nig
 However, using the crate on stable compilers is possible by disabling `alloc`. In practice this
 will require the `std` feature, because stable compilers have neither `Box` nor `Arc` in no-std
 mode.
+
+### Nightly needed for `unsafe-pinned` feature
+
+This feature enables the `Wrapper` implementation on the unstable `core::pin::UnsafePinned` type.
+This requires the [`unsafe_pinned` unstable feature](https://github.com/rust-lang/rust/issues/125735)
+and therefore a nightly compiler. Note that this feature is not enabled by default.
 
 ## Overview
 
@@ -117,9 +135,9 @@ struct DriverData {
 
 impl DriverData {
     fn new() -> impl PinInit<Self, Error> {
-        try_pin_init!(Self {
+        pin_init!(Self {
             status <- CMutex::new(0),
-            buffer: Box::init(pin_init::zeroed())?,
+            buffer: Box::init(pin_init::init_zeroed())?,
         }? Error)
     }
 }
@@ -142,7 +160,6 @@ actually does the initialization in the correct way. Here are the things to look
 ```rust
 use pin_init::{pin_data, pinned_drop, PinInit, PinnedDrop, pin_init_from_closure};
 use core::{
-    ptr::addr_of_mut,
     marker::PhantomPinned,
     cell::UnsafeCell,
     pin::Pin,
@@ -181,7 +198,7 @@ impl RawFoo {
         unsafe {
             pin_init_from_closure(move |slot: *mut Self| {
                 // `slot` contains uninit memory, avoid creating a reference.
-                let foo = addr_of_mut!((*slot).foo);
+                let foo = &raw mut (*slot).foo;
                 let foo = UnsafeCell::raw_get(foo).cast::<bindings::foo>();
 
                 // Initialize the `foo`
@@ -216,13 +233,15 @@ the `kernel` crate. The [`sync`] module is a good starting point.
 
 [`sync`]: https://rust.docs.kernel.org/kernel/sync/index.html
 [pinning]: https://doc.rust-lang.org/std/pin/index.html
-[structurally pinned fields]: https://doc.rust-lang.org/std/pin/index.html#pinning-is-structural-for-field
+[structurally pinned fields]: https://doc.rust-lang.org/std/pin/index.html#projections-and-structural-pinning
 [stack]: https://docs.rs/pin-init/latest/pin_init/macro.stack_pin_init.html
-[`Arc<T>`]: https://doc.rust-lang.org/stable/alloc/sync/struct.Arc.html
-[`Box<T>`]: https://doc.rust-lang.org/stable/alloc/boxed/struct.Box.html
 [`impl PinInit<Foo>`]: https://docs.rs/pin-init/latest/pin_init/trait.PinInit.html
 [`impl PinInit<T, E>`]: https://docs.rs/pin-init/latest/pin_init/trait.PinInit.html
 [`impl Init<T, E>`]: https://docs.rs/pin-init/latest/pin_init/trait.Init.html
 [Rust-for-Linux]: https://rust-for-linux.com/
 
 <!-- cargo-rdme end -->
+
+<!-- These links are not picked up by cargo-rdme, since they are behind cfgs... -->
+[`Arc<T>`]: https://doc.rust-lang.org/stable/alloc/sync/struct.Arc.html
+[`Box<T>`]: https://doc.rust-lang.org/stable/alloc/boxed/struct.Box.html

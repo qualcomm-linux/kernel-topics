@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 Advanced Micro Devices, Inc.
+ * Copyright 2023-2026 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -184,6 +184,7 @@ struct dcn401_mpc_mask {
 
 struct dcn401_mpc_registers {
 	MPC_REG_VARIABLE_LIST_DCN4_01
+	uint32_t MPCC_CONTROL2[MAX_MPCC];
 };
 
 struct dcn401_mpc {
@@ -205,26 +206,32 @@ void dcn401_mpc_construct(struct dcn401_mpc *mpc401,
 	int num_rmu);
 
 void mpc401_set_movable_cm_location(struct mpc *mpc, enum mpcc_movable_cm_location location, int mpcc_id);
-void mpc401_populate_lut(struct mpc *mpc, const enum MCM_LUT_ID id, const union mcm_lut_params params,
-		bool lut_bank_a, int mpcc_id);
+void mpc401_populate_lut(struct mpc *mpc,
+		const enum MCM_LUT_ID id,
+		const union mcm_lut_params *params,
+		bool lut_bank_a,
+		int mpcc_id);
 
 void mpc401_program_lut_mode(
 		struct mpc *mpc,
 		const enum MCM_LUT_ID id,
-		const enum MCM_LUT_XABLE xable,
-		bool lut_bank_a,
-		int mpcc_id);
+		const bool enable,
+		const bool lut_bank_a,
+		const enum dc_cm_lut_size size,
+		const int mpcc_id);
+
+void mpc401_get_lut_mode(struct mpc *mpc,
+		const enum MCM_LUT_ID id,
+		const int mpcc_id,
+		bool *enable,
+		bool *lut_bank_a);
 
 void mpc401_program_lut_read_write_control(
 		struct mpc *mpc,
 		const enum MCM_LUT_ID id,
-		bool lut_bank_a,
-		int mpcc_id);
-
-void mpc401_program_3dlut_size(
-		struct mpc *mpc,
-		bool is_17x17x17,
-		int mpcc_id);
+		const bool lut_bank_a,
+		const unsigned int bit_depth,
+		const int mpcc_id);
 
 void mpc401_set_gamut_remap(
 	struct mpc *mpc,
@@ -241,6 +248,19 @@ void mpc401_update_3dlut_fast_load_select(
 	int mpcc_id,
 	int hubp_idx);
 
+void mpc_program_gamut_remap(
+	struct mpc *mpc,
+	unsigned int mpcc_id,
+	const uint16_t *regval,
+	enum mpcc_gamut_remap_id gamut_remap_block_id,
+	enum mpcc_gamut_remap_mode_select mode_select);
+
+void mpc_read_gamut_remap(struct mpc *mpc,
+	int mpcc_id,
+	uint16_t *regval,
+	enum mpcc_gamut_remap_id gamut_remap_block_id,
+	uint32_t *mode_select);
+
 void mpc401_get_3dlut_fast_load_status(
 	struct mpc *mpc,
 	int mpcc_id,
@@ -252,12 +272,5 @@ void mpc401_update_3dlut_fast_load_select(
 	struct mpc *mpc,
 	int mpcc_id,
 	int hubp_idx);
-
-void mpc401_get_3dlut_fast_load_status(
-	struct mpc *mpc,
-	int mpcc_id,
-	uint32_t *done,
-	uint32_t *soft_underflow,
-	uint32_t *hard_underflow);
 
 #endif

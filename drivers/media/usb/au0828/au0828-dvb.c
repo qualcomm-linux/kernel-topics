@@ -97,7 +97,7 @@ static void au0828_restart_dvb_streaming(struct work_struct *work);
 
 static void au0828_bulk_timeout(struct timer_list *t)
 {
-	struct au0828_dev *dev = from_timer(dev, t, bulk_timeout);
+	struct au0828_dev *dev = timer_container_of(dev, t, bulk_timeout);
 
 	dprintk(1, "%s called\n", __func__);
 	dev->bulk_timeout_running = 0;
@@ -571,6 +571,7 @@ int au0828_dvb_register(struct au0828_dev *dev)
 	switch (dev->boardnr) {
 	case AU0828_BOARD_HAUPPAUGE_HVR850:
 	case AU0828_BOARD_HAUPPAUGE_HVR950Q:
+	case AU0828_BOARD_HAUPPAUGE_HVR1265:
 		dvb->frontend = dvb_attach(au8522_attach,
 				&hauppauge_hvr950q_config,
 				&dev->i2c_adap);

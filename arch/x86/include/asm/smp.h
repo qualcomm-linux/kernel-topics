@@ -109,10 +109,13 @@ int common_cpu_up(unsigned int cpunum, struct task_struct *tidle);
 int native_kick_ap(unsigned int cpu, struct task_struct *tidle);
 int native_cpu_disable(void);
 void __noreturn hlt_play_dead(void);
-void native_play_dead(void);
+void __noreturn native_play_dead(void);
 void play_dead_common(void);
 void wbinvd_on_cpu(int cpu);
-int wbinvd_on_all_cpus(void);
+void wbinvd_on_all_cpus(void);
+void wbinvd_on_cpus_mask(struct cpumask *cpus);
+void wbnoinvd_on_all_cpus(void);
+void wbnoinvd_on_cpus_mask(struct cpumask *cpus);
 
 void smp_kick_mwait_play_dead(void);
 void __noreturn mwait_play_dead(unsigned int eax_hint);
@@ -127,7 +130,6 @@ __visible void smp_call_function_interrupt(struct pt_regs *regs);
 __visible void smp_call_function_single_interrupt(struct pt_regs *r);
 
 #define cpu_physical_id(cpu)	per_cpu(x86_cpu_to_apicid, cpu)
-#define cpu_acpi_id(cpu)	per_cpu(x86_cpu_to_acpiid, cpu)
 
 /*
  * This function is needed by all SMP systems. It must _always_ be valid
@@ -148,10 +150,24 @@ static inline struct cpumask *cpu_l2c_shared_mask(int cpu)
 
 #else /* !CONFIG_SMP */
 #define wbinvd_on_cpu(cpu)     wbinvd()
-static inline int wbinvd_on_all_cpus(void)
+static inline void wbinvd_on_all_cpus(void)
 {
 	wbinvd();
-	return 0;
+}
+
+static inline void wbinvd_on_cpus_mask(struct cpumask *cpus)
+{
+	wbinvd();
+}
+
+static inline void wbnoinvd_on_all_cpus(void)
+{
+	wbnoinvd();
+}
+
+static inline void wbnoinvd_on_cpus_mask(struct cpumask *cpus)
+{
+	wbnoinvd();
 }
 
 static inline struct cpumask *cpu_llc_shared_mask(int cpu)

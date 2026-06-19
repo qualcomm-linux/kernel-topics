@@ -543,6 +543,8 @@ static int crypto_skcipher_init_tfm(struct crypto_tfm *tfm)
 		return crypto_init_lskcipher_ops_sg(tfm);
 	}
 
+	crypto_skcipher_set_reqsize(skcipher, crypto_tfm_alg_reqsize(tfm));
+
 	if (alg->exit)
 		skcipher->base.exit = crypto_skcipher_exit_tfm;
 
@@ -568,9 +570,8 @@ static void crypto_skcipher_free_instance(struct crypto_instance *inst)
 	skcipher->free(skcipher);
 }
 
-static void crypto_skcipher_show(struct seq_file *m, struct crypto_alg *alg)
-	__maybe_unused;
-static void crypto_skcipher_show(struct seq_file *m, struct crypto_alg *alg)
+static void __maybe_unused crypto_skcipher_show(struct seq_file *m,
+						struct crypto_alg *alg)
 {
 	struct skcipher_alg *skcipher = __crypto_skcipher_alg(alg);
 
@@ -620,6 +621,7 @@ static const struct crypto_type crypto_skcipher_type = {
 	.maskset = CRYPTO_ALG_TYPE_SKCIPHER_MASK,
 	.type = CRYPTO_ALG_TYPE_SKCIPHER,
 	.tfmsize = offsetof(struct crypto_skcipher, base),
+	.algsize = offsetof(struct skcipher_alg, base),
 };
 
 int crypto_grab_skcipher(struct crypto_skcipher_spawn *spawn,
@@ -738,17 +740,13 @@ int crypto_register_skciphers(struct skcipher_alg *algs, int count)
 
 	for (i = 0; i < count; i++) {
 		ret = crypto_register_skcipher(&algs[i]);
-		if (ret)
-			goto err;
+		if (ret) {
+			crypto_unregister_skciphers(algs, i);
+			return ret;
+		}
 	}
 
 	return 0;
-
-err:
-	for (--i; i >= 0; --i)
-		crypto_unregister_skcipher(&algs[i]);
-
-	return ret;
 }
 EXPORT_SYMBOL_GPL(crypto_register_skciphers);
 

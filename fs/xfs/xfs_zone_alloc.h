@@ -23,9 +23,9 @@ struct xfs_zone_alloc_ctx {
  */
 #define XFS_ZR_RESERVED		(1U << 2)
 
-int xfs_zoned_space_reserve(struct xfs_inode *ip, xfs_filblks_t count_fsb,
+int xfs_zoned_space_reserve(struct xfs_mount *mp, xfs_filblks_t count_fsb,
 		unsigned int flags, struct xfs_zone_alloc_ctx *ac);
-void xfs_zoned_space_unreserve(struct xfs_inode *ip,
+void xfs_zoned_space_unreserve(struct xfs_mount *mp,
 		struct xfs_zone_alloc_ctx *ac);
 void xfs_zoned_add_available(struct xfs_mount *mp, xfs_filblks_t count_fsb);
 
@@ -51,6 +51,7 @@ int xfs_mount_zones(struct xfs_mount *mp);
 void xfs_unmount_zones(struct xfs_mount *mp);
 void xfs_zone_gc_start(struct xfs_mount *mp);
 void xfs_zone_gc_stop(struct xfs_mount *mp);
+void xfs_zone_gc_wakeup(struct xfs_mount *mp);
 #else
 static inline int xfs_mount_zones(struct xfs_mount *mp)
 {
@@ -63,6 +64,9 @@ static inline void xfs_zone_gc_start(struct xfs_mount *mp)
 {
 }
 static inline void xfs_zone_gc_stop(struct xfs_mount *mp)
+{
+}
+static inline void xfs_zone_gc_wakeup(struct xfs_mount *mp)
 {
 }
 #endif /* CONFIG_XFS_RT */

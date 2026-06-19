@@ -26,6 +26,7 @@
 
 #include <linux/inetdevice.h>
 #include <net/arp.h>
+#include <net/flow.h>
 #include <net/ip.h>
 #include <net/ip_fib.h>
 #include <net/ip6_fib.h>
@@ -38,7 +39,6 @@
 #include <net/sch_generic.h>
 #include <net/netns/generic.h>
 #include <net/netfilter/nf_conntrack.h>
-#include <net/inet_dscp.h>
 
 #define DRV_NAME	"vrf"
 #define DRV_VERSION	"1.1"
@@ -112,8 +112,8 @@ struct netns_vrf {
 };
 
 struct net_vrf {
-	struct rtable __rcu	*rth;
-	struct rt6_info	__rcu	*rt6;
+	struct rtable		*rth;
+	struct rt6_info		*rt6;
 #if IS_ENABLED(CONFIG_IPV6)
 	struct fib6_table	*fib6_table;
 #endif
@@ -158,7 +158,7 @@ static struct vrf_map_elem *vrf_map_elem_alloc(gfp_t flags)
 {
 	struct vrf_map_elem *me;
 
-	me = kmalloc(sizeof(*me), flags);
+	me = kmalloc_obj(*me, flags);
 	if (!me)
 		return NULL;
 
@@ -343,15 +343,13 @@ unlock:
 static bool qdisc_tx_is_default(const struct net_device *dev)
 {
 	struct netdev_queue *txq;
-	struct Qdisc *qdisc;
 
 	if (dev->num_tx_queues > 1)
 		return false;
 
 	txq = netdev_get_tx_queue(dev, 0);
-	qdisc = rcu_access_pointer(txq->qdisc);
 
-	return !qdisc->enqueue;
+	return qdisc_txq_has_no_queue(txq);
 }
 
 /* Local traffic destined to local address. Reinsert the packet to rx
@@ -507,7 +505,7 @@ static netdev_tx_t vrf_process_v4_outbound(struct sk_buff *skb,
 	/* needed to match OIF rule */
 	fl4.flowi4_l3mdev = vrf_dev->ifindex;
 	fl4.flowi4_iif = LOOPBACK_IFINDEX;
-	fl4.flowi4_tos = inet_dscp_to_dsfield(ip4h_dscp(ip4h));
+	fl4.flowi4_dscp = ip4h_dscp(ip4h);
 	fl4.flowi4_flags = FLOWI_FLAG_ANYSRC;
 	fl4.flowi4_proto = ip4h->protocol;
 	fl4.daddr = ip4h->daddr;
@@ -650,26 +648,13 @@ static struct sk_buff *vrf_ip6_out_redirect(struct net_device *vrf_dev,
 					    struct sk_buff *skb)
 {
 	struct net_vrf *vrf = netdev_priv(vrf_dev);
-	struct dst_entry *dst = NULL;
 	struct rt6_info *rt6;
 
-	rcu_read_lock();
-
-	rt6 = rcu_dereference(vrf->rt6);
-	if (likely(rt6)) {
-		dst = &rt6->dst;
-		dst_hold(dst);
-	}
-
-	rcu_read_unlock();
-
-	if (unlikely(!dst)) {
-		vrf_tx_error(vrf_dev, skb);
-		return NULL;
-	}
+	rt6 = vrf->rt6;
+	dst_hold(&rt6->dst);
 
 	skb_dst_drop(skb);
-	skb_dst_set(skb, dst);
+	skb_dst_set(skb, &rt6->dst);
 
 	return skb;
 }
@@ -752,22 +737,11 @@ static struct sk_buff *vrf_ip6_out(struct net_device *vrf_dev,
 /* holding rtnl */
 static void vrf_rt6_release(struct net_device *dev, struct net_vrf *vrf)
 {
-	struct rt6_info *rt6 = rtnl_dereference(vrf->rt6);
-	struct net *net = dev_net(dev);
-	struct dst_entry *dst;
+	struct rt6_info *rt6 = vrf->rt6;
 
-	RCU_INIT_POINTER(vrf->rt6, NULL);
-	synchronize_rcu();
-
-	/* move dev in dst's to loopback so this VRF device can be deleted
-	 * - based on dst_ifdown
-	 */
 	if (rt6) {
-		dst = &rt6->dst;
-		netdev_ref_replace(dst->dev, net->loopback_dev,
-				   &dst->dev_tracker, GFP_KERNEL);
-		dst->dev = net->loopback_dev;
-		dst_release(dst);
+		dst_dev_put(&rt6->dst);
+		dst_release(&rt6->dst);
 	}
 }
 
@@ -794,7 +768,7 @@ static int vrf_rt6_create(struct net_device *dev)
 
 	rt6->dst.output	= vrf_output6;
 
-	rcu_assign_pointer(vrf->rt6, rt6);
+	vrf->rt6 = rt6;
 
 	rc = 0;
 out:
@@ -880,26 +854,13 @@ static struct sk_buff *vrf_ip_out_redirect(struct net_device *vrf_dev,
 					   struct sk_buff *skb)
 {
 	struct net_vrf *vrf = netdev_priv(vrf_dev);
-	struct dst_entry *dst = NULL;
 	struct rtable *rth;
 
-	rcu_read_lock();
-
-	rth = rcu_dereference(vrf->rth);
-	if (likely(rth)) {
-		dst = &rth->dst;
-		dst_hold(dst);
-	}
-
-	rcu_read_unlock();
-
-	if (unlikely(!dst)) {
-		vrf_tx_error(vrf_dev, skb);
-		return NULL;
-	}
+	rth = vrf->rth;
+	dst_hold(&rth->dst);
 
 	skb_dst_drop(skb);
-	skb_dst_set(skb, dst);
+	skb_dst_set(skb, &rth->dst);
 
 	return skb;
 }
@@ -999,23 +960,10 @@ static struct sk_buff *vrf_l3_out(struct net_device *vrf_dev,
 /* holding rtnl */
 static void vrf_rtable_release(struct net_device *dev, struct net_vrf *vrf)
 {
-	struct rtable *rth = rtnl_dereference(vrf->rth);
-	struct net *net = dev_net(dev);
-	struct dst_entry *dst;
+	struct rtable *rth = vrf->rth;
 
-	RCU_INIT_POINTER(vrf->rth, NULL);
-	synchronize_rcu();
-
-	/* move dev in dst's to loopback so this VRF device can be deleted
-	 * - based on dst_ifdown
-	 */
-	if (rth) {
-		dst = &rth->dst;
-		netdev_ref_replace(dst->dev, net->loopback_dev,
-				   &dst->dev_tracker, GFP_KERNEL);
-		dst->dev = net->loopback_dev;
-		dst_release(dst);
-	}
+	dst_dev_put(&rth->dst);
+	dst_release(&rth->dst);
 }
 
 static int vrf_rtable_create(struct net_device *dev)
@@ -1033,7 +981,7 @@ static int vrf_rtable_create(struct net_device *dev)
 
 	rth->dst.output	= vrf_output;
 
-	rcu_assign_pointer(vrf->rth, rth);
+	vrf->rth = rth;
 
 	return 0;
 }
@@ -1303,6 +1251,8 @@ static void vrf_ip6_input_dst(struct sk_buff *skb, struct net_device *vrf_dev,
 	};
 	struct net *net = dev_net(vrf_dev);
 	struct rt6_info *rt6;
+
+	skb_dst_drop(skb);
 
 	rt6 = vrf_ip6_route_lookup(net, vrf_dev, &fl6, ifindex, skb,
 				   RT6_LOOKUP_F_HAS_SADDR | RT6_LOOKUP_F_IFACE);

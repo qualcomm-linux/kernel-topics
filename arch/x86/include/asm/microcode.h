@@ -2,6 +2,8 @@
 #ifndef _ASM_X86_MICROCODE_H
 #define _ASM_X86_MICROCODE_H
 
+#include <asm/msr.h>
+
 struct cpu_signature {
 	unsigned int sig;
 	unsigned int pf;
@@ -59,11 +61,13 @@ static inline int intel_microcode_get_datasize(struct microcode_header_intel *hd
 	return hdr->datasize ? : DEFAULT_UCODE_DATASIZE;
 }
 
+extern u32 intel_get_platform_id(void);
+
 static inline u32 intel_get_microcode_revision(void)
 {
 	u32 rev, dummy;
 
-	native_wrmsrl(MSR_IA32_UCODE_REV, 0);
+	native_wrmsrq(MSR_IA32_UCODE_REV, 0);
 
 	/* As documented in the SDM: Do a CPUID 1 here */
 	native_cpuid_eax(1);

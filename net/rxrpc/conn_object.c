@@ -59,7 +59,7 @@ struct rxrpc_connection *rxrpc_alloc_connection(struct rxrpc_net *rxnet,
 
 	_enter("");
 
-	conn = kzalloc(sizeof(struct rxrpc_connection), gfp);
+	conn = kzalloc_obj(struct rxrpc_connection, gfp);
 	if (conn) {
 		INIT_LIST_HEAD(&conn->cache_link);
 		timer_setup(&conn->timer, &rxrpc_connection_timer, 0);
@@ -73,6 +73,7 @@ struct rxrpc_connection *rxrpc_alloc_connection(struct rxrpc_net *rxnet,
 		skb_queue_head_init(&conn->rx_queue);
 		conn->rxnet = rxnet;
 		conn->security = &rxrpc_no_security;
+		rwlock_init(&conn->security_use_lock);
 		spin_lock_init(&conn->state_lock);
 		conn->debug_id = atomic_inc_return(&rxrpc_debug_id);
 		conn->idle_timestamp = jiffies;
@@ -329,6 +330,7 @@ static void rxrpc_clean_up_connection(struct work_struct *work)
 	}
 
 	rxrpc_purge_queue(&conn->rx_queue);
+	rxrpc_free_skb(conn->tx_response, rxrpc_skb_put_response);
 
 	rxrpc_kill_client_conn(conn);
 

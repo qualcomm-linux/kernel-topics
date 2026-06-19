@@ -1,6 +1,7 @@
 api_intel_allocator@reopen,Timeout
 api_intel_bb@destroy-bb,Timeout
 core_hotunplug@hotrebind-lateclose,Timeout
+core_setmaster@master-drop-set-user,Fail
 drm_read@short-buffer-block,Timeout
 dumb_buffer@map-valid,Timeout
 i915_module_load@load,Fail
@@ -26,8 +27,3 @@ syncobj_wait@multi-wait-all-submitted,Timeout
 syncobj_wait@multi-wait-for-submit-submitted-signaled,Timeout
 syncobj_wait@wait-any-complex,Timeout
 syncobj_wait@wait-delayed-signal,Timeout
-xe_module_load@force-load,Fail
-xe_module_load@load,Fail
-xe_module_load@many-reload,Fail
-xe_module_load@reload,Fail
-xe_module_load@reload-no-display,Fail

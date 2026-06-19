@@ -31,6 +31,15 @@ GuC Power Conservation (PC)
 .. kernel-doc:: drivers/gpu/drm/xe/xe_guc_pc.c
    :doc: GuC Power Conservation (PC)
 
+.. kernel-doc:: drivers/gpu/drm/xe/xe_guc_rc.c
+   :doc: GuC Render C-states (GuC RC)
+
+PCIe Gen5 Limitations
+=====================
+
+.. kernel-doc:: drivers/gpu/drm/xe/xe_device_sysfs.c
+   :doc: PCIe Gen5 Limitations
+
 Internal API
 ============
 

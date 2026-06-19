@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: ISC
+// SPDX-License-Identifier: BSD-3-Clause-Clear
 /* Copyright (C) 2023 MediaTek Inc. */
 
 #include <linux/module.h>
@@ -28,7 +28,7 @@ static const struct ieee80211_iface_combination if_comb[] = {
 	},
 };
 
-static const struct ieee80211_iface_limit if_limits_chanctx[] = {
+static const struct ieee80211_iface_limit if_limits_chanctx_mcc[] = {
 	{
 		.max = 2,
 		.types = BIT(NL80211_IFTYPE_STATION) |
@@ -36,8 +36,23 @@ static const struct ieee80211_iface_limit if_limits_chanctx[] = {
 	},
 	{
 		.max = 1,
-		.types = BIT(NL80211_IFTYPE_AP) |
-			 BIT(NL80211_IFTYPE_P2P_GO)
+		.types = BIT(NL80211_IFTYPE_P2P_GO)
+	},
+	{
+		.max = 1,
+		.types = BIT(NL80211_IFTYPE_P2P_DEVICE)
+	}
+};
+
+static const struct ieee80211_iface_limit if_limits_chanctx_scc[] = {
+	{
+		.max = 2,
+		.types = BIT(NL80211_IFTYPE_STATION) |
+			 BIT(NL80211_IFTYPE_P2P_CLIENT)
+	},
+	{
+		.max = 1,
+		.types = BIT(NL80211_IFTYPE_AP)
 	},
 	{
 		.max = 1,
@@ -47,10 +62,17 @@ static const struct ieee80211_iface_limit if_limits_chanctx[] = {
 
 static const struct ieee80211_iface_combination if_comb_chanctx[] = {
 	{
-		.limits = if_limits_chanctx,
-		.n_limits = ARRAY_SIZE(if_limits_chanctx),
+		.limits = if_limits_chanctx_mcc,
+		.n_limits = ARRAY_SIZE(if_limits_chanctx_mcc),
 		.max_interfaces = 3,
 		.num_different_channels = 2,
+		.beacon_int_infra_match = false,
+	},
+	{
+		.limits = if_limits_chanctx_scc,
+		.n_limits = ARRAY_SIZE(if_limits_chanctx_scc),
+		.max_interfaces = 3,
+		.num_different_channels = 1,
 		.beacon_int_infra_match = false,
 	}
 };
@@ -129,7 +151,7 @@ void mt792x_stop(struct ieee80211_hw *hw, bool suspend)
 	cancel_work_sync(&dev->reset_work);
 	mt76_connac_free_pending_tx_skbs(&dev->pm, NULL);
 
-	if (is_mt7921(&dev->mt76)) {
+	if (is_connac2(&dev->mt76)) {
 		mt792x_mutex_acquire(dev);
 		mt76_connac_mcu_set_mac_enable(&dev->mt76, 0, false, false);
 		mt792x_mutex_release(dev);
@@ -283,7 +305,7 @@ EXPORT_SYMBOL_GPL(mt792x_tx_worker);
 
 void mt792x_roc_timer(struct timer_list *timer)
 {
-	struct mt792x_phy *phy = from_timer(phy, timer, roc_timer);
+	struct mt792x_phy *phy = timer_container_of(phy, timer, roc_timer);
 
 	ieee80211_queue_work(phy->mt76->hw, &phy->roc_work);
 }
@@ -291,7 +313,7 @@ EXPORT_SYMBOL_GPL(mt792x_roc_timer);
 
 void mt792x_csa_timer(struct timer_list *timer)
 {
-	struct mt792x_vif *mvif = from_timer(mvif, timer, csa_timer);
+	struct mt792x_vif *mvif = timer_container_of(mvif, timer, csa_timer);
 
 	ieee80211_queue_work(mvif->phy->mt76->hw, &mvif->csa_work);
 }
@@ -579,7 +601,8 @@ void mt792x_sta_statistics(struct ieee80211_hw *hw,
 }
 EXPORT_SYMBOL_GPL(mt792x_sta_statistics);
 
-void mt792x_set_coverage_class(struct ieee80211_hw *hw, s16 coverage_class)
+void mt792x_set_coverage_class(struct ieee80211_hw *hw, int radio_idx,
+			       s16 coverage_class)
 {
 	struct mt792x_phy *phy = mt792x_hw_phy(hw);
 	struct mt792x_dev *dev = phy->dev;
@@ -665,8 +688,11 @@ int mt792x_init_wiphy(struct ieee80211_hw *hw)
 	ieee80211_hw_set(hw, SUPPORTS_DYNAMIC_PS);
 	ieee80211_hw_set(hw, SUPPORTS_VHT_EXT_NSS_BW);
 	ieee80211_hw_set(hw, CONNECTION_MONITOR);
-	if (is_mt7921(&dev->mt76))
-		ieee80211_hw_set(hw, CHANCTX_STA_CSA);
+	ieee80211_hw_set(hw, SUPPORTS_MULTI_BSSID);
+	ieee80211_hw_set(hw, SUPPORTS_ONLY_HE_MULTI_BSSID);
+
+	ieee80211_hw_set(hw, CHANCTX_STA_CSA);
+
 
 	if (dev->pm.enable)
 		ieee80211_hw_set(hw, CONNECTION_MONITOR);
@@ -899,6 +925,13 @@ EXPORT_SYMBOL_GPL(mt792xe_mcu_fw_pmctrl);
 int mt792x_load_firmware(struct mt792x_dev *dev)
 {
 	int ret;
+
+	mt76_connac_mcu_restart(&dev->mt76);
+
+	if (!mt76_poll_msec(dev, MT_CONN_ON_MISC, MT_TOP_MISC_FW_STATE,
+			    MT_TOP_MISC2_FW_PWR_ON, 1000))
+		dev_warn(dev->mt76.dev,
+			 "MCU is not ready for firmware download\n");
 
 	ret = mt76_connac2_load_patch(&dev->mt76, mt792x_patch_name(dev));
 	if (ret)

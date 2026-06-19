@@ -76,7 +76,7 @@ static inline int mr_call_vif_notifiers(struct net *net,
 					struct vif_device *vif,
 					struct net_device *vif_dev,
 					unsigned short vif_index, u32 tb_id,
-					unsigned int *ipmr_seq)
+					atomic_t *ipmr_seq)
 {
 	struct vif_entry_notifier_info info = {
 		.info = {
@@ -89,7 +89,7 @@ static inline int mr_call_vif_notifiers(struct net *net,
 	};
 
 	ASSERT_RTNL();
-	(*ipmr_seq)++;
+	atomic_inc(ipmr_seq);
 	return call_fib_notifiers(net, event_type, &info.info);
 }
 
@@ -198,7 +198,7 @@ static inline int mr_call_mfc_notifiers(struct net *net,
 					unsigned short family,
 					enum fib_event_type event_type,
 					struct mr_mfc *mfc, u32 tb_id,
-					unsigned int *ipmr_seq)
+					atomic_t *ipmr_seq)
 {
 	struct mfc_entry_notifier_info info = {
 		.info = {
@@ -208,8 +208,7 @@ static inline int mr_call_mfc_notifiers(struct net *net,
 		.tb_id = tb_id
 	};
 
-	ASSERT_RTNL();
-	(*ipmr_seq)++;
+	atomic_inc(ipmr_seq);
 	return call_fib_notifiers(net, event_type, &info.info);
 }
 
@@ -261,6 +260,11 @@ struct mr_table {
 	bool			mroute_do_wrvifwhole;
 	int			mroute_reg_vif_num;
 };
+
+static inline bool mr_can_free_table(struct net *net)
+{
+	return !check_net(net) || !net_initialized(net);
+}
 
 #ifdef CONFIG_IP_MROUTE_COMMON
 void vif_device_init(struct vif_device *v,

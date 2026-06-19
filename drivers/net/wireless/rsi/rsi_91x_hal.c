@@ -490,7 +490,7 @@ int rsi_prepare_beacon(struct rsi_common *common, struct sk_buff *skb)
 
 static void bl_cmd_timeout(struct timer_list *t)
 {
-	struct rsi_hw *adapter = from_timer(adapter, t, bl_cmd_timer);
+	struct rsi_hw *adapter = timer_container_of(adapter, t, bl_cmd_timer);
 
 	adapter->blcmd_timer_expired = true;
 	timer_delete(&adapter->bl_cmd_timer);
@@ -647,7 +647,7 @@ static int bl_write_header(struct rsi_hw *adapter, u8 *flash_content,
 	u32 write_addr, write_len;
 	int status;
 
-	bl_hdr = kzalloc(sizeof(*bl_hdr), GFP_KERNEL);
+	bl_hdr = kzalloc_obj(*bl_hdr);
 	if (!bl_hdr)
 		return -ENOMEM;
 

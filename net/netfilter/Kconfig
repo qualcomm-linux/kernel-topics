@@ -195,16 +195,6 @@ config NF_CONNTRACK_LABELS
 config NF_CONNTRACK_OVS
 	bool
 
-config NF_CT_PROTO_DCCP
-	bool 'DCCP protocol connection tracking support'
-	depends on NETFILTER_ADVANCED
-	default y
-	help
-	  With this option enabled, the layer 3 independent connection
-	  tracking code will be able to do state tracking on DCCP connections.
-
-	  If unsure, say Y.
-
 config NF_CT_PROTO_GRE
 	bool
 
@@ -212,21 +202,10 @@ config NF_CT_PROTO_SCTP
 	bool 'SCTP protocol connection tracking support'
 	depends on NETFILTER_ADVANCED
 	default y
-	select CRC32
+	select NET_CRC32C
 	help
 	  With this option enabled, the layer 3 independent connection
 	  tracking code will be able to do state tracking on SCTP connections.
-
-	  If unsure, say Y.
-
-config NF_CT_PROTO_UDPLITE
-	bool 'UDP-Lite protocol connection tracking support'
-	depends on NETFILTER_ADVANCED
-	default y
-	help
-	  With this option enabled, the layer 3 independent connection
-	  tracking code will be able to do state tracking on UDP-Lite
-	  connections.
 
 	  If unsure, say Y.
 
@@ -259,7 +238,6 @@ config NF_CONNTRACK_FTP
 
 config NF_CONNTRACK_H323
 	tristate "H.323 protocol support"
-	depends on IPV6 || IPV6=n
 	depends on NETFILTER_ADVANCED
 	help
 	  H.323 is a VoIP signalling protocol from ITU-T. As one of the most
@@ -475,7 +453,7 @@ endif # NF_CONNTRACK
 
 config NF_TABLES
 	select NETFILTER_NETLINK
-	select CRC32
+	select NET_CRC32C
 	tristate "Netfilter nf_tables support"
 	help
 	  nftables is the new packet classification framework that intends to
@@ -515,6 +493,12 @@ config NFT_CT
 	help
 	  This option adds the "ct" expression that you can use to match
 	  connection tracking information such as the flow state.
+
+config NFT_EXTHDR_DCCP
+	bool "Netfilter nf_tables exthdr DCCP support (DEPRECATED)"
+	default n
+	help
+	  This option adds support for matching on DCCP extension headers.
 
 config NFT_FLOW_OFFLOAD
 	depends on NF_CONNTRACK && NF_FLOW_TABLE
@@ -593,7 +577,6 @@ config NFT_QUOTA
 config NFT_REJECT
 	default m if NETFILTER_ADVANCED=n
 	tristate "Netfilter nf_tables reject support"
-	depends on !NF_TABLES_INET || (IPV6!=m || m)
 	help
 	  This option adds the "reject" expression that you can use to
 	  explicitly deny and notify via TCP reset/ICMP informational errors
@@ -640,7 +623,6 @@ config NFT_XFRM
 
 config NFT_SOCKET
 	tristate "Netfilter nf_tables socket match support"
-	depends on IPV6 || IPV6=n
 	select NF_SOCKET_IPV4
 	select NF_SOCKET_IPV6 if NF_TABLES_IPV6
 	help
@@ -656,7 +638,6 @@ config NFT_OSF
 
 config NFT_TPROXY
 	tristate "Netfilter nf_tables tproxy support"
-	depends on IPV6 || IPV6=n
 	select NF_DEFRAG_IPV4
 	select NF_DEFRAG_IPV6 if NF_TABLES_IPV6
 	select NF_TPROXY_IPV4
@@ -761,6 +742,16 @@ config NETFILTER_XTABLES_COMPAT
 	   binaries on 64bit kernels.
 
 	   If unsure, say N.
+
+config NETFILTER_XTABLES_LEGACY
+	bool "Netfilter legacy tables support"
+	depends on !PREEMPT_RT
+	help
+	  Say Y here if you still require support for legacy tables. This is
+	  required by the legacy tools (iptables-legacy) and is not needed if
+	  you use iptables over nftables (iptables-nft).
+	  Legacy support is not limited to IP, it also includes EBTABLES and
+	  ARPTABLES.
 
 comment "Xtables combined modules"
 
@@ -1065,7 +1056,6 @@ config NETFILTER_XT_TARGET_MASQUERADE
 config NETFILTER_XT_TARGET_TEE
 	tristate '"TEE" - packet cloning to alternate destination'
 	depends on NETFILTER_ADVANCED
-	depends on IPV6 || IPV6=n
 	depends on !NF_CONNTRACK || NF_CONNTRACK
 	depends on IP6_NF_IPTABLES || !IP6_NF_IPTABLES
 	select NF_DUP_IPV4
@@ -1078,7 +1068,6 @@ config NETFILTER_XT_TARGET_TPROXY
 	tristate '"TPROXY" target transparent proxying support'
 	depends on NETFILTER_XTABLES
 	depends on NETFILTER_ADVANCED
-	depends on IPV6 || IPV6=n
 	depends on IP6_NF_IPTABLES || IP6_NF_IPTABLES=n
 	depends on IP_NF_MANGLE || NFT_COMPAT
 	select NF_DEFRAG_IPV4
@@ -1120,7 +1109,6 @@ config NETFILTER_XT_TARGET_SECMARK
 
 config NETFILTER_XT_TARGET_TCPMSS
 	tristate '"TCPMSS" target support'
-	depends on IPV6 || IPV6=n
 	default m if NETFILTER_ADVANCED=n
 	help
 	  This option adds a `TCPMSS' target, which allows you to alter the
@@ -1180,7 +1168,7 @@ config NETFILTER_XT_MATCH_CGROUP
 	tristate '"control group" match support'
 	depends on NETFILTER_ADVANCED
 	depends on CGROUPS
-	select CGROUP_NET_CLASSID
+	select SOCK_CGROUP_DATA
 	help
 	Socket/process control group matching allows you to match locally
 	generated packets based on which net_cls control group processes
@@ -1278,9 +1266,9 @@ config NETFILTER_XT_MATCH_CPU
 	  To compile it as a module, choose M here.  If unsure, say N.
 
 config NETFILTER_XT_MATCH_DCCP
-	tristate '"dccp" protocol match support'
+	tristate '"dccp" protocol match support (DEPRECATED)'
 	depends on NETFILTER_ADVANCED
-	default IP_DCCP
+	default n
 	help
 	  With this option enabled, you will be able to use the iptables
 	  `dccp' match in order to match on DCCP source/destination ports
@@ -1575,7 +1563,6 @@ config NETFILTER_XT_MATCH_SOCKET
 	tristate '"socket" match support'
 	depends on NETFILTER_XTABLES
 	depends on NETFILTER_ADVANCED
-	depends on IPV6 || IPV6=n
 	depends on IP6_NF_IPTABLES || IP6_NF_IPTABLES=n
 	select NF_SOCKET_IPV4
 	select NF_SOCKET_IPV6 if IP6_NF_IPTABLES

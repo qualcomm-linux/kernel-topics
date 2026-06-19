@@ -19,6 +19,7 @@
 #include <linux/genalloc.h>
 #include <linux/edac.h>
 #include <linux/bits.h>
+#include <linux/bitfield.h>
 #include <linux/io.h>
 #include <asm/mach_traps.h>
 #include <asm/nmi.h>
@@ -79,15 +80,11 @@
 #define ECC_ERROR_LOG_OFFSET		(IBECC_BASE + res_cfg->ibecc_error_log_offset)
 #define ECC_ERROR_LOG_CE		BIT_ULL(62)
 #define ECC_ERROR_LOG_UE		BIT_ULL(63)
-#define ECC_ERROR_LOG_ADDR_SHIFT	5
-#define ECC_ERROR_LOG_ADDR(v)		GET_BITFIELD(v, 5, 38)
-#define ECC_ERROR_LOG_ADDR45(v)		GET_BITFIELD(v, 5, 45)
 #define ECC_ERROR_LOG_SYND(v)		GET_BITFIELD(v, 46, 61)
 
 /* Host MMIO base address */
 #define MCHBAR_OFFSET			0x48
 #define MCHBAR_EN			BIT_ULL(0)
-#define MCHBAR_BASE(v)			(GET_BITFIELD(v, 16, 38) << 16)
 #define MCHBAR_SIZE			0x10000
 
 /* Parameters for the channel decode stage */
@@ -125,9 +122,18 @@
 #define MEM_SLICE_HASH_MASK(v)		(GET_BITFIELD(v, 6, 19) << 6)
 #define MEM_SLICE_HASH_LSB_MASK_BIT(v)	GET_BITFIELD(v, 24, 26)
 
-static const struct res_config {
+static struct res_config {
 	bool machine_check;
+	/* The number of present memory controllers. */
 	int num_imc;
+	/* Host MMIO configuration */
+	u64 reg_mchbar_mask;
+	/* Top of memory */
+	u64 reg_tom_mask;
+	/* Top of upper usable DRAM */
+	u64 reg_touud_mask;
+	/* IBECC error log */
+	u64 reg_eccerrlog_addr_mask;
 	u32 imc_base;
 	u32 cmf_base;
 	u32 cmf_size;
@@ -240,6 +246,14 @@ static struct work_struct ecclog_work;
 #define DID_ADL_N_SKU11	0x467c
 #define DID_ADL_N_SKU12	0x4632
 
+/* Compute die IDs for Arizona Beach with IBECC */
+#define DID_AZB_SKU1	0x4676
+
+/* Compute did IDs for Amston Lake with IBECC */
+#define DID_ASL_SKU1	0x464a
+#define DID_ASL_SKU2	0x4646
+#define DID_ASL_SKU3	0x4652
+
 /* Compute die IDs for Raptor Lake-P with IBECC */
 #define DID_RPL_P_SKU1	0xa706
 #define DID_RPL_P_SKU2	0xa707
@@ -267,6 +281,19 @@ static struct work_struct ecclog_work;
 #define DID_PTL_H_SKU1	0xb000
 #define DID_PTL_H_SKU2	0xb001
 #define DID_PTL_H_SKU3	0xb002
+#define DID_PTL_H_SKU4	0xb003
+#define DID_PTL_H_SKU5	0xb004
+#define DID_PTL_H_SKU6	0xb005
+#define DID_PTL_H_SKU7	0xb008
+#define DID_PTL_H_SKU8	0xb011
+#define DID_PTL_H_SKU9	0xb014
+#define DID_PTL_H_SKU10	0xb015
+#define DID_PTL_H_SKU11	0xb028
+#define DID_PTL_H_SKU12	0xb029
+#define DID_PTL_H_SKU13	0xb02a
+
+/* Compute die IDs for Wildcat Lake with IBECC */
+#define DID_WCL_SKU1	0xfd00
 
 static int get_mchbar(struct pci_dev *pdev, u64 *mchbar)
 {
@@ -293,7 +320,8 @@ static int get_mchbar(struct pci_dev *pdev, u64 *mchbar)
 		return -ENODEV;
 	}
 
-	*mchbar = MCHBAR_BASE(u.v);
+	*mchbar = u.v & res_cfg->reg_mchbar_mask;
+	edac_dbg(2, "MCHBAR 0x%llx (reg 0x%llx)\n", *mchbar, u.v);
 
 	return 0;
 }
@@ -469,11 +497,15 @@ static u64 adl_err_addr_to_imc_addr(u64 eaddr, int mc)
 
 static u64 rpl_p_err_addr(u64 ecclog)
 {
-	return ECC_ERROR_LOG_ADDR45(ecclog);
+	return field_get(res_cfg->reg_eccerrlog_addr_mask, ecclog);
 }
 
-static const struct res_config ehl_cfg = {
+static struct res_config ehl_cfg = {
 	.num_imc		= 1,
+	.reg_mchbar_mask	= GENMASK_ULL(38, 16),
+	.reg_tom_mask		= GENMASK_ULL(38, 20),
+	.reg_touud_mask		= GENMASK_ULL(38, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(38, 5),
 	.imc_base		= 0x5000,
 	.ibecc_base		= 0xdc00,
 	.ibecc_available	= ehl_ibecc_available,
@@ -482,8 +514,12 @@ static const struct res_config ehl_cfg = {
 	.err_addr_to_imc_addr	= ehl_err_addr_to_imc_addr,
 };
 
-static const struct res_config icl_cfg = {
+static struct res_config icl_cfg = {
 	.num_imc		= 1,
+	.reg_mchbar_mask	= GENMASK_ULL(38, 16),
+	.reg_tom_mask		= GENMASK_ULL(38, 20),
+	.reg_touud_mask		= GENMASK_ULL(38, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(38, 5),
 	.imc_base		= 0x5000,
 	.ibecc_base		= 0xd800,
 	.ibecc_error_log_offset	= 0x170,
@@ -492,9 +528,13 @@ static const struct res_config icl_cfg = {
 	.err_addr_to_imc_addr	= ehl_err_addr_to_imc_addr,
 };
 
-static const struct res_config tgl_cfg = {
+static struct res_config tgl_cfg = {
 	.machine_check		= true,
 	.num_imc		= 2,
+	.reg_mchbar_mask	= GENMASK_ULL(38, 17),
+	.reg_tom_mask		= GENMASK_ULL(38, 20),
+	.reg_touud_mask		= GENMASK_ULL(38, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(38, 5),
 	.imc_base		= 0x5000,
 	.cmf_base		= 0x11000,
 	.cmf_size		= 0x800,
@@ -506,9 +546,13 @@ static const struct res_config tgl_cfg = {
 	.err_addr_to_imc_addr	= tgl_err_addr_to_imc_addr,
 };
 
-static const struct res_config adl_cfg = {
+static struct res_config adl_cfg = {
 	.machine_check		= true,
 	.num_imc		= 2,
+	.reg_mchbar_mask	= GENMASK_ULL(41, 17),
+	.reg_tom_mask		= GENMASK_ULL(41, 20),
+	.reg_touud_mask		= GENMASK_ULL(41, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(45, 5),
 	.imc_base		= 0xd800,
 	.ibecc_base		= 0xd400,
 	.ibecc_error_log_offset	= 0x68,
@@ -517,9 +561,13 @@ static const struct res_config adl_cfg = {
 	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
 };
 
-static const struct res_config adl_n_cfg = {
+static struct res_config adl_n_cfg = {
 	.machine_check		= true,
 	.num_imc		= 1,
+	.reg_mchbar_mask	= GENMASK_ULL(41, 17),
+	.reg_tom_mask		= GENMASK_ULL(41, 20),
+	.reg_touud_mask		= GENMASK_ULL(41, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(45, 5),
 	.imc_base		= 0xd800,
 	.ibecc_base		= 0xd400,
 	.ibecc_error_log_offset	= 0x68,
@@ -528,9 +576,13 @@ static const struct res_config adl_n_cfg = {
 	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
 };
 
-static const struct res_config rpl_p_cfg = {
+static struct res_config rpl_p_cfg = {
 	.machine_check		= true,
 	.num_imc		= 2,
+	.reg_mchbar_mask	= GENMASK_ULL(41, 17),
+	.reg_tom_mask		= GENMASK_ULL(41, 20),
+	.reg_touud_mask		= GENMASK_ULL(41, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(45, 5),
 	.imc_base		= 0xd800,
 	.ibecc_base		= 0xd400,
 	.ibecc_error_log_offset	= 0x68,
@@ -540,9 +592,13 @@ static const struct res_config rpl_p_cfg = {
 	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
 };
 
-static const struct res_config mtl_ps_cfg = {
+static struct res_config mtl_ps_cfg = {
 	.machine_check		= true,
 	.num_imc		= 2,
+	.reg_mchbar_mask	= GENMASK_ULL(41, 17),
+	.reg_tom_mask		= GENMASK_ULL(41, 20),
+	.reg_touud_mask		= GENMASK_ULL(41, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(38, 5),
 	.imc_base		= 0xd800,
 	.ibecc_base		= 0xd400,
 	.ibecc_error_log_offset	= 0x170,
@@ -551,9 +607,13 @@ static const struct res_config mtl_ps_cfg = {
 	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
 };
 
-static const struct res_config mtl_p_cfg = {
+static struct res_config mtl_p_cfg = {
 	.machine_check		= true,
 	.num_imc		= 2,
+	.reg_mchbar_mask	= GENMASK_ULL(41, 17),
+	.reg_tom_mask		= GENMASK_ULL(41, 20),
+	.reg_touud_mask		= GENMASK_ULL(41, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(38, 5),
 	.imc_base		= 0xd800,
 	.ibecc_base		= 0xd400,
 	.ibecc_error_log_offset	= 0x170,
@@ -562,7 +622,22 @@ static const struct res_config mtl_p_cfg = {
 	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
 };
 
-static const struct pci_device_id igen6_pci_tbl[] = {
+static struct res_config wcl_cfg = {
+	.machine_check		= true,
+	.num_imc		= 1,
+	.reg_mchbar_mask	= GENMASK_ULL(41, 17),
+	.reg_tom_mask		= GENMASK_ULL(41, 20),
+	.reg_touud_mask		= GENMASK_ULL(41, 20),
+	.reg_eccerrlog_addr_mask = GENMASK_ULL(38, 5),
+	.imc_base		= 0xd800,
+	.ibecc_base		= 0xd400,
+	.ibecc_error_log_offset	= 0x170,
+	.ibecc_available	= mtl_p_ibecc_available,
+	.err_addr_to_sys_addr	= adl_err_addr_to_sys_addr,
+	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
+};
+
+static struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_EHL_SKU5), (kernel_ulong_t)&ehl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_EHL_SKU6), (kernel_ulong_t)&ehl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_EHL_SKU7), (kernel_ulong_t)&ehl_cfg },
@@ -595,6 +670,10 @@ static const struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU10), (kernel_ulong_t)&adl_n_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU11), (kernel_ulong_t)&adl_n_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU12), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_AZB_SKU1), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ASL_SKU1), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ASL_SKU2), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ASL_SKU3), (kernel_ulong_t)&adl_n_cfg },
 	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU1), (kernel_ulong_t)&rpl_p_cfg },
 	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU2), (kernel_ulong_t)&rpl_p_cfg },
 	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU3), (kernel_ulong_t)&rpl_p_cfg },
@@ -613,6 +692,17 @@ static const struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU1), (kernel_ulong_t)&mtl_p_cfg },
 	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU2), (kernel_ulong_t)&mtl_p_cfg },
 	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU3), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU4), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU5), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU6), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU7), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU8), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU9), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU10), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU11), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU12), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU13), (kernel_ulong_t)&mtl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_WCL_SKU1), (kernel_ulong_t)&wcl_cfg },
 	{ },
 };
 MODULE_DEVICE_TABLE(pci, igen6_pci_tbl);
@@ -880,8 +970,8 @@ static void ecclog_work_cb(struct work_struct *work)
 		if (res_cfg->err_addr)
 			eaddr = res_cfg->err_addr(node->ecclog);
 		else
-			eaddr = ECC_ERROR_LOG_ADDR(node->ecclog) <<
-				ECC_ERROR_LOG_ADDR_SHIFT;
+			eaddr = node->ecclog & res_cfg->reg_eccerrlog_addr_mask;
+
 		res.mc	     = node->mc;
 		res.sys_addr = res_cfg->err_addr_to_sys_addr(eaddr, res.mc);
 		res.imc_addr = res_cfg->err_addr_to_imc_addr(eaddr, res.mc);
@@ -1101,8 +1191,7 @@ static int debugfs_u64_set(void *data, u64 val)
 
 	pr_warn_once("Fake error to 0x%llx injected via debugfs\n", val);
 
-	val  >>= ECC_ERROR_LOG_ADDR_SHIFT;
-	ecclog = (val << ECC_ERROR_LOG_ADDR_SHIFT) | ECC_ERROR_LOG_CE;
+	ecclog = (val & res_cfg->reg_eccerrlog_addr_mask) | ECC_ERROR_LOG_CE;
 
 	if (!ecclog_gen_pool_add(0, ecclog))
 		irq_work_queue(&ecclog_irq_work);
@@ -1168,7 +1257,7 @@ static int igen6_pci_setup(struct pci_dev *pdev, u64 *mchbar)
 		goto fail;
 	}
 
-	igen6_tom = u.v & GENMASK_ULL(38, 20);
+	igen6_tom = u.v & res_cfg->reg_tom_mask;
 
 	if (get_mchbar(pdev, mchbar))
 		goto fail;
@@ -1179,7 +1268,7 @@ static int igen6_pci_setup(struct pci_dev *pdev, u64 *mchbar)
 	else if (pci_read_config_dword(pdev, TOUUD_OFFSET + 4, &u.v_hi))
 		edac_dbg(2, "Failed to read upper TOUUD\n");
 	else
-		igen6_touud = u.v & GENMASK_ULL(38, 20);
+		igen6_touud = u.v & res_cfg->reg_touud_mask;
 #endif
 
 	return 0;
@@ -1201,22 +1290,20 @@ static void igen6_check(struct mem_ctl_info *mci)
 		irq_work_queue(&ecclog_irq_work);
 }
 
-static int igen6_register_mci(int mc, u64 mchbar, struct pci_dev *pdev)
+/* Check whether the memory controller is absent. */
+static bool igen6_imc_absent(void __iomem *window)
+{
+	return readl(window + MAD_INTER_CHANNEL_OFFSET) == ~0;
+}
+
+static int igen6_register_mci(int mc, void __iomem *window, struct pci_dev *pdev)
 {
 	struct edac_mc_layer layers[2];
 	struct mem_ctl_info *mci;
 	struct igen6_imc *imc;
-	void __iomem *window;
 	int rc;
 
 	edac_dbg(2, "\n");
-
-	mchbar += mc * MCHBAR_SIZE;
-	window = ioremap(mchbar, MCHBAR_SIZE);
-	if (!window) {
-		igen6_printk(KERN_ERR, "Failed to ioremap 0x%llx\n", mchbar);
-		return -ENODEV;
-	}
 
 	layers[0].type = EDAC_MC_LAYER_CHANNEL;
 	layers[0].size = NUM_CHANNELS;
@@ -1278,12 +1365,12 @@ static int igen6_register_mci(int mc, u64 mchbar, struct pci_dev *pdev)
 	imc->mci = mci;
 	return 0;
 fail3:
+	put_device(&imc->dev);
 	mci->pvt_info = NULL;
 	kfree(mci->ctl_name);
 fail2:
 	edac_mc_free(mci);
 fail:
-	iounmap(window);
 	return rc;
 }
 
@@ -1305,8 +1392,61 @@ static void igen6_unregister_mcis(void)
 		kfree(mci->ctl_name);
 		mci->pvt_info = NULL;
 		edac_mc_free(mci);
+		put_device(&imc->dev);
 		iounmap(imc->window);
 	}
+}
+
+static int igen6_register_mcis(struct pci_dev *pdev, u64 mchbar)
+{
+	void __iomem *window;
+	int lmc, pmc, rc;
+	u64 base;
+
+	for (lmc = 0, pmc = 0; pmc < NUM_IMC; pmc++) {
+		base   = mchbar + pmc * MCHBAR_SIZE;
+		window = ioremap(base, MCHBAR_SIZE);
+		if (!window) {
+			igen6_printk(KERN_ERR, "Failed to ioremap 0x%llx for mc%d\n", base, pmc);
+			rc = -ENOMEM;
+			goto out_unregister_mcis;
+		}
+
+		if (igen6_imc_absent(window)) {
+			iounmap(window);
+			edac_dbg(2, "Skip absent mc%d\n", pmc);
+			continue;
+		}
+
+		rc = igen6_register_mci(lmc, window, pdev);
+		if (rc)
+			goto out_iounmap;
+
+		/* Done, if all present MCs are detected and registered. */
+		if (++lmc >= res_cfg->num_imc)
+			break;
+	}
+
+	if (!lmc) {
+		igen6_printk(KERN_ERR, "No mc found.\n");
+		return -ENODEV;
+	}
+
+	if (lmc < res_cfg->num_imc) {
+		igen6_printk(KERN_DEBUG, "Expected %d mcs, but only %d detected.",
+			     res_cfg->num_imc, lmc);
+		res_cfg->num_imc = lmc;
+	}
+
+	return 0;
+
+out_iounmap:
+	iounmap(window);
+
+out_unregister_mcis:
+	igen6_unregister_mcis();
+
+	return rc;
 }
 
 static int igen6_mem_slice_setup(u64 mchbar)
@@ -1405,11 +1545,11 @@ static void opstate_set(const struct res_config *cfg, const struct pci_device_id
 static int igen6_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	u64 mchbar;
-	int i, rc;
+	int rc;
 
 	edac_dbg(2, "\n");
 
-	igen6_pvt = kzalloc(sizeof(*igen6_pvt), GFP_KERNEL);
+	igen6_pvt = kzalloc_obj(*igen6_pvt);
 	if (!igen6_pvt)
 		return -ENOMEM;
 
@@ -1421,11 +1561,9 @@ static int igen6_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	opstate_set(res_cfg, ent);
 
-	for (i = 0; i < res_cfg->num_imc; i++) {
-		rc = igen6_register_mci(i, mchbar, pdev);
-		if (rc)
-			goto fail2;
-	}
+	rc = igen6_register_mcis(pdev, mchbar);
+	if (rc)
+		goto fail;
 
 	if (res_cfg->num_imc > 1) {
 		rc = igen6_mem_slice_setup(mchbar);

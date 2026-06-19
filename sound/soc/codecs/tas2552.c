@@ -487,7 +487,7 @@ static int tas2552_runtime_suspend(struct device *dev)
 	regcache_cache_only(tas2552->regmap, true);
 	regcache_mark_dirty(tas2552->regmap);
 
-	gpiod_set_value(tas2552->enable_gpio, 0);
+	gpiod_set_value_cansleep(tas2552->enable_gpio, 0);
 
 	return 0;
 }
@@ -496,7 +496,7 @@ static int tas2552_runtime_resume(struct device *dev)
 {
 	struct tas2552_data *tas2552 = dev_get_drvdata(dev);
 
-	gpiod_set_value(tas2552->enable_gpio, 1);
+	gpiod_set_value_cansleep(tas2552->enable_gpio, 1);
 
 	tas2552_sw_shutdown(tas2552, 0);
 
@@ -583,7 +583,7 @@ static int tas2552_component_probe(struct snd_soc_component *component)
 		return ret;
 	}
 
-	gpiod_set_value(tas2552->enable_gpio, 1);
+	gpiod_set_value_cansleep(tas2552->enable_gpio, 1);
 
 	ret = pm_runtime_resume_and_get(component->dev);
 	if (ret < 0) {
@@ -608,7 +608,7 @@ static int tas2552_component_probe(struct snd_soc_component *component)
 
 probe_fail:
 	pm_runtime_put_noidle(component->dev);
-	gpiod_set_value(tas2552->enable_gpio, 0);
+	gpiod_set_value_cansleep(tas2552->enable_gpio, 0);
 
 	regulator_bulk_disable(ARRAY_SIZE(tas2552->supplies),
 					tas2552->supplies);
@@ -621,7 +621,7 @@ static void tas2552_component_remove(struct snd_soc_component *component)
 
 	pm_runtime_put(component->dev);
 
-	gpiod_set_value(tas2552->enable_gpio, 0);
+	gpiod_set_value_cansleep(tas2552->enable_gpio, 0);
 };
 
 #ifdef CONFIG_PM
@@ -724,7 +724,6 @@ static int tas2552_probe(struct i2c_client *client)
 	pm_runtime_set_autosuspend_delay(&client->dev, 1000);
 	pm_runtime_use_autosuspend(&client->dev);
 	pm_runtime_enable(&client->dev);
-	pm_runtime_mark_last_busy(&client->dev);
 	pm_runtime_put_sync_autosuspend(&client->dev);
 
 	dev_set_drvdata(&client->dev, data);

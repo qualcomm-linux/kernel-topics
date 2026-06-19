@@ -1123,13 +1123,13 @@ void ath6kl_cfg80211_ch_switch_notify(struct ath6kl_vif *vif, int freq,
 	wiphy_unlock(vif->ar->wiphy);
 }
 
-static int ath6kl_cfg80211_add_key(struct wiphy *wiphy, struct net_device *ndev,
+static int ath6kl_cfg80211_add_key(struct wiphy *wiphy, struct wireless_dev *wdev,
 				   int link_id, u8 key_index, bool pairwise,
 				   const u8 *mac_addr,
 				   struct key_params *params)
 {
-	struct ath6kl *ar = ath6kl_priv(ndev);
-	struct ath6kl_vif *vif = netdev_priv(ndev);
+	struct ath6kl *ar = ath6kl_priv(wdev->netdev);
+	struct ath6kl_vif *vif = netdev_priv(wdev->netdev);
 	struct ath6kl_key *key = NULL;
 	int seq_len;
 	u8 key_usage;
@@ -1248,12 +1248,12 @@ static int ath6kl_cfg80211_add_key(struct wiphy *wiphy, struct net_device *ndev,
 				     (u8 *) mac_addr, SYNC_BOTH_WMIFLAG);
 }
 
-static int ath6kl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *ndev,
+static int ath6kl_cfg80211_del_key(struct wiphy *wiphy, struct wireless_dev *wdev,
 				   int link_id, u8 key_index, bool pairwise,
 				   const u8 *mac_addr)
 {
-	struct ath6kl *ar = ath6kl_priv(ndev);
-	struct ath6kl_vif *vif = netdev_priv(ndev);
+	struct ath6kl *ar = ath6kl_priv(wdev->netdev);
+	struct ath6kl_vif *vif = netdev_priv(wdev->netdev);
 
 	ath6kl_dbg(ATH6KL_DBG_WLAN_CFG, "%s: index %d\n", __func__, key_index);
 
@@ -1278,13 +1278,13 @@ static int ath6kl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *ndev,
 	return ath6kl_wmi_deletekey_cmd(ar->wmi, vif->fw_vif_idx, key_index);
 }
 
-static int ath6kl_cfg80211_get_key(struct wiphy *wiphy, struct net_device *ndev,
+static int ath6kl_cfg80211_get_key(struct wiphy *wiphy, struct wireless_dev *wdev,
 				   int link_id, u8 key_index, bool pairwise,
 				   const u8 *mac_addr, void *cookie,
 				   void (*callback) (void *cookie,
 						     struct key_params *))
 {
-	struct ath6kl_vif *vif = netdev_priv(ndev);
+	struct ath6kl_vif *vif = netdev_priv(wdev->netdev);
 	struct ath6kl_key *key = NULL;
 	struct key_params params;
 
@@ -1376,7 +1376,8 @@ void ath6kl_cfg80211_tkip_micerr_event(struct ath6kl_vif *vif, u8 keyid,
 				     GFP_KERNEL);
 }
 
-static int ath6kl_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed)
+static int ath6kl_cfg80211_set_wiphy_params(struct wiphy *wiphy, int radio_idx,
+					    u32 changed)
 {
 	struct ath6kl *ar = (struct ath6kl *)wiphy_priv(wiphy);
 	struct ath6kl_vif *vif;
@@ -1405,6 +1406,7 @@ static int ath6kl_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed)
 
 static int ath6kl_cfg80211_set_txpower(struct wiphy *wiphy,
 				       struct wireless_dev *wdev,
+				       int radio_idx,
 				       enum nl80211_tx_power_setting type,
 				       int mbm)
 {
@@ -1441,6 +1443,7 @@ static int ath6kl_cfg80211_set_txpower(struct wiphy *wiphy,
 
 static int ath6kl_cfg80211_get_txpower(struct wiphy *wiphy,
 				       struct wireless_dev *wdev,
+				       int radio_idx,
 				       unsigned int link_id,
 				       int *dbm)
 {
@@ -1772,9 +1775,10 @@ static bool is_rate_ht40(s32 rate, u8 *mcs, bool *sgi)
 	return false;
 }
 
-static int ath6kl_get_station(struct wiphy *wiphy, struct net_device *dev,
+static int ath6kl_get_station(struct wiphy *wiphy, struct wireless_dev *wdev,
 			      const u8 *mac, struct station_info *sinfo)
 {
+	struct net_device *dev = wdev->netdev;
 	struct ath6kl *ar = ath6kl_priv(dev);
 	struct ath6kl_vif *vif = netdev_priv(dev);
 	long left;
@@ -2989,9 +2993,10 @@ static int ath6kl_stop_ap(struct wiphy *wiphy, struct net_device *dev,
 
 static const u8 bcast_addr[ETH_ALEN] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 
-static int ath6kl_del_station(struct wiphy *wiphy, struct net_device *dev,
+static int ath6kl_del_station(struct wiphy *wiphy, struct wireless_dev *wdev,
 			      struct station_del_parameters *params)
 {
+	struct net_device *dev = wdev->netdev;
 	struct ath6kl *ar = ath6kl_priv(dev);
 	struct ath6kl_vif *vif = netdev_priv(dev);
 	const u8 *addr = params->mac ? params->mac : bcast_addr;
@@ -3000,10 +3005,11 @@ static int ath6kl_del_station(struct wiphy *wiphy, struct net_device *dev,
 				      addr, WLAN_REASON_PREV_AUTH_NOT_VALID);
 }
 
-static int ath6kl_change_station(struct wiphy *wiphy, struct net_device *dev,
+static int ath6kl_change_station(struct wiphy *wiphy, struct wireless_dev *wdev,
 				 const u8 *mac,
 				 struct station_parameters *params)
 {
+	struct net_device *dev = wdev->netdev;
 	struct ath6kl *ar = ath6kl_priv(dev);
 	struct ath6kl_vif *vif = netdev_priv(dev);
 	int err;
@@ -3242,7 +3248,7 @@ static int ath6kl_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 					wait, buf, len, no_cck);
 }
 
-static int ath6kl_get_antenna(struct wiphy *wiphy,
+static int ath6kl_get_antenna(struct wiphy *wiphy, int radio_idx,
 			      u32 *tx_ant, u32 *rx_ant)
 {
 	struct ath6kl *ar = wiphy_priv(wiphy);

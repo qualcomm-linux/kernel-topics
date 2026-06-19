@@ -4,6 +4,7 @@
 #include <linux/iosys-map.h>
 #include <linux/rwsem.h>
 
+#include <drm/drm_print.h>
 #include <drm/panthor_drm.h>
 
 #include "panthor_device.h"
@@ -144,14 +145,15 @@ static int panthor_alloc_heap_chunk(struct panthor_heap_pool *pool,
 	struct panthor_heap_chunk_header *hdr;
 	int ret;
 
-	chunk = kmalloc(sizeof(*chunk), GFP_KERNEL);
+	chunk = kmalloc_obj(*chunk);
 	if (!chunk)
 		return -ENOMEM;
 
 	chunk->bo = panthor_kernel_bo_create(pool->ptdev, pool->vm, heap->chunk_size,
 					     DRM_PANTHOR_BO_NO_MMAP,
 					     DRM_PANTHOR_VM_BIND_OP_MAP_NOEXEC,
-					     PANTHOR_VM_KERNEL_AUTO_VA);
+					     PANTHOR_VM_KERNEL_AUTO_VA,
+					     "Tiler heap chunk");
 	if (IS_ERR(chunk->bo)) {
 		ret = PTR_ERR(chunk->bo);
 		goto err_free_chunk;
@@ -301,7 +303,7 @@ int panthor_heap_create(struct panthor_heap_pool *pool,
 	if (!vm)
 		return -EINVAL;
 
-	heap = kzalloc(sizeof(*heap), GFP_KERNEL);
+	heap = kzalloc_obj(*heap);
 	if (!heap) {
 		ret = -ENOMEM;
 		goto err_put_vm;
@@ -539,7 +541,7 @@ panthor_heap_pool_create(struct panthor_device *ptdev, struct panthor_vm *vm)
 	struct panthor_heap_pool *pool;
 	int ret = 0;
 
-	pool = kzalloc(sizeof(*pool), GFP_KERNEL);
+	pool = kzalloc_obj(*pool);
 	if (!pool)
 		return ERR_PTR(-ENOMEM);
 
@@ -555,7 +557,8 @@ panthor_heap_pool_create(struct panthor_device *ptdev, struct panthor_vm *vm)
 	pool->gpu_contexts = panthor_kernel_bo_create(ptdev, vm, bosize,
 						      DRM_PANTHOR_BO_NO_MMAP,
 						      DRM_PANTHOR_VM_BIND_OP_MAP_NOEXEC,
-						      PANTHOR_VM_KERNEL_AUTO_VA);
+						      PANTHOR_VM_KERNEL_AUTO_VA,
+						      "Heap pool");
 	if (IS_ERR(pool->gpu_contexts)) {
 		ret = PTR_ERR(pool->gpu_contexts);
 		goto err_destroy_pool;

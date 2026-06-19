@@ -12,6 +12,7 @@
 #include <linux/kvm_host.h>
 #include <linux/uaccess.h>
 #include <asm/cpufeature.h>
+#include <asm/kvm_isa.h>
 #include <asm/kvm_vcpu_vector.h>
 #include <asm/vector.h>
 
@@ -22,6 +23,9 @@ void kvm_riscv_vcpu_vector_reset(struct kvm_vcpu *vcpu)
 	struct kvm_cpu_context *cntx = &vcpu->arch.guest_context;
 
 	cntx->sstatus &= ~SR_VS;
+
+	cntx->vector.vlenb = riscv_v_vsize / 32;
+
 	if (riscv_isa_extension_available(isa, v)) {
 		cntx->sstatus |= SR_VS_INITIAL;
 		WARN_ON(!cntx->vector.datap);
@@ -60,34 +64,35 @@ void kvm_riscv_vcpu_guest_vector_restore(struct kvm_cpu_context *cntx,
 void kvm_riscv_vcpu_host_vector_save(struct kvm_cpu_context *cntx)
 {
 	/* No need to check host sstatus as it can be modified outside */
-	if (riscv_isa_extension_available(NULL, v))
+	if (!kvm_riscv_isa_check_host(V))
 		__kvm_riscv_vector_save(cntx);
 }
 
 void kvm_riscv_vcpu_host_vector_restore(struct kvm_cpu_context *cntx)
 {
-	if (riscv_isa_extension_available(NULL, v))
+	if (!kvm_riscv_isa_check_host(V))
 		__kvm_riscv_vector_restore(cntx);
 }
 
-int kvm_riscv_vcpu_alloc_vector_context(struct kvm_vcpu *vcpu,
-					struct kvm_cpu_context *cntx)
+int kvm_riscv_vcpu_alloc_vector_context(struct kvm_vcpu *vcpu)
 {
-	cntx->vector.datap = kmalloc(riscv_v_vsize, GFP_KERNEL);
-	if (!cntx->vector.datap)
+	vcpu->arch.guest_context.vector.datap = kzalloc(riscv_v_vsize, GFP_KERNEL);
+	if (!vcpu->arch.guest_context.vector.datap)
 		return -ENOMEM;
-	cntx->vector.vlenb = riscv_v_vsize / 32;
 
 	vcpu->arch.host_context.vector.datap = kzalloc(riscv_v_vsize, GFP_KERNEL);
-	if (!vcpu->arch.host_context.vector.datap)
+	if (!vcpu->arch.host_context.vector.datap) {
+		kfree(vcpu->arch.guest_context.vector.datap);
+		vcpu->arch.guest_context.vector.datap = NULL;
 		return -ENOMEM;
+	}
 
 	return 0;
 }
 
 void kvm_riscv_vcpu_free_vector_context(struct kvm_vcpu *vcpu)
 {
-	kfree(vcpu->arch.guest_reset_context.vector.datap);
+	kfree(vcpu->arch.guest_context.vector.datap);
 	kfree(vcpu->arch.host_context.vector.datap);
 }
 #endif
@@ -126,6 +131,7 @@ static int kvm_riscv_vcpu_vreg_addr(struct kvm_vcpu *vcpu,
 	} else if (reg_num <= KVM_REG_RISCV_VECTOR_REG(31)) {
 		if (reg_size != vlenb)
 			return -EINVAL;
+		WARN_ON(!cntx->vector.datap);
 		*reg_addr = cntx->vector.datap +
 			    (reg_num - KVM_REG_RISCV_VECTOR_REG(0)) * vlenb;
 	} else {
@@ -181,6 +187,8 @@ int kvm_riscv_vcpu_set_reg_vector(struct kvm_vcpu *vcpu,
 		struct kvm_cpu_context *cntx = &vcpu->arch.guest_context;
 		unsigned long reg_val;
 
+		if (reg_size != sizeof(reg_val))
+			return -EINVAL;
 		if (copy_from_user(&reg_val, uaddr, reg_size))
 			return -EFAULT;
 		if (reg_val != cntx->vector.vlenb)

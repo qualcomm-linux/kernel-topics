@@ -62,8 +62,7 @@ static DEFINE_MUTEX(nvmet_pci_epf_ports_mutex);
 #define NVMET_PCI_EPF_CQ_RETRY_INTERVAL	msecs_to_jiffies(1)
 
 enum nvmet_pci_epf_queue_flags {
-	NVMET_PCI_EPF_Q_IS_SQ = 0,	/* The queue is a submission queue */
-	NVMET_PCI_EPF_Q_LIVE,		/* The queue is live */
+	NVMET_PCI_EPF_Q_LIVE = 0,	/* The queue is live */
 	NVMET_PCI_EPF_Q_IRQ_ENABLED,	/* IRQ is enabled for this queue */
 };
 
@@ -321,12 +320,14 @@ static void nvmet_pci_epf_init_dma(struct nvmet_pci_epf *nvme_epf)
 	nvme_epf->dma_enabled = true;
 
 	dev_dbg(dev, "Using DMA RX channel %s, maximum segment size %u B\n",
-		dma_chan_name(chan),
-		dma_get_max_seg_size(dmaengine_get_dma_device(chan)));
+		dma_chan_name(nvme_epf->dma_rx_chan),
+		dma_get_max_seg_size(dmaengine_get_dma_device(nvme_epf->
+							      dma_rx_chan)));
 
 	dev_dbg(dev, "Using DMA TX channel %s, maximum segment size %u B\n",
-		dma_chan_name(chan),
-		dma_get_max_seg_size(dmaengine_get_dma_device(chan)));
+		dma_chan_name(nvme_epf->dma_tx_chan),
+		dma_get_max_seg_size(dmaengine_get_dma_device(nvme_epf->
+							      dma_tx_chan)));
 
 	return;
 
@@ -501,9 +502,8 @@ static inline int nvmet_pci_epf_transfer(struct nvmet_pci_epf_ctrl *ctrl,
 
 static int nvmet_pci_epf_alloc_irq_vectors(struct nvmet_pci_epf_ctrl *ctrl)
 {
-	ctrl->irq_vectors = kcalloc(ctrl->nr_queues,
-				    sizeof(struct nvmet_pci_epf_irq_vector),
-				    GFP_KERNEL);
+	ctrl->irq_vectors = kzalloc_objs(struct nvmet_pci_epf_irq_vector,
+					 ctrl->nr_queues);
 	if (!ctrl->irq_vectors)
 		return -ENOMEM;
 
@@ -596,9 +596,6 @@ static bool nvmet_pci_epf_should_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
 	struct nvmet_pci_epf_irq_vector *iv = cq->iv;
 	bool ret;
 
-	if (!test_bit(NVMET_PCI_EPF_Q_IRQ_ENABLED, &cq->flags))
-		return false;
-
 	/* IRQ coalescing for the admin queue is not allowed. */
 	if (!cq->qid)
 		return true;
@@ -625,7 +622,8 @@ static void nvmet_pci_epf_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
 	struct pci_epf *epf = nvme_epf->epf;
 	int ret = 0;
 
-	if (!test_bit(NVMET_PCI_EPF_Q_LIVE, &cq->flags))
+	if (!test_bit(NVMET_PCI_EPF_Q_LIVE, &cq->flags) ||
+	    !test_bit(NVMET_PCI_EPF_Q_IRQ_ENABLED, &cq->flags))
 		return;
 
 	mutex_lock(&ctrl->irq_lock);
@@ -636,14 +634,16 @@ static void nvmet_pci_epf_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
 	switch (nvme_epf->irq_type) {
 	case PCI_IRQ_MSIX:
 	case PCI_IRQ_MSI:
+		/*
+		 * If we fail to raise an MSI or MSI-X interrupt, it is likely
+		 * because the host is using legacy INTX IRQs (e.g. BIOS,
+		 * grub), but we can fallback to the INTX type only if the
+		 * endpoint controller supports this type.
+		 */
 		ret = pci_epc_raise_irq(epf->epc, epf->func_no, epf->vfunc_no,
 					nvme_epf->irq_type, cq->vector + 1);
-		if (!ret)
+		if (!ret || !nvme_epf->epc_features->intx_capable)
 			break;
-		/*
-		 * If we got an error, it is likely because the host is using
-		 * legacy IRQs (e.g. BIOS, grub).
-		 */
 		fallthrough;
 	case PCI_IRQ_INTX:
 		ret = pci_epc_raise_irq(epf->epc, epf->func_no, epf->vfunc_no,
@@ -656,7 +656,9 @@ static void nvmet_pci_epf_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
 	}
 
 	if (ret)
-		dev_err(ctrl->dev, "Failed to raise IRQ (err=%d)\n", ret);
+		dev_err_ratelimited(ctrl->dev,
+				    "CQ[%u]: Failed to raise IRQ (err=%d)\n",
+				    cq->qid, ret);
 
 unlock:
 	mutex_unlock(&ctrl->irq_lock);
@@ -1241,8 +1243,11 @@ static void nvmet_pci_epf_queue_response(struct nvmet_req *req)
 
 	iod->status = le16_to_cpu(req->cqe->status) >> 1;
 
-	/* If we have no data to transfer, directly complete the command. */
-	if (!iod->data_len || iod->dma_dir != DMA_TO_DEVICE) {
+	/*
+	 * If the command failed or we have no data to transfer, complete the
+	 * command immediately.
+	 */
+	if (iod->status || !iod->data_len || iod->dma_dir != DMA_TO_DEVICE) {
 		nvmet_pci_epf_complete_iod(iod);
 		return;
 	}
@@ -1319,8 +1324,14 @@ static u16 nvmet_pci_epf_create_cq(struct nvmet_ctrl *tctrl,
 
 	set_bit(NVMET_PCI_EPF_Q_LIVE, &cq->flags);
 
-	dev_dbg(ctrl->dev, "CQ[%u]: %u entries of %zu B, IRQ vector %u\n",
-		cqid, qsize, cq->qes, cq->vector);
+	if (test_bit(NVMET_PCI_EPF_Q_IRQ_ENABLED, &cq->flags))
+		dev_dbg(ctrl->dev,
+			"CQ[%u]: %u entries of %zu B, IRQ vector %u\n",
+			cqid, qsize, cq->qes, cq->vector);
+	else
+		dev_dbg(ctrl->dev,
+			"CQ[%u]: %u entries of %zu B, IRQ disabled\n",
+			cqid, qsize, cq->qes);
 
 	return NVME_SC_SUCCESS;
 
@@ -1344,17 +1355,20 @@ static u16 nvmet_pci_epf_delete_cq(struct nvmet_ctrl *tctrl, u16 cqid)
 
 	cancel_delayed_work_sync(&cq->work);
 	nvmet_pci_epf_drain_queue(cq);
-	nvmet_pci_epf_remove_irq_vector(ctrl, cq->vector);
+	if (test_and_clear_bit(NVMET_PCI_EPF_Q_IRQ_ENABLED, &cq->flags))
+		nvmet_pci_epf_remove_irq_vector(ctrl, cq->vector);
 	nvmet_pci_epf_mem_unmap(ctrl->nvme_epf, &cq->pci_map);
+	nvmet_cq_put(&cq->nvme_cq);
 
 	return NVME_SC_SUCCESS;
 }
 
 static u16 nvmet_pci_epf_create_sq(struct nvmet_ctrl *tctrl,
-		u16 sqid, u16 flags, u16 qsize, u64 pci_addr)
+		u16 sqid, u16 cqid, u16 flags, u16 qsize, u64 pci_addr)
 {
 	struct nvmet_pci_epf_ctrl *ctrl = tctrl->drvdata;
 	struct nvmet_pci_epf_queue *sq = &ctrl->sq[sqid];
+	struct nvmet_pci_epf_queue *cq = &ctrl->cq[cqid];
 	u16 status;
 
 	if (test_bit(NVMET_PCI_EPF_Q_LIVE, &sq->flags))
@@ -1377,7 +1391,8 @@ static u16 nvmet_pci_epf_create_sq(struct nvmet_ctrl *tctrl,
 		sq->qes = ctrl->io_sqes;
 	sq->pci_size = sq->qes * sq->depth;
 
-	status = nvmet_sq_create(tctrl, &sq->nvme_sq, sqid, sq->depth);
+	status = nvmet_sq_create(tctrl, &sq->nvme_sq, &cq->nvme_cq, sqid,
+			sq->depth);
 	if (status != NVME_SC_SUCCESS)
 		return status;
 
@@ -1533,7 +1548,6 @@ static void nvmet_pci_epf_init_queue(struct nvmet_pci_epf_ctrl *ctrl,
 
 	if (sq) {
 		queue = &ctrl->sq[qid];
-		set_bit(NVMET_PCI_EPF_Q_IS_SQ, &queue->flags);
 	} else {
 		queue = &ctrl->cq[qid];
 		INIT_DELAYED_WORK(&queue->work, nvmet_pci_epf_cq_work);
@@ -1548,13 +1562,11 @@ static int nvmet_pci_epf_alloc_queues(struct nvmet_pci_epf_ctrl *ctrl)
 {
 	unsigned int qid;
 
-	ctrl->sq = kcalloc(ctrl->nr_queues,
-			   sizeof(struct nvmet_pci_epf_queue), GFP_KERNEL);
+	ctrl->sq = kzalloc_objs(struct nvmet_pci_epf_queue, ctrl->nr_queues);
 	if (!ctrl->sq)
 		return -ENOMEM;
 
-	ctrl->cq = kcalloc(ctrl->nr_queues,
-			   sizeof(struct nvmet_pci_epf_queue), GFP_KERNEL);
+	ctrl->cq = kzalloc_objs(struct nvmet_pci_epf_queue, ctrl->nr_queues);
 	if (!ctrl->cq) {
 		kfree(ctrl->sq);
 		ctrl->sq = NULL;
@@ -1594,9 +1606,13 @@ static void nvmet_pci_epf_exec_iod_work(struct work_struct *work)
 		goto complete;
 	}
 
-	if (!nvmet_req_init(req, &iod->cq->nvme_cq, &iod->sq->nvme_sq,
-			    &nvmet_pci_epf_fabrics_ops))
-		goto complete;
+	/*
+	 * If nvmet_req_init() fails (e.g., unsupported opcode) it will call
+	 * __nvmet_req_complete() internally which will call
+	 * nvmet_pci_epf_queue_response() and will complete the command directly.
+	 */
+	if (!nvmet_req_init(req, &iod->sq->nvme_sq, &nvmet_pci_epf_fabrics_ops))
+		return;
 
 	iod->data_len = nvmet_req_transfer_len(req);
 	if (iod->data_len) {
@@ -1634,10 +1650,11 @@ static void nvmet_pci_epf_exec_iod_work(struct work_struct *work)
 
 	wait_for_completion(&iod->done);
 
-	if (iod->status == NVME_SC_SUCCESS) {
-		WARN_ON_ONCE(!iod->data_len || iod->dma_dir != DMA_TO_DEVICE);
-		nvmet_pci_epf_transfer_iod_data(iod);
-	}
+	if (iod->status != NVME_SC_SUCCESS)
+		return;
+
+	WARN_ON_ONCE(!iod->data_len || iod->dma_dir != DMA_TO_DEVICE);
+	nvmet_pci_epf_transfer_iod_data(iod);
 
 complete:
 	nvmet_pci_epf_complete_iod(iod);
@@ -1851,7 +1868,7 @@ static int nvmet_pci_epf_enable_ctrl(struct nvmet_pci_epf_ctrl *ctrl)
 	ctrl->io_cqes = 1UL << nvmet_cc_iocqes(ctrl->cc);
 	if (ctrl->io_cqes < sizeof(struct nvme_completion)) {
 		dev_err(ctrl->dev, "Unsupported I/O CQES %zu (need %zu)\n",
-			ctrl->io_sqes, sizeof(struct nvme_completion));
+			ctrl->io_cqes, sizeof(struct nvme_completion));
 		goto err;
 	}
 
@@ -1872,8 +1889,8 @@ static int nvmet_pci_epf_enable_ctrl(struct nvmet_pci_epf_ctrl *ctrl)
 
 	qsize = aqa & 0x00000fff;
 	pci_addr = asq & GENMASK_ULL(63, 12);
-	status = nvmet_pci_epf_create_sq(ctrl->tctrl, 0, NVME_QUEUE_PHYS_CONTIG,
-					 qsize, pci_addr);
+	status = nvmet_pci_epf_create_sq(ctrl->tctrl, 0, 0,
+			NVME_QUEUE_PHYS_CONTIG, qsize, pci_addr);
 	if (status != NVME_SC_SUCCESS) {
 		dev_err(ctrl->dev, "Failed to create admin submission queue\n");
 		nvmet_pci_epf_delete_cq(ctrl->tctrl, 0);
@@ -2307,6 +2324,8 @@ static int nvmet_pci_epf_epc_init(struct pci_epf *epf)
 		return ret;
 	}
 
+	nvmet_pci_epf_init_dma(nvme_epf);
+
 	/* Set device ID, class, etc. */
 	epf->header->vendorid = ctrl->tctrl->subsys->vendor_id;
 	epf->header->subsys_vendor_id = ctrl->tctrl->subsys->subsys_vendor_id;
@@ -2403,8 +2422,6 @@ static int nvmet_pci_epf_bind(struct pci_epf *epf)
 	ret = nvmet_pci_epf_configure_bar(nvme_epf);
 	if (ret)
 		return ret;
-
-	nvmet_pci_epf_init_dma(nvme_epf);
 
 	return 0;
 }

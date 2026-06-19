@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: MIT
 /*
  * Copyright 2025 Advanced Micro Devices, Inc.
  *
@@ -23,6 +23,7 @@
  */
 #include <linux/list.h>
 #include "amdgpu.h"
+#include "amdgpu_ras_mgr.h"
 
 static const guid_t MCE			= CPER_NOTIFY_MCE;
 static const guid_t CMC			= CPER_NOTIFY_CMC;
@@ -30,6 +31,8 @@ static const guid_t BOOT		= BOOT_TYPE;
 
 static const guid_t CRASHDUMP		= AMD_CRASHDUMP;
 static const guid_t RUNTIME		= AMD_GPU_NONSTANDARD_ERROR;
+
+#define CPER_SIGNATURE_SZ		(sizeof(((struct cper_hdr *)0)->signature))
 
 static void __inc_entry_length(struct cper_hdr *hdr, uint32_t size)
 {
@@ -68,7 +71,6 @@ void amdgpu_cper_entry_fill_hdr(struct amdgpu_device *adev,
 	hdr->error_severity		= sev;
 
 	hdr->valid_bits.platform_id	= 1;
-	hdr->valid_bits.partition_id	= 1;
 	hdr->valid_bits.timestamp	= 1;
 
 	amdgpu_cper_get_timestamp(&hdr->timestamp);
@@ -174,7 +176,7 @@ int amdgpu_cper_entry_fill_runtime_section(struct amdgpu_device *adev,
 	struct cper_sec_nonstd_err *section;
 	bool poison;
 
-	poison = (sev == CPER_SEV_NON_FATAL_CORRECTED) ? false : true;
+	poison = sev != CPER_SEV_NON_FATAL_CORRECTED;
 	section_desc = (struct cper_sec_desc *)((uint8_t *)hdr + SEC_DESC_OFFSET(idx));
 	section = (struct cper_sec_nonstd_err *)((uint8_t *)hdr +
 		   NONSTD_SEC_OFFSET(hdr->sec_cnt, idx));
@@ -206,24 +208,31 @@ int amdgpu_cper_entry_fill_bad_page_threshold_section(struct amdgpu_device *adev
 {
 	struct cper_sec_desc *section_desc;
 	struct cper_sec_nonstd_err *section;
+	uint32_t socket_id;
 
 	section_desc = (struct cper_sec_desc *)((uint8_t *)hdr + SEC_DESC_OFFSET(idx));
 	section = (struct cper_sec_nonstd_err *)((uint8_t *)hdr +
 		   NONSTD_SEC_OFFSET(hdr->sec_cnt, idx));
 
 	amdgpu_cper_entry_fill_section_desc(adev, section_desc, true, false,
-					    CPER_SEV_NUM, RUNTIME, NONSTD_SEC_LEN,
+					    CPER_SEV_FATAL, RUNTIME, NONSTD_SEC_LEN,
 					    NONSTD_SEC_OFFSET(hdr->sec_cnt, idx));
 
 	section->hdr.valid_bits.err_info_cnt = 1;
 	section->hdr.valid_bits.err_context_cnt = 1;
 
 	section->info.error_type = RUNTIME;
+	section->info.valid_bits.ms_chk = 1;
 	section->info.ms_chk_bits.err_type_valid = 1;
+	section->info.ms_chk_bits.err_type = 1;
+	section->info.ms_chk_bits.pcc = 1;
 	section->ctx.reg_ctx_type = CPER_CTX_TYPE_CRASH;
 	section->ctx.reg_arr_size = sizeof(section->ctx.reg_dump);
 
 	/* Hardcoded Reg dump for bad page threshold CPER */
+	socket_id = (adev->smuio.funcs && adev->smuio.funcs->get_socket_id) ?
+				adev->smuio.funcs->get_socket_id(adev) :
+				0;
 	section->ctx.reg_dump[CPER_ACA_REG_CTL_LO]    = 0x1;
 	section->ctx.reg_dump[CPER_ACA_REG_CTL_HI]    = 0x0;
 	section->ctx.reg_dump[CPER_ACA_REG_STATUS_LO] = 0x137;
@@ -234,8 +243,8 @@ int amdgpu_cper_entry_fill_bad_page_threshold_section(struct amdgpu_device *adev
 	section->ctx.reg_dump[CPER_ACA_REG_MISC0_HI]  = 0x0;
 	section->ctx.reg_dump[CPER_ACA_REG_CONFIG_LO] = 0x2;
 	section->ctx.reg_dump[CPER_ACA_REG_CONFIG_HI] = 0x1ff;
-	section->ctx.reg_dump[CPER_ACA_REG_IPID_LO]   = 0x0;
-	section->ctx.reg_dump[CPER_ACA_REG_IPID_HI]   = 0x96;
+	section->ctx.reg_dump[CPER_ACA_REG_IPID_LO]   = (socket_id / 4) & 0x01;
+	section->ctx.reg_dump[CPER_ACA_REG_IPID_HI]   = 0x096 | (((socket_id % 4) & 0x3) << 12);
 	section->ctx.reg_dump[CPER_ACA_REG_SYND_LO]   = 0x0;
 	section->ctx.reg_dump[CPER_ACA_REG_SYND_HI]   = 0x0;
 
@@ -326,7 +335,9 @@ int amdgpu_cper_generate_bp_threshold_record(struct amdgpu_device *adev)
 		return -ENOMEM;
 	}
 
-	amdgpu_cper_entry_fill_hdr(adev, bp_threshold, AMDGPU_CPER_TYPE_BP_THRESHOLD, CPER_SEV_NUM);
+	amdgpu_cper_entry_fill_hdr(adev, bp_threshold,
+				   AMDGPU_CPER_TYPE_BP_THRESHOLD,
+				   CPER_SEV_FATAL);
 	ret = amdgpu_cper_entry_fill_bad_page_threshold_section(adev, bp_threshold, 0);
 	if (ret)
 		return ret;
@@ -416,23 +427,40 @@ int amdgpu_cper_generate_ce_records(struct amdgpu_device *adev,
 
 static bool amdgpu_cper_is_hdr(struct amdgpu_ring *ring, u64 pos)
 {
-	struct cper_hdr *chdr;
+	char signature[CPER_SIGNATURE_SZ];
 
-	chdr = (struct cper_hdr *)&(ring->ring[pos]);
-	return strcmp(chdr->signature, "CPER") ? false : true;
+	if ((pos << 2) >= ring->ring_size)
+		return false;
+
+	if ((pos << 2) + CPER_SIGNATURE_SZ <= ring->ring_size) {
+		memcpy(signature, &ring->ring[pos], CPER_SIGNATURE_SZ);
+	} else {
+		u32 chunk = ring->ring_size - (pos << 2);
+
+		memcpy(signature, &ring->ring[pos], chunk);
+		memcpy(signature + chunk, ring->ring, CPER_SIGNATURE_SZ - chunk);
+	}
+
+	return !memcmp(signature, "CPER", CPER_SIGNATURE_SZ);
 }
 
 static u32 amdgpu_cper_ring_get_ent_sz(struct amdgpu_ring *ring, u64 pos)
 {
-	struct cper_hdr *chdr;
+	struct cper_hdr chdr;
 	u64 p;
 	u32 chunk, rec_len = 0;
 
-	chdr = (struct cper_hdr *)&(ring->ring[pos]);
 	chunk = ring->ring_size - (pos << 2);
 
-	if (!strcmp(chdr->signature, "CPER")) {
-		rec_len = chdr->record_length;
+	if (amdgpu_cper_is_hdr(ring, pos)) {
+		if (chunk >= sizeof(chdr)) {
+			memcpy(&chdr, &ring->ring[pos], sizeof(chdr));
+		} else {
+			memcpy(&chdr, &ring->ring[pos], chunk);
+			memcpy((u8 *)&chdr + chunk, ring->ring, sizeof(chdr) - chunk);
+		}
+
+		rec_len = chdr.record_length;
 		goto calc;
 	}
 
@@ -441,8 +469,7 @@ static u32 amdgpu_cper_ring_get_ent_sz(struct amdgpu_ring *ring, u64 pos)
 		goto calc;
 
 	for (p = pos + 1; p <= ring->buf_mask; p++) {
-		chdr = (struct cper_hdr *)&(ring->ring[p]);
-		if (!strcmp(chdr->signature, "CPER")) {
+		if (amdgpu_cper_is_hdr(ring, p)) {
 			rec_len = (p - pos) << 2;
 			goto calc;
 		}
@@ -457,7 +484,7 @@ calc:
 
 void amdgpu_cper_ring_write(struct amdgpu_ring *ring, void *src, int count)
 {
-	u64 pos, wptr_old, rptr = *ring->rptr_cpu_addr & ring->ptr_mask;
+	u64 pos, wptr_old, rptr;
 	int rec_cnt_dw = count >> 2;
 	u32 chunk, ent_sz;
 	u8 *s = (u8 *)src;
@@ -470,9 +497,11 @@ void amdgpu_cper_ring_write(struct amdgpu_ring *ring, void *src, int count)
 		return;
 	}
 
-	wptr_old = ring->wptr;
-
 	mutex_lock(&ring->adev->cper.ring_lock);
+
+	wptr_old = ring->wptr;
+	rptr = *ring->rptr_cpu_addr & ring->ptr_mask;
+
 	while (count) {
 		ent_sz = amdgpu_cper_ring_get_ent_sz(ring, ring->wptr);
 		chunk = umin(ent_sz, count);
@@ -549,7 +578,10 @@ int amdgpu_cper_init(struct amdgpu_device *adev)
 {
 	int r;
 
-	if (!amdgpu_aca_is_enabled(adev))
+	if (amdgpu_sriov_vf(adev) && !amdgpu_sriov_ras_cper_en(adev))
+		return 0;
+	else if (!amdgpu_sriov_vf(adev) && !amdgpu_uniras_enabled(adev) &&
+		!amdgpu_aca_is_enabled(adev))
 		return 0;
 
 	r = amdgpu_cper_ring_init(adev);
@@ -568,7 +600,7 @@ int amdgpu_cper_init(struct amdgpu_device *adev)
 
 int amdgpu_cper_fini(struct amdgpu_device *adev)
 {
-	if (!amdgpu_aca_is_enabled(adev))
+	if (!amdgpu_aca_is_enabled(adev) && !amdgpu_sriov_ras_cper_en(adev))
 		return 0;
 
 	adev->cper.enabled = false;

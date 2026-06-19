@@ -963,11 +963,15 @@ static struct folio *
 gfs2_iomap_get_folio(struct iomap_iter *iter, loff_t pos, unsigned len)
 {
 	struct inode *inode = iter->inode;
+	struct gfs2_inode *ip = GFS2_I(inode);
 	unsigned int blockmask = i_blocksize(inode) - 1;
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
 	unsigned int blocks;
 	struct folio *folio;
 	int status;
+
+	if (!gfs2_is_jdata(ip) && !gfs2_is_stuffed(ip))
+		return iomap_get_folio(iter, pos, len);
 
 	blocks = ((pos & blockmask) + len + blockmask) >> inode->i_blkbits;
 	status = gfs2_trans_begin(sdp, RES_DINODE + blocks, 0);
@@ -987,20 +991,22 @@ static void gfs2_iomap_put_folio(struct inode *inode, loff_t pos,
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
 
-	if (!gfs2_is_stuffed(ip))
-		gfs2_trans_add_databufs(ip, folio, offset_in_folio(folio, pos),
+	if (gfs2_is_jdata(ip) && !gfs2_is_stuffed(ip))
+		gfs2_trans_add_databufs(ip->i_gl, folio,
+					offset_in_folio(folio, pos),
 					copied);
 
 	folio_unlock(folio);
 	folio_put(folio);
 
-	if (tr->tr_num_buf_new)
-		__mark_inode_dirty(inode, I_DIRTY_DATASYNC);
-
-	gfs2_trans_end(sdp);
+	if (gfs2_is_jdata(ip) || gfs2_is_stuffed(ip)) {
+		if (tr->tr_num_buf_new)
+			__mark_inode_dirty(inode, I_DIRTY_DATASYNC);
+		gfs2_trans_end(sdp);
+	}
 }
 
-static const struct iomap_folio_ops gfs2_iomap_folio_ops = {
+const struct iomap_write_ops gfs2_iomap_write_ops = {
 	.get_folio = gfs2_iomap_get_folio,
 	.put_folio = gfs2_iomap_put_folio,
 };
@@ -1077,8 +1083,6 @@ static int gfs2_iomap_begin_write(struct inode *inode, loff_t pos,
 		gfs2_trans_end(sdp);
 	}
 
-	if (gfs2_is_stuffed(ip) || gfs2_is_jdata(ip))
-		iomap->folio_ops = &gfs2_iomap_folio_ops;
 	return 0;
 
 out_trans_end:
@@ -1123,10 +1127,18 @@ static int gfs2_iomap_begin(struct inode *inode, loff_t pos, loff_t length,
 			goto out_unlock;
 		break;
 	default:
-		goto out_unlock;
+		goto out;
 	}
 
 	ret = gfs2_iomap_begin_write(inode, pos, length, flags, iomap, &mp);
+	if (ret)
+		goto out_unlock;
+
+out:
+	if (iomap->type == IOMAP_INLINE) {
+		iomap->private = metapath_dibh(&mp);
+		get_bh(iomap->private);
+	}
 
 out_unlock:
 	release_metapath(&mp);
@@ -1139,6 +1151,9 @@ static int gfs2_iomap_end(struct inode *inode, loff_t pos, loff_t length,
 {
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
+
+	if (iomap->private)
+		brelse(iomap->private);
 
 	switch (flags & (IOMAP_WRITE | IOMAP_ZERO)) {
 	case IOMAP_WRITE:
@@ -1296,12 +1311,14 @@ int gfs2_alloc_extent(struct inode *inode, u64 lblock, u64 *dblock,
  * uses iomap write to perform its actions, which begin their own transactions
  * (iomap_begin, get_folio, etc.)
  */
-static int gfs2_block_zero_range(struct inode *inode, loff_t from,
-				 unsigned int length)
+static int gfs2_block_zero_range(struct inode *inode, loff_t from, loff_t length)
 {
 	BUG_ON(current->journal_info);
+	if (from >= inode->i_size)
+		return 0;
+	length = min(length, inode->i_size - from);
 	return iomap_zero_range(inode, from, length, NULL, &gfs2_iomap_ops,
-			NULL);
+			&gfs2_iomap_write_ops, NULL);
 }
 
 #define GFS2_JTRUNC_REVOKES 8192
@@ -1522,7 +1539,7 @@ more_rgrps:
 			revokes = jblocks_rqsted;
 			if (meta)
 				revokes += end - start;
-			else if (ip->i_depth)
+			else if (ip->i_diskflags & GFS2_DIF_EXHASH)
 				revokes += sdp->sd_inptrs;
 			ret = gfs2_trans_begin(sdp, jblocks_rqsted, revokes);
 			if (ret)
@@ -2208,7 +2225,7 @@ static int gfs2_add_jextent(struct gfs2_jdesc *jd, u64 lblock, u64 dblock, u64 b
 		}
 	}
 
-	jext = kzalloc(sizeof(struct gfs2_journal_extent), GFP_NOFS);
+	jext = kzalloc_obj(struct gfs2_journal_extent, GFP_NOFS);
 	if (jext == NULL)
 		return -ENOMEM;
 	jext->dblock = dblock;
@@ -2466,23 +2483,26 @@ out:
 	return error;
 }
 
-static int gfs2_map_blocks(struct iomap_writepage_ctx *wpc, struct inode *inode,
-		loff_t offset, unsigned int len)
+static ssize_t gfs2_writeback_range(struct iomap_writepage_ctx *wpc,
+		struct folio *folio, u64 offset, unsigned int len, u64 end_pos)
 {
-	int ret;
-
-	if (WARN_ON_ONCE(gfs2_is_stuffed(GFS2_I(inode))))
+	if (WARN_ON_ONCE(gfs2_is_stuffed(GFS2_I(wpc->inode))))
 		return -EIO;
 
-	if (offset >= wpc->iomap.offset &&
-	    offset < wpc->iomap.offset + wpc->iomap.length)
-		return 0;
+	if (offset < wpc->iomap.offset ||
+	    offset >= wpc->iomap.offset + wpc->iomap.length) {
+		int ret;
 
-	memset(&wpc->iomap, 0, sizeof(wpc->iomap));
-	ret = gfs2_iomap_get(inode, offset, INT_MAX, &wpc->iomap);
-	return ret;
+		memset(&wpc->iomap, 0, sizeof(wpc->iomap));
+		ret = gfs2_iomap_get(wpc->inode, offset, INT_MAX, &wpc->iomap);
+		if (ret)
+			return ret;
+	}
+
+	return iomap_add_to_ioend(wpc, folio, offset, end_pos, len);
 }
 
 const struct iomap_writeback_ops gfs2_writeback_ops = {
-	.map_blocks		= gfs2_map_blocks,
+	.writeback_range	= gfs2_writeback_range,
+	.writeback_submit	= iomap_ioend_writeback_submit,
 };

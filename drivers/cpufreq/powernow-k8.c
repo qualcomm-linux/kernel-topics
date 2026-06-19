@@ -482,7 +482,7 @@ static void check_supported_cpu(void *_rc)
 		cpuid(CPUID_FREQ_VOLT_CAPABILITIES, &eax, &ebx, &ecx, &edx);
 		if ((edx & P_STATE_TRANSITION_CAPABLE)
 			!= P_STATE_TRANSITION_CAPABLE) {
-			pr_info("Power state transitions not supported\n");
+			pr_info_once("Power state transitions not supported\n");
 			return;
 		}
 		*rc = 0;
@@ -1029,7 +1029,7 @@ static int powernowk8_cpu_init(struct cpufreq_policy *pol)
 	if (rc)
 		return -ENODEV;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data)
 		return -ENOMEM;
 

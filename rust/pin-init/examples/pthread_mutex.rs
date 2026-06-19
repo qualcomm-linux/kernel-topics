@@ -3,6 +3,9 @@
 // inspired by <https://github.com/nbdd0121/pin-init/blob/trunk/examples/pthread_mutex.rs>
 #![allow(clippy::undocumented_unsafe_blocks)]
 #![cfg_attr(feature = "alloc", feature(allocator_api))]
+#![cfg_attr(USE_RUSTC_FEATURES, feature(lint_reasons))]
+#![cfg_attr(USE_RUSTC_FEATURES, feature(raw_ref_op))]
+
 #[cfg(not(windows))]
 mod pthread_mtx {
     #[cfg(feature = "alloc")]
@@ -40,8 +43,9 @@ mod pthread_mtx {
 
     #[derive(Debug)]
     pub enum Error {
-        #[expect(dead_code)]
+        #[allow(dead_code)]
         IO(std::io::Error),
+        #[allow(dead_code)]
         Alloc,
     }
 
@@ -59,6 +63,7 @@ mod pthread_mtx {
     }
 
     impl<T> PThreadMutex<T> {
+        #[allow(dead_code)]
         pub fn new(data: T) -> impl PinInit<Self, Error> {
             fn init_raw() -> impl PinInit<UnsafeCell<libc::pthread_mutex_t>, Error> {
                 let init = |slot: *mut UnsafeCell<libc::pthread_mutex_t>| {
@@ -94,13 +99,14 @@ mod pthread_mtx {
                 // SAFETY: mutex has been initialized
                 unsafe { pin_init_from_closure(init) }
             }
-            try_pin_init!(Self {
-            data: UnsafeCell::new(data),
-            raw <- init_raw(),
-            pin: PhantomPinned,
-        }? Error)
+            pin_init!(Self {
+                data: UnsafeCell::new(data),
+                raw <- init_raw(),
+                pin: PhantomPinned,
+            }? Error)
         }
 
+        #[allow(dead_code)]
         pub fn lock(&self) -> PThreadMutexGuard<'_, T> {
             // SAFETY: raw is always initialized
             unsafe { libc::pthread_mutex_lock(self.raw.get()) };
@@ -135,6 +141,7 @@ mod pthread_mtx {
 }
 
 #[cfg_attr(test, test)]
+#[cfg_attr(all(test, miri), ignore)]
 fn main() {
     #[cfg(all(any(feature = "std", feature = "alloc"), not(windows)))]
     {

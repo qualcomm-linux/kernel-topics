@@ -34,7 +34,7 @@ static int thunderx_spi_probe(struct pci_dev *pdev,
 	if (ret)
 		goto error;
 
-	ret = pci_request_regions(pdev, DRV_NAME);
+	ret = pcim_request_all_regions(pdev, DRV_NAME);
 	if (ret)
 		goto error;
 
@@ -67,18 +67,16 @@ static int thunderx_spi_probe(struct pci_dev *pdev,
 	host->transfer_one_message = octeon_spi_transfer_one_message;
 	host->bits_per_word_mask = SPI_BPW_MASK(8);
 	host->max_speed_hz = OCTEON_SPI_MAX_CLOCK_HZ;
-	host->dev.of_node = pdev->dev.of_node;
 
 	pci_set_drvdata(pdev, host);
 
-	ret = devm_spi_register_controller(dev, host);
+	ret = spi_register_controller(host);
 	if (ret)
 		goto error;
 
 	return 0;
 
 error:
-	pci_release_regions(pdev);
 	spi_controller_put(host);
 	return ret;
 }
@@ -92,9 +90,14 @@ static void thunderx_spi_remove(struct pci_dev *pdev)
 	if (!p)
 		return;
 
-	pci_release_regions(pdev);
+	spi_controller_get(host);
+
+	spi_unregister_controller(host);
+
 	/* Put everything in a known state. */
 	writeq(0, p->register_base + OCTEON_SPI_CFG(p));
+
+	spi_controller_put(host);
 }
 
 static const struct pci_device_id thunderx_spi_pci_id_table[] = {

@@ -28,8 +28,7 @@
  *	      Benjamin Block
  */
 
-#define KMSG_COMPONENT "zfcp"
-#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "zfcp: " fmt
 
 #include <linux/seq_file.h>
 #include <linux/slab.h>
@@ -312,15 +311,13 @@ static void zfcp_print_sl(struct seq_file *m, struct service_level *sl)
 
 static int zfcp_setup_adapter_work_queue(struct zfcp_adapter *adapter)
 {
-	char name[TASK_COMM_LEN];
+	adapter->work_queue =
+		alloc_ordered_workqueue("zfcp_q_%s", WQ_MEM_RECLAIM,
+					dev_name(&adapter->ccw_device->dev));
+	if (!adapter->work_queue)
+		return -ENOMEM;
 
-	snprintf(name, sizeof(name), "zfcp_q_%s",
-		 dev_name(&adapter->ccw_device->dev));
-	adapter->work_queue = alloc_ordered_workqueue(name, WQ_MEM_RECLAIM);
-
-	if (adapter->work_queue)
-		return 0;
-	return -ENOMEM;
+	return 0;
 }
 
 static void zfcp_destroy_adapter_work_queue(struct zfcp_adapter *adapter)
@@ -347,7 +344,7 @@ struct zfcp_adapter *zfcp_adapter_enqueue(struct ccw_device *ccw_device)
 	if (!get_device(&ccw_device->dev))
 		return ERR_PTR(-ENODEV);
 
-	adapter = kzalloc(sizeof(struct zfcp_adapter), GFP_KERNEL);
+	adapter = kzalloc_obj(struct zfcp_adapter);
 	if (!adapter) {
 		put_device(&ccw_device->dev);
 		return ERR_PTR(-ENOMEM);
@@ -521,7 +518,7 @@ struct zfcp_port *zfcp_port_enqueue(struct zfcp_adapter *adapter, u64 wwpn,
 		goto err_put;
 	}
 
-	port = kzalloc(sizeof(struct zfcp_port), GFP_KERNEL);
+	port = kzalloc_obj(struct zfcp_port);
 	if (!port)
 		goto err_put;
 

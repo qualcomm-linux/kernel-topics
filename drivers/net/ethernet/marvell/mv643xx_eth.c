@@ -1333,7 +1333,8 @@ static void mib_counters_update(struct mv643xx_eth_private *mp)
 
 static void mib_counters_timer_wrapper(struct timer_list *t)
 {
-	struct mv643xx_eth_private *mp = from_timer(mp, t, mib_counters_timer);
+	struct mv643xx_eth_private *mp = timer_container_of(mp, t,
+							    mib_counters_timer);
 	mib_counters_update(mp);
 	mod_timer(&mp->mib_counters_timer, jiffies + 30 * HZ);
 }
@@ -1966,8 +1967,7 @@ static int rxq_init(struct mv643xx_eth_private *mp, int index)
 	memset(rxq->rx_desc_area, 0, size);
 
 	rxq->rx_desc_area_size = size;
-	rxq->rx_skb = kcalloc(rxq->rx_ring_size, sizeof(*rxq->rx_skb),
-				    GFP_KERNEL);
+	rxq->rx_skb = kzalloc_objs(*rxq->rx_skb, rxq->rx_ring_size);
 	if (rxq->rx_skb == NULL)
 		goto out_free;
 
@@ -2306,7 +2306,7 @@ static int mv643xx_eth_poll(struct napi_struct *napi, int budget)
 
 static inline void oom_timer_wrapper(struct timer_list *t)
 {
-	struct mv643xx_eth_private *mp = from_timer(mp, t, rx_oom);
+	struct mv643xx_eth_private *mp = timer_container_of(mp, t, rx_oom);
 
 	napi_schedule(&mp->napi);
 }

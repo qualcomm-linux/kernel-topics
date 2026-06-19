@@ -105,7 +105,7 @@ void tipc_sub_report_overlap(struct tipc_subscription *sub,
 
 static void tipc_sub_timeout(struct timer_list *t)
 {
-	struct tipc_subscription *sub = from_timer(sub, t, timer);
+	struct tipc_subscription *sub = timer_container_of(sub, t, timer);
 
 	spin_lock(&sub->lock);
 	tipc_sub_send_event(sub, NULL, TIPC_SUBSCR_TIMEOUT);
@@ -143,7 +143,7 @@ struct tipc_subscription *tipc_sub_subscribe(struct net *net,
 		pr_warn("Subscription rejected, illegal request\n");
 		return NULL;
 	}
-	sub = kmalloc(sizeof(*sub), GFP_ATOMIC);
+	sub = kmalloc_obj(*sub, GFP_ATOMIC);
 	if (!sub) {
 		pr_warn("Subscription rejected, no memory\n");
 		return NULL;

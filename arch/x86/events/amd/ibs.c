@@ -15,6 +15,7 @@
 #include <linux/sched/clock.h>
 
 #include <asm/apic.h>
+#include <asm/msr.h>
 
 #include "../perf_event.h"
 
@@ -26,10 +27,17 @@ static u32 ibs_caps;
 #include <linux/hardirq.h>
 
 #include <asm/nmi.h>
-#include <asm/amd-ibs.h>
+#include <asm/amd/ibs.h>
 
 /* attr.config2 */
 #define IBS_SW_FILTER_MASK	1
+
+/* attr.config1 */
+#define IBS_OP_CONFIG1_LDLAT_MASK		(0xFFFULL <<  0)
+#define IBS_OP_CONFIG1_STRMST_MASK		    (1ULL << 12)
+#define IBS_OP_CONFIG1_STRMST_SHIFT			    (12)
+
+#define IBS_FETCH_CONFIG1_FETCHLAT_MASK		(0x7FFULL <<  0)
 
 /*
  * IBS states:
@@ -82,9 +90,11 @@ struct cpu_perf_ibs {
 struct perf_ibs {
 	struct pmu			pmu;
 	unsigned int			msr;
+	unsigned int			msr2;
 	u64				config_mask;
 	u64				cnt_mask;
 	u64				enable_mask;
+	u64				disable_mask;
 	u64				valid_mask;
 	u16				min_period;
 	u64				max_period;
@@ -273,7 +283,23 @@ static bool perf_ibs_ldlat_event(struct perf_ibs *perf_ibs,
 {
 	return perf_ibs == &perf_ibs_op &&
 	       (ibs_caps & IBS_CAPS_OPLDLAT) &&
-	       (event->attr.config1 & 0xFFF);
+	       (event->attr.config1 & IBS_OP_CONFIG1_LDLAT_MASK);
+}
+
+static bool perf_ibs_fetch_lat_event(struct perf_ibs *perf_ibs,
+				     struct perf_event *event)
+{
+	return perf_ibs == &perf_ibs_fetch &&
+	       (ibs_caps & IBS_CAPS_FETCHLAT) &&
+	       (event->attr.config1 & IBS_FETCH_CONFIG1_FETCHLAT_MASK);
+}
+
+static bool perf_ibs_strmst_event(struct perf_ibs *perf_ibs,
+				  struct perf_event *event)
+{
+	return perf_ibs == &perf_ibs_op &&
+	       (ibs_caps & IBS_CAPS_STRMST_RMTSOCKET) &&
+	       (event->attr.config1 & IBS_OP_CONFIG1_STRMST_MASK);
 }
 
 static int perf_ibs_init(struct perf_event *event)
@@ -288,6 +314,8 @@ static int perf_ibs_init(struct perf_event *event)
 		return -ENOENT;
 
 	config = event->attr.config;
+	hwc->extra_reg.config = 0;
+	hwc->extra_reg.reg = 0;
 
 	if (event->pmu != &perf_ibs->pmu)
 		return -ENOENT;
@@ -303,14 +331,43 @@ static int perf_ibs_init(struct perf_event *event)
 	    event->attr.exclude_idle)
 		return -EINVAL;
 
-	if (!(event->attr.config2 & IBS_SW_FILTER_MASK) &&
-	    (event->attr.exclude_kernel || event->attr.exclude_user ||
-	     event->attr.exclude_hv))
-		return -EINVAL;
-
 	ret = validate_group(event);
 	if (ret)
 		return ret;
+
+	if (perf_allow_kernel())
+		hwc->flags |= PERF_X86_EVENT_UNPRIVILEGED;
+
+	if (ibs_caps & IBS_CAPS_DIS) {
+		hwc->extra_reg.config &= ~perf_ibs->disable_mask;
+		hwc->extra_reg.reg = perf_ibs->msr2;
+	}
+
+	if (ibs_caps & IBS_CAPS_BIT63_FILTER) {
+		if (perf_ibs == &perf_ibs_fetch) {
+			if (event->attr.exclude_kernel) {
+				hwc->extra_reg.config |= IBS_FETCH_2_EXCL_RIP_63_EQ_1;
+				hwc->extra_reg.reg = perf_ibs->msr2;
+			}
+			if (event->attr.exclude_user) {
+				hwc->extra_reg.config |= IBS_FETCH_2_EXCL_RIP_63_EQ_0;
+				hwc->extra_reg.reg = perf_ibs->msr2;
+			}
+		} else {
+			if (event->attr.exclude_kernel) {
+				hwc->extra_reg.config |= IBS_OP_2_EXCL_RIP_63_EQ_1;
+				hwc->extra_reg.reg = perf_ibs->msr2;
+			}
+			if (event->attr.exclude_user) {
+				hwc->extra_reg.config |= IBS_OP_2_EXCL_RIP_63_EQ_0;
+				hwc->extra_reg.reg = perf_ibs->msr2;
+			}
+		}
+	} else if (!(event->attr.config2 & IBS_SW_FILTER_MASK) &&
+		   (event->attr.exclude_kernel || event->attr.exclude_user ||
+		    event->attr.exclude_hv)) {
+		return -EINVAL;
+	}
 
 	if (hwc->sample_period) {
 		if (config & perf_ibs->cnt_mask)
@@ -348,14 +405,37 @@ static int perf_ibs_init(struct perf_event *event)
 	}
 
 	if (perf_ibs_ldlat_event(perf_ibs, event)) {
-		u64 ldlat = event->attr.config1 & 0xFFF;
+		u64 ldlat = event->attr.config1 & IBS_OP_CONFIG1_LDLAT_MASK;
 
 		if (ldlat < 128 || ldlat > 2048)
 			return -EINVAL;
 		ldlat >>= 7;
 
-		config |= (ldlat - 1) << 59;
-		config |= IBS_OP_L3MISSONLY | IBS_OP_LDLAT_EN;
+		config |= (ldlat - 1) << IBS_OP_LDLAT_THRSH_SHIFT;
+
+		config |= IBS_OP_LDLAT_EN;
+		if (cpu_feature_enabled(X86_FEATURE_ZEN5))
+			config |= IBS_OP_L3MISSONLY;
+	}
+
+	if (perf_ibs_fetch_lat_event(perf_ibs, event)) {
+		u64 fetchlat = event->attr.config1 & IBS_FETCH_CONFIG1_FETCHLAT_MASK;
+
+		if (fetchlat < 128 || fetchlat > 1920)
+			return -EINVAL;
+		fetchlat >>= 7;
+
+		hwc->extra_reg.reg = perf_ibs->msr2;
+		hwc->extra_reg.config |= fetchlat << IBS_FETCH_2_FETCHLAT_FILTER_SHIFT;
+	}
+
+	if (perf_ibs_strmst_event(perf_ibs, event)) {
+		u64 strmst = event->attr.config1 & IBS_OP_CONFIG1_STRMST_MASK;
+
+		strmst >>= IBS_OP_CONFIG1_STRMST_SHIFT;
+
+		hwc->extra_reg.reg = perf_ibs->msr2;
+		hwc->extra_reg.config |= strmst << IBS_OP_2_STRM_ST_FILTER_SHIFT;
 	}
 
 	/*
@@ -424,7 +504,7 @@ perf_ibs_event_update(struct perf_ibs *perf_ibs, struct perf_event *event,
 	 * prev count manually on overflow.
 	 */
 	while (!perf_event_try_update(event, count, 64)) {
-		rdmsrl(event->hw.config_base, *config);
+		rdmsrq(event->hw.config_base, *config);
 		count = perf_ibs->get_count(*config);
 	}
 }
@@ -435,9 +515,12 @@ static inline void perf_ibs_enable_event(struct perf_ibs *perf_ibs,
 	u64 tmp = hwc->config | config;
 
 	if (perf_ibs->fetch_count_reset_broken)
-		wrmsrl(hwc->config_base, tmp & ~perf_ibs->enable_mask);
+		wrmsrq(hwc->config_base, tmp & ~perf_ibs->enable_mask);
 
-	wrmsrl(hwc->config_base, tmp | perf_ibs->enable_mask);
+	wrmsrq(hwc->config_base, tmp | perf_ibs->enable_mask);
+
+	if (hwc->extra_reg.reg)
+		wrmsrq(hwc->extra_reg.reg, hwc->extra_reg.config);
 }
 
 /*
@@ -450,11 +533,16 @@ static inline void perf_ibs_enable_event(struct perf_ibs *perf_ibs,
 static inline void perf_ibs_disable_event(struct perf_ibs *perf_ibs,
 					  struct hw_perf_event *hwc, u64 config)
 {
+	if (ibs_caps & IBS_CAPS_DIS) {
+		wrmsrq(hwc->extra_reg.reg, perf_ibs->disable_mask);
+		return;
+	}
+
 	config &= ~perf_ibs->cnt_mask;
 	if (boot_cpu_data.x86 == 0x10)
-		wrmsrl(hwc->config_base, config);
+		wrmsrq(hwc->config_base, config);
 	config &= ~perf_ibs->enable_mask;
-	wrmsrl(hwc->config_base, config);
+	wrmsrq(hwc->config_base, config);
 }
 
 /*
@@ -487,6 +575,14 @@ static void perf_ibs_start(struct perf_event *event, int flags)
 	config |= period >> 4;
 
 	/*
+	 * Reset the IBS_{FETCH|OP}_CTL MSR before updating pcpu->state.
+	 * Doing so prevents a race condition in which an NMI due to other
+	 * source might accidentally activate the event before we enable
+	 * it ourselves.
+	 */
+	perf_ibs_disable_event(perf_ibs, hwc, 0);
+
+	/*
 	 * Set STARTED before enabling the hardware, such that a subsequent NMI
 	 * must observe it.
 	 */
@@ -513,7 +609,7 @@ static void perf_ibs_stop(struct perf_event *event, int flags)
 	if (!stopping && (hwc->state & PERF_HES_UPTODATE))
 		return;
 
-	rdmsrl(hwc->config_base, config);
+	rdmsrq(hwc->config_base, config);
 
 	if (stopping) {
 		/*
@@ -630,11 +726,34 @@ PMU_EVENT_ATTR_STRING(ldlat, ibs_op_ldlat_format, "config1:0-11");
 PMU_EVENT_ATTR_STRING(zen4_ibs_extensions, zen4_ibs_extensions, "1");
 PMU_EVENT_ATTR_STRING(ldlat, ibs_op_ldlat_cap, "1");
 PMU_EVENT_ATTR_STRING(dtlb_pgsize, ibs_op_dtlb_pgsize_cap, "1");
+PMU_EVENT_ATTR_STRING(fetchlat, ibs_fetch_lat_format, "config1:0-10");
+PMU_EVENT_ATTR_STRING(fetchlat, ibs_fetch_lat_cap, "1");
+PMU_EVENT_ATTR_STRING(strmst, ibs_op_strmst_format, "config1:12");
+PMU_EVENT_ATTR_STRING(strmst, ibs_op_strmst_cap, "1");
+PMU_EVENT_ATTR_STRING(rmtsocket, ibs_op_rmtsocket_cap, "1");
 
 static umode_t
 zen4_ibs_extensions_is_visible(struct kobject *kobj, struct attribute *attr, int i)
 {
 	return ibs_caps & IBS_CAPS_ZEN4 ? attr->mode : 0;
+}
+
+static umode_t
+ibs_fetch_lat_is_visible(struct kobject *kobj, struct attribute *attr, int i)
+{
+	return ibs_caps & IBS_CAPS_FETCHLAT ? attr->mode : 0;
+}
+
+static umode_t
+ibs_op_strmst_is_visible(struct kobject *kobj, struct attribute *attr, int i)
+{
+	return ibs_caps & IBS_CAPS_STRMST_RMTSOCKET ? attr->mode : 0;
+}
+
+static umode_t
+ibs_op_rmtsocket_is_visible(struct kobject *kobj, struct attribute *attr, int i)
+{
+	return ibs_caps & IBS_CAPS_STRMST_RMTSOCKET ? attr->mode : 0;
 }
 
 static umode_t
@@ -665,6 +784,16 @@ static struct attribute *zen4_ibs_extensions_attrs[] = {
 	NULL,
 };
 
+static struct attribute *ibs_fetch_lat_format_attrs[] = {
+	&ibs_fetch_lat_format.attr.attr,
+	NULL,
+};
+
+static struct attribute *ibs_fetch_lat_cap_attrs[] = {
+	&ibs_fetch_lat_cap.attr.attr,
+	NULL,
+};
+
 static struct attribute *ibs_op_ldlat_cap_attrs[] = {
 	&ibs_op_ldlat_cap.attr.attr,
 	NULL,
@@ -672,6 +801,16 @@ static struct attribute *ibs_op_ldlat_cap_attrs[] = {
 
 static struct attribute *ibs_op_dtlb_pgsize_cap_attrs[] = {
 	&ibs_op_dtlb_pgsize_cap.attr.attr,
+	NULL,
+};
+
+static struct attribute *ibs_op_strmst_cap_attrs[] = {
+	&ibs_op_strmst_cap.attr.attr,
+	NULL,
+};
+
+static struct attribute *ibs_op_rmtsocket_cap_attrs[] = {
+	&ibs_op_rmtsocket_cap.attr.attr,
 	NULL,
 };
 
@@ -692,6 +831,18 @@ static struct attribute_group group_zen4_ibs_extensions = {
 	.is_visible = zen4_ibs_extensions_is_visible,
 };
 
+static struct attribute_group group_ibs_fetch_lat_cap = {
+	.name = "caps",
+	.attrs = ibs_fetch_lat_cap_attrs,
+	.is_visible = ibs_fetch_lat_is_visible,
+};
+
+static struct attribute_group group_ibs_fetch_lat_format = {
+	.name = "format",
+	.attrs = ibs_fetch_lat_format_attrs,
+	.is_visible = ibs_fetch_lat_is_visible,
+};
+
 static struct attribute_group group_ibs_op_ldlat_cap = {
 	.name = "caps",
 	.attrs = ibs_op_ldlat_cap_attrs,
@@ -704,6 +855,18 @@ static struct attribute_group group_ibs_op_dtlb_pgsize_cap = {
 	.is_visible = ibs_op_dtlb_pgsize_is_visible,
 };
 
+static struct attribute_group group_ibs_op_strmst_cap = {
+	.name = "caps",
+	.attrs = ibs_op_strmst_cap_attrs,
+	.is_visible = ibs_op_strmst_is_visible,
+};
+
+static struct attribute_group group_ibs_op_rmtsocket_cap = {
+	.name = "caps",
+	.attrs = ibs_op_rmtsocket_cap_attrs,
+	.is_visible = ibs_op_rmtsocket_is_visible,
+};
+
 static const struct attribute_group *fetch_attr_groups[] = {
 	&group_fetch_formats,
 	&empty_caps_group,
@@ -713,6 +876,8 @@ static const struct attribute_group *fetch_attr_groups[] = {
 static const struct attribute_group *fetch_attr_update[] = {
 	&group_fetch_l3missonly,
 	&group_zen4_ibs_extensions,
+	&group_ibs_fetch_lat_cap,
+	&group_ibs_fetch_lat_format,
 	NULL,
 };
 
@@ -747,6 +912,11 @@ static struct attribute *ibs_op_ldlat_format_attrs[] = {
 	NULL,
 };
 
+static struct attribute *ibs_op_strmst_format_attrs[] = {
+	&ibs_op_strmst_format.attr.attr,
+	NULL,
+};
+
 static struct attribute_group group_cnt_ctl = {
 	.name = "format",
 	.attrs = cnt_ctl_attrs,
@@ -771,6 +941,12 @@ static struct attribute_group group_ibs_op_ldlat_format = {
 	.is_visible = ibs_op_ldlat_is_visible,
 };
 
+static struct attribute_group group_ibs_op_strmst_format = {
+	.name = "format",
+	.attrs = ibs_op_strmst_format_attrs,
+	.is_visible = ibs_op_strmst_is_visible,
+};
+
 static const struct attribute_group *op_attr_update[] = {
 	&group_cnt_ctl,
 	&group_op_l3missonly,
@@ -778,6 +954,9 @@ static const struct attribute_group *op_attr_update[] = {
 	&group_ibs_op_ldlat_cap,
 	&group_ibs_op_ldlat_format,
 	&group_ibs_op_dtlb_pgsize_cap,
+	&group_ibs_op_strmst_cap,
+	&group_ibs_op_strmst_format,
+	&group_ibs_op_rmtsocket_cap,
 	NULL,
 };
 
@@ -794,6 +973,7 @@ static struct perf_ibs perf_ibs_fetch = {
 		.check_period	= perf_ibs_check_period,
 	},
 	.msr			= MSR_AMD64_IBSFETCHCTL,
+	.msr2			= MSR_AMD64_IBSFETCHCTL2,
 	.config_mask		= IBS_FETCH_MAX_CNT | IBS_FETCH_RAND_EN,
 	.cnt_mask		= IBS_FETCH_MAX_CNT,
 	.enable_mask		= IBS_FETCH_ENABLE,
@@ -819,6 +999,7 @@ static struct perf_ibs perf_ibs_op = {
 		.check_period	= perf_ibs_check_period,
 	},
 	.msr			= MSR_AMD64_IBSOPCTL,
+	.msr2			= MSR_AMD64_IBSOPCTL2,
 	.config_mask		= IBS_OP_MAX_CNT,
 	.cnt_mask		= IBS_OP_MAX_CNT | IBS_OP_CUR_CNT |
 				  IBS_OP_CUR_CNT_RAND,
@@ -1154,7 +1335,8 @@ static int perf_ibs_get_offset_max(struct perf_ibs *perf_ibs,
 {
 	if (event->attr.sample_type & PERF_SAMPLE_RAW ||
 	    perf_ibs_is_mem_sample_type(perf_ibs, event) ||
-	    perf_ibs_ldlat_event(perf_ibs, event))
+	    perf_ibs_ldlat_event(perf_ibs, event) ||
+	    perf_ibs_fetch_lat_event(perf_ibs, event))
 		return perf_ibs->offset_max;
 	else if (check_rip)
 		return 3;
@@ -1189,7 +1371,7 @@ static bool perf_ibs_is_kernel_br_target(struct perf_event *event,
 			op_data.op_brn_ret && kernel_ip(br_target));
 }
 
-static bool perf_ibs_swfilt_discard(struct perf_ibs *perf_ibs, struct perf_event *event,
+static bool perf_ibs_discard_sample(struct perf_ibs *perf_ibs, struct perf_event *event,
 				    struct pt_regs *regs, struct perf_ibs_data *ibs_data,
 				    int br_target_idx)
 {
@@ -1213,12 +1395,10 @@ static void perf_ibs_phyaddr_clear(struct perf_ibs *perf_ibs,
 				   struct perf_ibs_data *ibs_data)
 {
 	if (perf_ibs == &perf_ibs_op) {
-		ibs_data->regs[ibs_op_msr_idx(MSR_AMD64_IBSOPDATA3)] &= ~(1ULL << 18);
 		ibs_data->regs[ibs_op_msr_idx(MSR_AMD64_IBSDCPHYSAD)] = 0;
 		return;
 	}
 
-	ibs_data->regs[ibs_fetch_msr_idx(MSR_AMD64_IBSFETCHCTL)] &= ~(1ULL << 52);
 	ibs_data->regs[ibs_fetch_msr_idx(MSR_AMD64_IBSFETCHPHYSAD)] = 0;
 }
 
@@ -1256,7 +1436,7 @@ fail:
 	hwc = &event->hw;
 	msr = hwc->config_base;
 	buf = ibs_data.regs;
-	rdmsrl(msr, *buf);
+	rdmsrq(msr, *buf);
 	if (!(*buf++ & perf_ibs->valid_mask))
 		goto fail;
 
@@ -1274,7 +1454,7 @@ fail:
 	offset_max = perf_ibs_get_offset_max(perf_ibs, event, check_rip);
 
 	do {
-		rdmsrl(msr + offset, *buf++);
+		rdmsrq(msr + offset, *buf++);
 		size++;
 		offset = find_next_bit(perf_ibs->offset_mask,
 				       perf_ibs->offset_max,
@@ -1292,8 +1472,20 @@ fail:
 		 * within [128, 2048] range.
 		 */
 		if (!op_data3.ld_op || !op_data3.dc_miss ||
-		    op_data3.dc_miss_lat <= (event->attr.config1 & 0xFFF))
+		    op_data3.dc_miss_lat <= (event->attr.config1 & IBS_OP_CONFIG1_LDLAT_MASK)) {
+			throttle = perf_event_account_interrupt(event);
 			goto out;
+		}
+	}
+
+	if (perf_ibs_fetch_lat_event(perf_ibs, event)) {
+		union ibs_fetch_ctl fetch_ctl;
+
+		fetch_ctl.val = ibs_data.regs[ibs_fetch_msr_idx(MSR_AMD64_IBSFETCHCTL)];
+		if (fetch_ctl.fetch_lat < (event->attr.config1 & IBS_FETCH_CONFIG1_FETCHLAT_MASK)) {
+			throttle = perf_event_account_interrupt(event);
+			goto out;
+		}
 	}
 
 	/*
@@ -1304,17 +1496,17 @@ fail:
 	if (event->attr.sample_type & PERF_SAMPLE_RAW) {
 		if (perf_ibs == &perf_ibs_op) {
 			if (ibs_caps & IBS_CAPS_BRNTRGT) {
-				rdmsrl(MSR_AMD64_IBSBRTARGET, *buf++);
+				rdmsrq(MSR_AMD64_IBSBRTARGET, *buf++);
 				br_target_idx = size;
 				size++;
 			}
 			if (ibs_caps & IBS_CAPS_OPDATA4) {
-				rdmsrl(MSR_AMD64_IBSOPDATA4, *buf++);
+				rdmsrq(MSR_AMD64_IBSOPDATA4, *buf++);
 				size++;
 			}
 		}
 		if (perf_ibs == &perf_ibs_fetch && (ibs_caps & IBS_CAPS_FETCHCTLEXTD)) {
-			rdmsrl(MSR_AMD64_ICIBSEXTDCTL, *buf++);
+			rdmsrq(MSR_AMD64_ICIBSEXTDCTL, *buf++);
 			size++;
 		}
 	}
@@ -1325,15 +1517,18 @@ fail:
 		regs.flags &= ~PERF_EFLAGS_EXACT;
 	} else {
 		/* Workaround for erratum #1197 */
-		if (perf_ibs->fetch_ignore_if_zero_rip && !(ibs_data.regs[1]))
+		if (perf_ibs->fetch_ignore_if_zero_rip && !(ibs_data.regs[1])) {
+			throttle = perf_event_account_interrupt(event);
 			goto out;
+		}
 
 		set_linear_ip(&regs, ibs_data.regs[1]);
 		regs.flags |= PERF_EFLAGS_EXACT;
 	}
 
-	if ((event->attr.config2 & IBS_SW_FILTER_MASK) &&
-	    perf_ibs_swfilt_discard(perf_ibs, event, &regs, &ibs_data, br_target_idx)) {
+	if (((ibs_caps & IBS_CAPS_BIT63_FILTER) ||
+	     (event->attr.config2 & IBS_SW_FILTER_MASK)) &&
+	    perf_ibs_discard_sample(perf_ibs, event, &regs, &ibs_data, br_target_idx)) {
 		throttle = perf_event_account_interrupt(event);
 		goto out;
 	}
@@ -1343,7 +1538,7 @@ fail:
 	 * unprivileged users.
 	 */
 	if ((event->attr.sample_type & PERF_SAMPLE_RAW) &&
-	    perf_allow_kernel()) {
+	    (hwc->flags & PERF_X86_EVENT_UNPRIVILEGED)) {
 		perf_ibs_phyaddr_clear(perf_ibs, &ibs_data);
 	}
 
@@ -1373,9 +1568,10 @@ fail:
 		hwc->sample_period = perf_ibs->min_period;
 
 out:
-	if (throttle) {
-		perf_ibs_stop(event, 0);
-	} else {
+	if (!throttle) {
+		if (ibs_caps & IBS_CAPS_DIS)
+			wrmsrq(hwc->extra_reg.reg, perf_ibs->disable_mask);
+
 		if (perf_ibs == &perf_ibs_op) {
 			if (ibs_caps & IBS_CAPS_OPCNTEXT) {
 				new_config = period & IBS_OP_MAX_CNT_EXT_MASK;
@@ -1447,6 +1643,9 @@ static __init int perf_ibs_fetch_init(void)
 	if (ibs_caps & IBS_CAPS_ZEN4)
 		perf_ibs_fetch.config_mask |= IBS_FETCH_L3MISSONLY;
 
+	if (ibs_caps & IBS_CAPS_DIS)
+		perf_ibs_fetch.disable_mask = IBS_FETCH_2_DIS;
+
 	perf_ibs_fetch.pmu.attr_groups = fetch_attr_groups;
 	perf_ibs_fetch.pmu.attr_update = fetch_attr_update;
 
@@ -1467,6 +1666,9 @@ static __init int perf_ibs_op_init(void)
 
 	if (ibs_caps & IBS_CAPS_ZEN4)
 		perf_ibs_op.config_mask |= IBS_OP_L3MISSONLY;
+
+	if (ibs_caps & IBS_CAPS_DIS)
+		perf_ibs_op.disable_mask = IBS_OP_2_DIS;
 
 	perf_ibs_op.pmu.attr_groups = op_attr_groups;
 	perf_ibs_op.pmu.attr_update = op_attr_update;
@@ -1546,7 +1748,7 @@ EXPORT_SYMBOL(get_ibs_caps);
 
 static inline int get_eilvt(int offset)
 {
-	return !setup_APIC_eilvt(offset, 0, APIC_EILVT_MSG_NMI, 1);
+	return !setup_APIC_eilvt(offset, 0, APIC_DELIVERY_MODE_NMI, 1);
 }
 
 static inline int put_eilvt(int offset)
@@ -1565,7 +1767,7 @@ static inline int ibs_eilvt_valid(void)
 
 	preempt_disable();
 
-	rdmsrl(MSR_AMD64_IBSCTL, val);
+	rdmsrq(MSR_AMD64_IBSCTL, val);
 	offset = val & IBSCTL_LVT_OFFSET_MASK;
 
 	if (!(val & IBSCTL_LVT_OFFSET_VALID)) {
@@ -1680,7 +1882,7 @@ static inline int get_ibs_lvt_offset(void)
 {
 	u64 val;
 
-	rdmsrl(MSR_AMD64_IBSCTL, val);
+	rdmsrq(MSR_AMD64_IBSCTL, val);
 	if (!(val & IBSCTL_LVT_OFFSET_VALID))
 		return -EINVAL;
 
@@ -1695,7 +1897,7 @@ static void setup_APIC_ibs(void)
 	if (offset < 0)
 		goto failed;
 
-	if (!setup_APIC_eilvt(offset, 0, APIC_EILVT_MSG_NMI, 0))
+	if (!setup_APIC_eilvt(offset, 0, APIC_DELIVERY_MODE_NMI, 0))
 		return;
 failed:
 	pr_warn("perf: IBS APIC setup failed on cpu #%d\n",
@@ -1708,37 +1910,58 @@ static void clear_APIC_ibs(void)
 
 	offset = get_ibs_lvt_offset();
 	if (offset >= 0)
-		setup_APIC_eilvt(offset, 0, APIC_EILVT_MSG_FIX, 1);
+		setup_APIC_eilvt(offset, 0, APIC_DELIVERY_MODE_FIXED, 1);
 }
 
 static int x86_pmu_amd_ibs_starting_cpu(unsigned int cpu)
 {
 	setup_APIC_ibs();
+
+	if (ibs_caps & IBS_CAPS_DIS) {
+		/*
+		 * IBS enable sequence:
+		 *   CTL[En] = 1;
+		 *   CTL2[Dis] = 0;
+		 *
+		 * IBS disable sequence:
+		 *   CTL2[Dis] = 1;
+		 *
+		 * Set CTL2[Dis] when CPU comes up. This is needed to make
+		 * enable sequence effective.
+		 */
+		wrmsrq(MSR_AMD64_IBSFETCHCTL2, IBS_FETCH_2_DIS);
+		wrmsrq(MSR_AMD64_IBSOPCTL2, IBS_OP_2_DIS);
+	}
+
 	return 0;
 }
 
 #ifdef CONFIG_PM
 
-static int perf_ibs_suspend(void)
+static int perf_ibs_suspend(void *data)
 {
 	clear_APIC_ibs();
 	return 0;
 }
 
-static void perf_ibs_resume(void)
+static void perf_ibs_resume(void *data)
 {
 	ibs_eilvt_setup();
 	setup_APIC_ibs();
 }
 
-static struct syscore_ops perf_ibs_syscore_ops = {
+static const struct syscore_ops perf_ibs_syscore_ops = {
 	.resume		= perf_ibs_resume,
 	.suspend	= perf_ibs_suspend,
 };
 
+static struct syscore perf_ibs_syscore = {
+	.ops = &perf_ibs_syscore_ops,
+};
+
 static void perf_ibs_pm_init(void)
 {
-	register_syscore_ops(&perf_ibs_syscore_ops);
+	register_syscore(&perf_ibs_syscore);
 }
 
 #else
@@ -1767,6 +1990,14 @@ static __init int amd_ibs_init(void)
 		return -EINVAL;
 
 	perf_ibs_pm_init();
+
+#ifdef CONFIG_X86_32
+	/*
+	 * IBS_CAPS_BIT63_FILTER is used for exclude_kernel/user filtering,
+	 * which obviously won't work for 32 bit kernel.
+	 */
+	caps &= ~IBS_CAPS_BIT63_FILTER;
+#endif
 
 	ibs_caps = caps;
 	/* make ibs_caps visible to other cpus: */

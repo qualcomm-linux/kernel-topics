@@ -626,7 +626,7 @@ void kvm_xen_inject_vcpu_vector(struct kvm_vcpu *v)
 	irq.delivery_mode = APIC_DM_FIXED;
 	irq.level = 1;
 
-	kvm_irq_delivery_to_apic(v->kvm, NULL, &irq, NULL);
+	kvm_irq_delivery_to_apic(v->kvm, NULL, &irq);
 }
 
 /*
@@ -1514,8 +1514,7 @@ static bool kvm_xen_schedop_poll(struct kvm_vcpu *vcpu, bool longmode,
 			return true;
 		}
 
-		ports = kmalloc_array(sched_poll.nr_ports,
-				      sizeof(*ports), GFP_KERNEL);
+		ports = kmalloc_objs(*ports, sched_poll.nr_ports);
 		if (!ports) {
 			*r = -ENOMEM;
 			return true;
@@ -1526,7 +1525,7 @@ static bool kvm_xen_schedop_poll(struct kvm_vcpu *vcpu, bool longmode,
 	if (kvm_read_guest_virt(vcpu, (gva_t)sched_poll.ports, ports,
 				sched_poll.nr_ports * sizeof(*ports), &e)) {
 		*r = -EFAULT;
-		return true;
+		goto out;
 	}
 
 	for (i = 0; i < sched_poll.nr_ports; i++) {
@@ -1571,7 +1570,8 @@ out:
 
 static void cancel_evtchn_poll(struct timer_list *t)
 {
-	struct kvm_vcpu *vcpu = from_timer(vcpu, t, arch.xen.poll_timer);
+	struct kvm_vcpu *vcpu = timer_container_of(vcpu, t,
+						   arch.xen.poll_timer);
 
 	kvm_make_request(KVM_REQ_UNBLOCK, vcpu);
 	kvm_vcpu_kick(vcpu);
@@ -1970,8 +1970,19 @@ int kvm_xen_setup_evtchn(struct kvm *kvm,
 {
 	struct kvm_vcpu *vcpu;
 
-	if (ue->u.xen_evtchn.port >= max_evtchn_port(kvm))
-		return -EINVAL;
+	/*
+	 * Don't check for the port being within range of max_evtchn_port().
+	 * Userspace can configure what ever targets it likes; events just won't
+	 * be delivered if/while the target is invalid, just like userspace can
+	 * configure MSIs which target non-existent APICs.
+	 *
+	 * This allow on Live Migration and Live Update, the IRQ routing table
+	 * can be restored *independently* of other things like creating vCPUs,
+	 * without imposing an ordering dependency on userspace.  In this
+	 * particular case, the problematic ordering would be with setting the
+	 * Xen 'long mode' flag, which changes max_evtchn_port() to allow 4096
+	 * instead of 1024 event channels.
+	 */
 
 	/* We only support 2 level event channels for now */
 	if (ue->u.xen_evtchn.priority != KVM_IRQ_ROUTING_XEN_EVTCHN_PRIO_2LEVEL)
@@ -2104,7 +2115,7 @@ static int kvm_xen_eventfd_assign(struct kvm *kvm,
 	struct evtchnfd *evtchnfd;
 	int ret = -EINVAL;
 
-	evtchnfd = kzalloc(sizeof(struct evtchnfd), GFP_KERNEL);
+	evtchnfd = kzalloc_obj(struct evtchnfd);
 	if (!evtchnfd)
 		return -ENOMEM;
 
@@ -2202,7 +2213,7 @@ static int kvm_xen_eventfd_reset(struct kvm *kvm)
 	idr_for_each_entry(&kvm->arch.xen.evtchn_ports, evtchnfd, i)
 		n++;
 
-	all_evtchnfds = kmalloc_array(n, sizeof(struct evtchnfd *), GFP_KERNEL);
+	all_evtchnfds = kmalloc_objs(struct evtchnfd *, n);
 	if (!all_evtchnfds) {
 		mutex_unlock(&kvm->arch.xen.xen_lock);
 		return -ENOMEM;

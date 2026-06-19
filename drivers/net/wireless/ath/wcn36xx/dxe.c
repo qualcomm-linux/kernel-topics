@@ -74,7 +74,7 @@ static int wcn36xx_dxe_allocate_ctl_block(struct wcn36xx_dxe_ch *ch)
 
 	spin_lock_init(&ch->lock);
 	for (i = 0; i < ch->desc_num; i++) {
-		cur_ctl = kzalloc(sizeof(*cur_ctl), GFP_KERNEL);
+		cur_ctl = kzalloc_obj(*cur_ctl);
 		if (!cur_ctl)
 			goto out_fail;
 
@@ -373,7 +373,7 @@ void wcn36xx_dxe_tx_ack_ind(struct wcn36xx *wcn, u32 status)
 
 static void wcn36xx_dxe_tx_timer(struct timer_list *t)
 {
-	struct wcn36xx *wcn = from_timer(wcn, t, tx_ack_timer);
+	struct wcn36xx *wcn = timer_container_of(wcn, t, tx_ack_timer);
 	struct ieee80211_tx_info *info;
 	unsigned long flags;
 	struct sk_buff *skb;

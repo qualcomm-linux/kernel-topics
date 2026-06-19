@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: ((GPL-2.0 WITH Linux-syscall-note) OR BSD-3-Clause)
-
+---
 name: nfsd
 protocol: genetlink
 uapi-header: linux/nfsd_netlink.h
@@ -27,7 +27,7 @@ attribute-sets:
         name: proc
         type: u32
       -
-        name: service_time
+        name: service-time
         type: s64
       -
         name: pad
@@ -78,6 +78,14 @@ attribute-sets:
       -
         name: scope
         type: string
+      -
+        name: min-threads
+        type: u32
+      -
+        name: fh-key
+        type: binary
+        checks:
+            exact-len: 16
   -
     name: version
     attributes:
@@ -139,7 +147,7 @@ operations:
             - prog
             - version
             - proc
-            - service_time
+            - service-time
             - saddr4
             - daddr4
             - saddr6
@@ -149,9 +157,9 @@ operations:
             - compound-ops
     -
       name: threads-set
-      doc: set the number of running threads
+      doc: set the maximum number of running threads
       attribute-set: server
-      flags: [ admin-perm ]
+      flags: [admin-perm]
       do:
         request:
           attributes:
@@ -159,9 +167,11 @@ operations:
             - gracetime
             - leasetime
             - scope
+            - min-threads
+            - fh-key
     -
       name: threads-get
-      doc: get the number of running threads
+      doc: get the maximum number of running threads
       attribute-set: server
       do:
         reply:
@@ -170,11 +180,12 @@ operations:
             - gracetime
             - leasetime
             - scope
+            - min-threads
     -
       name: version-set
       doc: set nfs enabled versions
       attribute-set: server-proto
-      flags: [ admin-perm ]
+      flags: [admin-perm]
       do:
         request:
           attributes:
@@ -191,7 +202,7 @@ operations:
       name: listener-set
       doc: set nfs running sockets
       attribute-set: server-sock
-      flags: [ admin-perm ]
+      flags: [admin-perm]
       do:
         request:
           attributes:
@@ -208,7 +219,7 @@ operations:
       name: pool-mode-set
       doc: set the current server pool-mode
       attribute-set: pool-mode
-      flags: [ admin-perm ]
+      flags: [admin-perm]
       do:
         request:
           attributes:

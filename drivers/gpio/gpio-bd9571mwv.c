@@ -69,7 +69,7 @@ static int bd9571mwv_gpio_get(struct gpio_chip *chip, unsigned int offset)
 	if (ret < 0)
 		return ret;
 
-	return val & BIT(offset);
+	return !!(val & BIT(offset));
 }
 
 static int bd9571mwv_gpio_set(struct gpio_chip *chip, unsigned int offset,
@@ -88,7 +88,7 @@ static const struct gpio_chip template_chip = {
 	.direction_input	= bd9571mwv_gpio_direction_input,
 	.direction_output	= bd9571mwv_gpio_direction_output,
 	.get			= bd9571mwv_gpio_get,
-	.set_rv			= bd9571mwv_gpio_set,
+	.set			= bd9571mwv_gpio_set,
 	.base			= -1,
 	.ngpio			= 2,
 	.can_sleep		= true,

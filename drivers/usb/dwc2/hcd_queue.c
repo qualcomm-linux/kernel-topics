@@ -1215,7 +1215,7 @@ static void dwc2_do_unreserve(struct dwc2_hsotg *hsotg, struct dwc2_qh *qh)
  */
 static void dwc2_unreserve_timer_fn(struct timer_list *t)
 {
-	struct dwc2_qh *qh = from_timer(qh, t, unreserve_timer);
+	struct dwc2_qh *qh = timer_container_of(qh, t, unreserve_timer);
 	struct dwc2_hsotg *hsotg = qh->hsotg;
 	unsigned long flags;
 
@@ -1585,7 +1585,7 @@ struct dwc2_qh *dwc2_hcd_qh_create(struct dwc2_hsotg *hsotg,
 		return NULL;
 
 	/* Allocate memory */
-	qh = kzalloc(sizeof(*qh), mem_flags);
+	qh = kzalloc_obj(*qh, mem_flags);
 	if (!qh)
 		return NULL;
 

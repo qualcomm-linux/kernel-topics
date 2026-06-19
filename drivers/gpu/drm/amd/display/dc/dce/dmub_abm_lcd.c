@@ -188,6 +188,7 @@ void dmub_abm_init_config(struct abm *abm,
 
 bool dmub_abm_set_pause(struct abm *abm, bool pause, unsigned int panel_inst, unsigned int stream_inst)
 {
+	(void)stream_inst;
 	union dmub_rb_cmd cmd;
 	struct dc_context *dc = abm->ctx;
 	uint8_t panel_mask = 0x01 << panel_inst;
@@ -240,7 +241,8 @@ bool dmub_abm_save_restore(
 	cmd.abm_save_restore.abm_init_config_data.version = DMUB_CMD_ABM_CONTROL_VERSION_1;
 	cmd.abm_save_restore.abm_init_config_data.panel_mask = panel_mask;
 
-	cmd.abm_save_restore.header.payload_bytes = sizeof(struct dmub_rb_cmd_abm_save_restore);
+	cmd.abm_save_restore.header.payload_bytes =
+			sizeof(struct dmub_rb_cmd_abm_save_restore) - sizeof(struct dmub_cmd_header);
 
 	dc_wake_and_execute_dmub_cmd(dc, &cmd, DM_DMUB_WAIT_TYPE_WAIT);
 

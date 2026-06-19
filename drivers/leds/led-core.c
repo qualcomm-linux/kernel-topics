@@ -64,7 +64,8 @@ static int __led_set_brightness_blocking(struct led_classdev *led_cdev, unsigned
 
 static void led_timer_function(struct timer_list *t)
 {
-	struct led_classdev *led_cdev = from_timer(led_cdev, t, blink_timer);
+	struct led_classdev *led_cdev = timer_container_of(led_cdev, t,
+							   blink_timer);
 	unsigned long brightness;
 	unsigned long delay;
 
@@ -84,7 +85,7 @@ static void led_timer_function(struct timer_list *t)
 	if (!brightness) {
 		/* Time to switch the LED on. */
 		if (test_and_clear_bit(LED_BLINK_BRIGHTNESS_CHANGE,
-					&led_cdev->work_flags))
+				       &led_cdev->work_flags))
 			brightness = led_cdev->new_blink_brightness;
 		else
 			brightness = led_cdev->blink_brightness;
@@ -216,10 +217,9 @@ static void led_set_software_blink(struct led_classdev *led_cdev,
 	mod_timer(&led_cdev->blink_timer, jiffies + 1);
 }
 
-
 static void led_blink_setup(struct led_classdev *led_cdev,
-		     unsigned long *delay_on,
-		     unsigned long *delay_off)
+			    unsigned long *delay_on,
+			    unsigned long *delay_off)
 {
 	if (!test_bit(LED_BLINK_ONESHOT, &led_cdev->work_flags) &&
 	    led_cdev->blink_set &&
@@ -261,7 +261,7 @@ void led_blink_set_oneshot(struct led_classdev *led_cdev,
 			   int invert)
 {
 	if (test_bit(LED_BLINK_ONESHOT, &led_cdev->work_flags) &&
-	     timer_pending(&led_cdev->blink_timer))
+	    timer_pending(&led_cdev->blink_timer))
 		return;
 
 	set_bit(LED_BLINK_ONESHOT, &led_cdev->work_flags);
@@ -346,9 +346,9 @@ void led_set_brightness_nopm(struct led_classdev *led_cdev, unsigned int value)
 	/* Ensure delayed_set_value is seen before work_flags modification */
 	smp_mb__before_atomic();
 
-	if (value)
+	if (value) {
 		set_bit(LED_SET_BRIGHTNESS, &led_cdev->work_flags);
-	else {
+	} else {
 		clear_bit(LED_SET_BRIGHTNESS, &led_cdev->work_flags);
 		clear_bit(LED_SET_BLINK, &led_cdev->work_flags);
 		set_bit(LED_SET_BRIGHTNESS_OFF, &led_cdev->work_flags);
@@ -498,7 +498,6 @@ static void led_parse_fwnode_props(struct device *dev,
 			props->color_present = true;
 	}
 
-
 	if (!fwnode_property_present(fwnode, "function"))
 		return;
 
@@ -529,6 +528,7 @@ int led_compose_name(struct device *dev, struct led_init_data *init_data,
 	struct led_properties props = {};
 	struct fwnode_handle *fwnode = init_data->fwnode;
 	const char *devicename = init_data->devicename;
+	int n;
 
 	if (!led_classdev_name)
 		return -EINVAL;
@@ -542,44 +542,52 @@ int led_compose_name(struct device *dev, struct led_init_data *init_data,
 		 * Otherwise the label is prepended with devicename to compose
 		 * the final LED class device name.
 		 */
-		if (!devicename) {
-			strscpy(led_classdev_name, props.label,
-				LED_MAX_NAME_SIZE);
+		if (devicename) {
+			n = snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s:%s",
+				     devicename, props.label);
 		} else {
-			snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s:%s",
-				 devicename, props.label);
+			n = snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s", props.label);
 		}
 	} else if (props.function || props.color_present) {
 		char tmp_buf[LED_MAX_NAME_SIZE];
 
 		if (props.func_enum_present) {
-			snprintf(tmp_buf, LED_MAX_NAME_SIZE, "%s:%s-%d",
-				 props.color_present ? led_colors[props.color] : "",
-				 props.function ?: "", props.func_enum);
+			n = snprintf(tmp_buf, LED_MAX_NAME_SIZE, "%s:%s-%d",
+				     props.color_present ? led_colors[props.color] : "",
+				     props.function ?: "", props.func_enum);
 		} else {
-			snprintf(tmp_buf, LED_MAX_NAME_SIZE, "%s:%s",
-				 props.color_present ? led_colors[props.color] : "",
-				 props.function ?: "");
+			n = snprintf(tmp_buf, LED_MAX_NAME_SIZE, "%s:%s",
+				     props.color_present ? led_colors[props.color] : "",
+				     props.function ?: "");
 		}
-		if (init_data->devname_mandatory) {
-			snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s:%s",
-				 devicename, tmp_buf);
-		} else {
-			strscpy(led_classdev_name, tmp_buf, LED_MAX_NAME_SIZE);
+		if (n >= LED_MAX_NAME_SIZE)
+			return -E2BIG;
 
+		if (init_data->devname_mandatory) {
+			n = snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s:%s",
+				     devicename, tmp_buf);
+		} else {
+			n = snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s", tmp_buf);
 		}
 	} else if (init_data->default_label) {
 		if (!devicename) {
 			dev_err(dev, "Legacy LED naming requires devicename segment");
 			return -EINVAL;
 		}
-		snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s:%s",
-			 devicename, init_data->default_label);
+		n = snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s:%s",
+			     devicename, init_data->default_label);
 	} else if (is_of_node(fwnode)) {
-		strscpy(led_classdev_name, to_of_node(fwnode)->name,
-			LED_MAX_NAME_SIZE);
-	} else
+		n = snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s",
+			     to_of_node(fwnode)->name);
+	} else if (is_software_node(fwnode)) {
+		n = snprintf(led_classdev_name, LED_MAX_NAME_SIZE, "%s",
+			     fwnode_get_name(fwnode));
+	} else {
 		return -EINVAL;
+	}
+
+	if (n >= LED_MAX_NAME_SIZE)
+		return -E2BIG;
 
 	return 0;
 }

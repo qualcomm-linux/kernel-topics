@@ -1331,8 +1331,8 @@ _ctl_eventenable(struct MPT3SAS_ADAPTER *ioc, void __user *arg)
 	/* initialize event_log */
 	ioc->event_context = 0;
 	ioc->aen_event_read_flag = 0;
-	ioc->event_log = kcalloc(MPT3SAS_CTL_EVENT_LOG_SIZE,
-	    sizeof(struct MPT3_IOCTL_EVENTS), GFP_KERNEL);
+	ioc->event_log = kzalloc_objs(struct MPT3_IOCTL_EVENTS,
+				      MPT3SAS_CTL_EVENT_LOG_SIZE);
 	if (!ioc->event_log) {
 		pr_err("failure at %s:%d/%s()!\n",
 		    __FILE__, __LINE__, __func__);
@@ -2869,8 +2869,9 @@ _ctl_get_mpt_mctp_passthru_adapter(int dev_index)
 		if (ioc->facts.IOCCapabilities & MPI26_IOCFACTS_CAPABILITY_MCTP_PASSTHRU) {
 			if (count == dev_index) {
 				spin_unlock(&gioc_lock);
-				return 0;
+				return ioc;
 			}
+			count++;
 		}
 	}
 	spin_unlock(&gioc_lock);
@@ -2913,7 +2914,6 @@ int mpt3sas_send_mctp_passthru_req(struct mpt3_passthru_command *command)
 {
 	struct MPT3SAS_ADAPTER *ioc;
 	MPI2RequestHeader_t *mpi_request = NULL, *request;
-	MPI2DefaultReply_t *mpi_reply;
 	Mpi26MctpPassthroughRequest_t *mctp_passthru_req;
 	u16 smid;
 	unsigned long timeout;
@@ -3020,8 +3020,6 @@ int mpt3sas_send_mctp_passthru_req(struct mpt3_passthru_command *command)
 		    sizeof(Mpi26MctpPassthroughRequest_t) / 4, issue_reset);
 		goto issue_host_reset;
 	}
-
-	mpi_reply = ioc->ctl_cmds.reply;
 
 	/* copy out xdata to user */
 	if (data_in_sz)
@@ -3883,8 +3881,7 @@ diag_trigger_master_store(struct device *cdev,
 	rc = min(sizeof(struct SL_WH_MASTER_TRIGGER_T), count);
 
 	if (ioc->supports_trigger_pages) {
-		master_tg = kzalloc(sizeof(struct SL_WH_MASTER_TRIGGER_T),
-		    GFP_KERNEL);
+		master_tg = kzalloc_obj(struct SL_WH_MASTER_TRIGGER_T);
 		if (!master_tg)
 			return -ENOMEM;
 
@@ -3958,8 +3955,7 @@ diag_trigger_event_store(struct device *cdev,
 
 	sz = min(sizeof(struct SL_WH_EVENT_TRIGGERS_T), count);
 	if (ioc->supports_trigger_pages) {
-		event_tg = kzalloc(sizeof(struct SL_WH_EVENT_TRIGGERS_T),
-		    GFP_KERNEL);
+		event_tg = kzalloc_obj(struct SL_WH_EVENT_TRIGGERS_T);
 		if (!event_tg)
 			return -ENOMEM;
 
@@ -4033,8 +4029,7 @@ diag_trigger_scsi_store(struct device *cdev,
 
 	sz = min(sizeof(struct SL_WH_SCSI_TRIGGERS_T), count);
 	if (ioc->supports_trigger_pages) {
-		scsi_tg = kzalloc(sizeof(struct SL_WH_SCSI_TRIGGERS_T),
-		    GFP_KERNEL);
+		scsi_tg = kzalloc_obj(struct SL_WH_SCSI_TRIGGERS_T);
 		if (!scsi_tg)
 			return -ENOMEM;
 
@@ -4107,8 +4102,7 @@ diag_trigger_mpi_store(struct device *cdev,
 
 	sz = min(sizeof(struct SL_WH_MPI_TRIGGERS_T), count);
 	if (ioc->supports_trigger_pages) {
-		mpi_tg = kzalloc(sizeof(struct SL_WH_MPI_TRIGGERS_T),
-		    GFP_KERNEL);
+		mpi_tg = kzalloc_obj(struct SL_WH_MPI_TRIGGERS_T);
 		if (!mpi_tg)
 			return -ENOMEM;
 

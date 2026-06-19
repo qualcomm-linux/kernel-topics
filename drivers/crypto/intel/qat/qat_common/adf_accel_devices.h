@@ -11,7 +11,9 @@
 #include <linux/types.h>
 #include <linux/qat/qat_mig_dev.h>
 #include <linux/wordpart.h>
+#include "adf_anti_rb.h"
 #include "adf_cfg_common.h"
+#include "adf_dc.h"
 #include "adf_rl.h"
 #include "adf_telemetry.h"
 #include "adf_pfvf_msg.h"
@@ -25,14 +27,18 @@
 #define ADF_C3XXXVF_DEVICE_NAME "c3xxxvf"
 #define ADF_4XXX_DEVICE_NAME "4xxx"
 #define ADF_420XX_DEVICE_NAME "420xx"
-#define ADF_4XXX_PCI_DEVICE_ID 0x4940
-#define ADF_4XXXIOV_PCI_DEVICE_ID 0x4941
-#define ADF_401XX_PCI_DEVICE_ID 0x4942
-#define ADF_401XXIOV_PCI_DEVICE_ID 0x4943
-#define ADF_402XX_PCI_DEVICE_ID 0x4944
-#define ADF_402XXIOV_PCI_DEVICE_ID 0x4945
-#define ADF_420XX_PCI_DEVICE_ID 0x4946
-#define ADF_420XXIOV_PCI_DEVICE_ID 0x4947
+#define ADF_6XXX_DEVICE_NAME "6xxx"
+#define PCI_DEVICE_ID_INTEL_QAT_4XXX 0x4940
+#define PCI_DEVICE_ID_INTEL_QAT_4XXXIOV 0x4941
+#define PCI_DEVICE_ID_INTEL_QAT_401XX 0x4942
+#define PCI_DEVICE_ID_INTEL_QAT_401XXIOV 0x4943
+#define PCI_DEVICE_ID_INTEL_QAT_402XX 0x4944
+#define PCI_DEVICE_ID_INTEL_QAT_402XXIOV 0x4945
+#define PCI_DEVICE_ID_INTEL_QAT_420XX 0x4946
+#define PCI_DEVICE_ID_INTEL_QAT_420XXIOV 0x4947
+#define PCI_DEVICE_ID_INTEL_QAT_6XXX 0x4948
+#define PCI_DEVICE_ID_INTEL_QAT_6XXX_IOV 0x4949
+
 #define ADF_DEVICE_FUSECTL_OFFSET 0x40
 #define ADF_DEVICE_LEGFUSE_OFFSET 0x4C
 #define ADF_DEVICE_FUSECTL_MASK 0x80000000
@@ -51,6 +57,11 @@ enum adf_accel_capabilities {
 	ADF_ACCEL_CAPABILITIES_COMPRESSION = 32,
 	ADF_ACCEL_CAPABILITIES_LZS_COMPRESSION = 64,
 	ADF_ACCEL_CAPABILITIES_RANDOM_NUMBER = 128
+};
+
+enum adf_accel_capabilities_ext {
+	ADF_ACCEL_CAPABILITIES_EXT_ZSTD_LZ4S = BIT(0),
+	ADF_ACCEL_CAPABILITIES_EXT_ZSTD = BIT(1),
 };
 
 enum adf_fuses {
@@ -152,39 +163,7 @@ struct admin_info {
 	u32 mailbox_offset;
 };
 
-struct ring_config {
-	u64 base;
-	u32 config;
-	u32 head;
-	u32 tail;
-	u32 reserved0;
-};
-
-struct bank_state {
-	u32 ringstat0;
-	u32 ringstat1;
-	u32 ringuostat;
-	u32 ringestat;
-	u32 ringnestat;
-	u32 ringnfstat;
-	u32 ringfstat;
-	u32 ringcstat0;
-	u32 ringcstat1;
-	u32 ringcstat2;
-	u32 ringcstat3;
-	u32 iaintflagen;
-	u32 iaintflagreg;
-	u32 iaintflagsrcsel0;
-	u32 iaintflagsrcsel1;
-	u32 iaintcolen;
-	u32 iaintcolctl;
-	u32 iaintflagandcolen;
-	u32 ringexpstat;
-	u32 ringexpintenable;
-	u32 ringsrvarben;
-	u32 reserved0;
-	struct ring_config rings[ADF_ETR_MAX_RINGS_PER_BANK];
-};
+struct adf_bank_state;
 
 struct adf_hw_csr_ops {
 	u64 (*build_csr_ring_base_addr)(dma_addr_t addr, u32 size);
@@ -267,7 +246,8 @@ struct adf_pfvf_ops {
 };
 
 struct adf_dc_ops {
-	void (*build_deflate_ctx)(void *ctx);
+	int (*build_comp_block)(void *ctx, enum adf_dc_algo algo);
+	int (*build_decomp_block)(void *ctx, enum adf_dc_algo algo);
 };
 
 struct qat_migdev_ops {
@@ -332,9 +312,9 @@ struct adf_hw_device_data {
 	void (*set_ssm_wdtimer)(struct adf_accel_dev *accel_dev);
 	int (*ring_pair_reset)(struct adf_accel_dev *accel_dev, u32 bank_nr);
 	int (*bank_state_save)(struct adf_accel_dev *accel_dev, u32 bank_number,
-			       struct bank_state *state);
+			       struct adf_bank_state *state);
 	int (*bank_state_restore)(struct adf_accel_dev *accel_dev,
-				  u32 bank_number, struct bank_state *state);
+				  u32 bank_number, struct adf_bank_state *state);
 	void (*reset_device)(struct adf_accel_dev *accel_dev);
 	void (*set_msix_rttable)(struct adf_accel_dev *accel_dev);
 	const char *(*uof_get_name)(struct adf_accel_dev *accel_dev, u32 obj_num);
@@ -345,6 +325,8 @@ struct adf_hw_device_data {
 	u32 (*get_ena_thd_mask)(struct adf_accel_dev *accel_dev, u32 obj_num);
 	int (*dev_config)(struct adf_accel_dev *accel_dev);
 	bool (*services_supported)(unsigned long mask);
+	u32 (*get_svc_slice_cnt)(struct adf_accel_dev *accel_dev,
+				 enum adf_base_services svc);
 	struct adf_pfvf_ops pfvf_ops;
 	struct adf_hw_csr_ops csr_ops;
 	struct adf_dc_ops dc_ops;
@@ -352,12 +334,14 @@ struct adf_hw_device_data {
 	struct adf_dev_err_mask dev_err_mask;
 	struct adf_rl_hw_data rl_data;
 	struct adf_tl_hw_data tl_data;
+	struct adf_anti_rb_hw_data anti_rb_data;
 	struct qat_migdev_ops vfmig_ops;
 	const char *fw_name;
 	const char *fw_mmp_name;
 	u32 fuses[ADF_MAX_FUSES];
 	u32 straps;
 	u32 accel_capabilities_mask;
+	u32 accel_capabilities_ext_mask;
 	u32 extended_dc_capabilities;
 	u16 fw_capabilities;
 	u32 clock_frequency;

@@ -196,10 +196,6 @@ struct kvm_vm *memstress_create_vm(enum vm_guest_mode mode, int nr_vcpus,
 
 	args->gpa = (region_end_gfn - guest_num_pages - 1) * args->guest_page_size;
 	args->gpa = align_down(args->gpa, backing_src_pagesz);
-#ifdef __s390x__
-	/* Align to 1M (segment size) */
-	args->gpa = align_down(args->gpa, 1 << 20);
-#endif
 	args->size = guest_num_pages * args->guest_page_size;
 	pr_info("guest physical test memory: [0x%lx, 0x%lx)\n",
 		args->gpa, args->gpa + args->size);
@@ -265,7 +261,7 @@ static void *vcpu_thread_main(void *data)
 	int vcpu_idx = vcpu->vcpu_idx;
 
 	if (memstress_args.pin_vcpus)
-		kvm_pin_this_task_to_pcpu(memstress_args.vcpu_to_pcpu[vcpu_idx]);
+		pin_self_to_cpu(memstress_args.vcpu_to_pcpu[vcpu_idx]);
 
 	WRITE_ONCE(vcpu->running, true);
 

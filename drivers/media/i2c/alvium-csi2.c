@@ -1094,7 +1094,7 @@ static int alvium_setup_mipi_fmt(struct alvium_dev *alvium)
 	/* init alvium_csi2_fmt array */
 	alvium->alvium_csi2_fmt_n = sz;
 	alvium->alvium_csi2_fmt =
-		kmalloc_array(sz, sizeof(struct alvium_pixfmt), GFP_KERNEL);
+		kmalloc_objs(struct alvium_pixfmt, sz);
 	if (!alvium->alvium_csi2_fmt)
 		return -ENOMEM;
 
@@ -1841,7 +1841,6 @@ static int alvium_s_stream(struct v4l2_subdev *sd, int enable)
 
 	} else {
 		alvium_set_stream_mipi(alvium, enable);
-		pm_runtime_mark_last_busy(&client->dev);
 		pm_runtime_put_autosuspend(&client->dev);
 	}
 
@@ -2542,6 +2541,6 @@ module_i2c_driver(alvium_i2c_driver);
 
 MODULE_DESCRIPTION("Allied Vision's Alvium Camera Driver");
 MODULE_AUTHOR("Tommaso Merciai <tomm.merciai@gmail.com>");
-MODULE_AUTHOR("Martin Hecht <martin.hecht@avnet.eu>");
+MODULE_AUTHOR("Martin Hecht <mhecht73@gmail.com>");
 MODULE_AUTHOR("Avnet Silica Software & Services EMEA");
 MODULE_LICENSE("GPL");

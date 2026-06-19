@@ -18,9 +18,6 @@ void rxe_av_fill_ip_info(struct rxe_av *av, struct rdma_ah_attr *attr);
 struct rxe_av *rxe_get_av(struct rxe_pkt_info *pkt, struct rxe_ah **ahp);
 
 /* rxe_cq.c */
-int rxe_cq_chk_attr(struct rxe_dev *rxe, struct rxe_cq *cq,
-		    int cqe, int comp_vector);
-
 int rxe_cq_from_init(struct rxe_dev *rxe, struct rxe_cq *cq, int cqe,
 		     int comp_vector, struct ib_udata *udata,
 		     struct rxe_create_cq_resp __user *uresp);
@@ -70,9 +67,9 @@ int copy_data(struct rxe_pd *pd, int access, struct rxe_dma_info *dma,
 	      void *addr, int length, enum rxe_mr_copy_dir dir);
 int rxe_map_mr_sg(struct ib_mr *ibmr, struct scatterlist *sg,
 		  int sg_nents, unsigned int *sg_offset);
-int rxe_mr_do_atomic_op(struct rxe_mr *mr, u64 iova, int opcode,
-			u64 compare, u64 swap_add, u64 *orig_val);
-int rxe_mr_do_atomic_write(struct rxe_mr *mr, u64 iova, u64 value);
+enum resp_states rxe_mr_do_atomic_op(struct rxe_mr *mr, u64 iova, int opcode,
+				     u64 compare, u64 swap_add, u64 *orig_val);
+enum resp_states rxe_mr_do_atomic_write(struct rxe_mr *mr, u64 iova, u64 value);
 struct rxe_mr *lookup_mr(struct rxe_pd *pd, int access, u32 key,
 			 enum rxe_mr_lookup_type type);
 int mr_check_range(struct rxe_mr *mr, u64 iova, size_t length);
@@ -193,13 +190,19 @@ static inline unsigned int wr_opcode_mask(int opcode, struct rxe_qp *qp)
 /* rxe_odp.c */
 extern const struct mmu_interval_notifier_ops rxe_mn_ops;
 
-#ifdef CONFIG_INFINIBAND_ON_DEMAND_PAGING
+#if defined CONFIG_INFINIBAND_ON_DEMAND_PAGING
 int rxe_odp_mr_init_user(struct rxe_dev *rxe, u64 start, u64 length,
 			 u64 iova, int access_flags, struct rxe_mr *mr);
 int rxe_odp_mr_copy(struct rxe_mr *mr, u64 iova, void *addr, int length,
 		    enum rxe_mr_copy_dir dir);
-int rxe_odp_atomic_op(struct rxe_mr *mr, u64 iova, int opcode,
-			 u64 compare, u64 swap_add, u64 *orig_val);
+enum resp_states rxe_odp_atomic_op(struct rxe_mr *mr, u64 iova, int opcode,
+				   u64 compare, u64 swap_add, u64 *orig_val);
+int rxe_odp_flush_pmem_iova(struct rxe_mr *mr, u64 iova,
+			    unsigned int length);
+enum resp_states rxe_odp_do_atomic_write(struct rxe_mr *mr, u64 iova, u64 value);
+int rxe_ib_advise_mr(struct ib_pd *pd, enum ib_uverbs_advise_mr_advice advice,
+		     u32 flags, struct ib_sge *sg_list, u32 num_sge,
+		     struct uverbs_attr_bundle *attrs);
 #else /* CONFIG_INFINIBAND_ON_DEMAND_PAGING */
 static inline int
 rxe_odp_mr_init_user(struct rxe_dev *rxe, u64 start, u64 length, u64 iova,
@@ -212,12 +215,31 @@ static inline int rxe_odp_mr_copy(struct rxe_mr *mr, u64 iova, void *addr,
 {
 	return -EOPNOTSUPP;
 }
-static inline int
+static inline enum resp_states
 rxe_odp_atomic_op(struct rxe_mr *mr, u64 iova, int opcode,
-		     u64 compare, u64 swap_add, u64 *orig_val)
+		  u64 compare, u64 swap_add, u64 *orig_val)
 {
 	return RESPST_ERR_UNSUPPORTED_OPCODE;
 }
+static inline int rxe_odp_flush_pmem_iova(struct rxe_mr *mr, u64 iova,
+					  unsigned int length)
+{
+	return -EOPNOTSUPP;
+}
+static inline enum resp_states rxe_odp_do_atomic_write(struct rxe_mr *mr,
+						       u64 iova, u64 value)
+{
+	return RESPST_ERR_UNSUPPORTED_OPCODE;
+}
+static inline int rxe_ib_advise_mr(struct ib_pd *pd,
+				   enum ib_uverbs_advise_mr_advice advice,
+				   u32 flags, struct ib_sge *sg_list,
+				   u32 num_sge,
+				   struct uverbs_attr_bundle *attrs)
+{
+	return -EOPNOTSUPP;
+}
+
 #endif /* CONFIG_INFINIBAND_ON_DEMAND_PAGING */
 
 #endif /* RXE_LOC_H */

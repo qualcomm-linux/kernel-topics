@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Accelerated GHASH implementation with ARMv8 vmull.p64 instructions.
+ * AES-GCM using ARMv8 Crypto Extensions
  *
  * Copyright (C) 2015 - 2018 Linaro Ltd.
  * Copyright (C) 2023 Google LLC.
@@ -8,39 +8,29 @@
 
 #include <asm/hwcap.h>
 #include <asm/neon.h>
-#include <asm/simd.h>
-#include <linux/unaligned.h>
 #include <crypto/aes.h>
-#include <crypto/gcm.h>
 #include <crypto/b128ops.h>
-#include <crypto/cryptd.h>
-#include <crypto/internal/aead.h>
-#include <crypto/internal/hash.h>
-#include <crypto/internal/simd.h>
-#include <crypto/internal/skcipher.h>
+#include <crypto/gcm.h>
 #include <crypto/gf128mul.h>
+#include <crypto/ghash.h>
+#include <crypto/internal/aead.h>
+#include <crypto/internal/skcipher.h>
 #include <crypto/scatterwalk.h>
 #include <linux/cpufeature.h>
-#include <linux/crypto.h>
+#include <linux/errno.h>
 #include <linux/jump_label.h>
+#include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/string.h>
+#include <linux/unaligned.h>
 
-MODULE_DESCRIPTION("GHASH hash function using ARMv8 Crypto Extensions");
+MODULE_DESCRIPTION("AES-GCM using ARMv8 Crypto Extensions");
 MODULE_AUTHOR("Ard Biesheuvel <ardb@kernel.org>");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_CRYPTO("ghash");
 MODULE_ALIAS_CRYPTO("gcm(aes)");
 MODULE_ALIAS_CRYPTO("rfc4106(gcm(aes))");
 
-#define GHASH_BLOCK_SIZE	16
-#define GHASH_DIGEST_SIZE	16
-
 #define RFC4106_NONCE_SIZE	4
-
-struct ghash_key {
-	be128	k;
-	u64	h[][2];
-};
 
 struct gcm_key {
 	u64	h[4][2];
@@ -49,89 +39,8 @@ struct gcm_key {
 	u8	nonce[];	// for RFC4106 nonce
 };
 
-struct ghash_desc_ctx {
-	u64 digest[GHASH_DIGEST_SIZE/sizeof(u64)];
-	u8 buf[GHASH_BLOCK_SIZE];
-	u32 count;
-};
-
 asmlinkage void pmull_ghash_update_p64(int blocks, u64 dg[], const char *src,
-				       u64 const h[][2], const char *head);
-
-asmlinkage void pmull_ghash_update_p8(int blocks, u64 dg[], const char *src,
-				      u64 const h[][2], const char *head);
-
-static __ro_after_init DEFINE_STATIC_KEY_FALSE(use_p64);
-
-static int ghash_init(struct shash_desc *desc)
-{
-	struct ghash_desc_ctx *ctx = shash_desc_ctx(desc);
-
-	*ctx = (struct ghash_desc_ctx){};
-	return 0;
-}
-
-static void ghash_do_update(int blocks, u64 dg[], const char *src,
-			    struct ghash_key *key, const char *head)
-{
-	kernel_neon_begin();
-	if (static_branch_likely(&use_p64))
-		pmull_ghash_update_p64(blocks, dg, src, key->h, head);
-	else
-		pmull_ghash_update_p8(blocks, dg, src, key->h, head);
-	kernel_neon_end();
-}
-
-static int ghash_update(struct shash_desc *desc, const u8 *src,
-			unsigned int len)
-{
-	struct ghash_desc_ctx *ctx = shash_desc_ctx(desc);
-	unsigned int partial = ctx->count % GHASH_BLOCK_SIZE;
-
-	ctx->count += len;
-
-	if ((partial + len) >= GHASH_BLOCK_SIZE) {
-		struct ghash_key *key = crypto_shash_ctx(desc->tfm);
-		int blocks;
-
-		if (partial) {
-			int p = GHASH_BLOCK_SIZE - partial;
-
-			memcpy(ctx->buf + partial, src, p);
-			src += p;
-			len -= p;
-		}
-
-		blocks = len / GHASH_BLOCK_SIZE;
-		len %= GHASH_BLOCK_SIZE;
-
-		ghash_do_update(blocks, ctx->digest, src, key,
-				partial ? ctx->buf : NULL);
-		src += blocks * GHASH_BLOCK_SIZE;
-		partial = 0;
-	}
-	if (len)
-		memcpy(ctx->buf + partial, src, len);
-	return 0;
-}
-
-static int ghash_final(struct shash_desc *desc, u8 *dst)
-{
-	struct ghash_desc_ctx *ctx = shash_desc_ctx(desc);
-	unsigned int partial = ctx->count % GHASH_BLOCK_SIZE;
-
-	if (partial) {
-		struct ghash_key *key = crypto_shash_ctx(desc->tfm);
-
-		memset(ctx->buf + partial, 0, GHASH_BLOCK_SIZE - partial);
-		ghash_do_update(1, ctx->digest, ctx->buf, key, NULL);
-	}
-	put_unaligned_be64(ctx->digest[1], dst);
-	put_unaligned_be64(ctx->digest[0], dst + 8);
-
-	*ctx = (struct ghash_desc_ctx){};
-	return 0;
-}
+				       u64 const h[4][2], const char *head);
 
 static void ghash_reflect(u64 h[], const be128 *k)
 {
@@ -143,49 +52,6 @@ static void ghash_reflect(u64 h[], const be128 *k)
 	if (carry)
 		h[1] ^= 0xc200000000000000UL;
 }
-
-static int ghash_setkey(struct crypto_shash *tfm,
-			const u8 *inkey, unsigned int keylen)
-{
-	struct ghash_key *key = crypto_shash_ctx(tfm);
-
-	if (keylen != GHASH_BLOCK_SIZE)
-		return -EINVAL;
-
-	/* needed for the fallback */
-	memcpy(&key->k, inkey, GHASH_BLOCK_SIZE);
-	ghash_reflect(key->h[0], &key->k);
-
-	if (static_branch_likely(&use_p64)) {
-		be128 h = key->k;
-
-		gf128mul_lle(&h, &key->k);
-		ghash_reflect(key->h[1], &h);
-
-		gf128mul_lle(&h, &key->k);
-		ghash_reflect(key->h[2], &h);
-
-		gf128mul_lle(&h, &key->k);
-		ghash_reflect(key->h[3], &h);
-	}
-	return 0;
-}
-
-static struct shash_alg ghash_alg = {
-	.digestsize		= GHASH_DIGEST_SIZE,
-	.init			= ghash_init,
-	.update			= ghash_update,
-	.final			= ghash_final,
-	.setkey			= ghash_setkey,
-	.descsize		= sizeof(struct ghash_desc_ctx),
-
-	.base.cra_name		= "ghash",
-	.base.cra_driver_name	= "ghash-ce",
-	.base.cra_priority	= 300,
-	.base.cra_blocksize	= GHASH_BLOCK_SIZE,
-	.base.cra_ctxsize	= sizeof(struct ghash_key) + sizeof(u64[2]),
-	.base.cra_module	= THIS_MODULE,
-};
 
 void pmull_gcm_encrypt(int blocks, u64 dg[], const char *src,
 		       struct gcm_key const *k, char *dst,
@@ -208,20 +74,24 @@ static int gcm_aes_setkey(struct crypto_aead *tfm, const u8 *inkey,
 			  unsigned int keylen)
 {
 	struct gcm_key *ctx = crypto_aead_ctx(tfm);
-	struct crypto_aes_ctx aes_ctx;
+	struct aes_enckey aes_key;
 	be128 h, k;
 	int ret;
 
-	ret = aes_expandkey(&aes_ctx, inkey, keylen);
+	ret = aes_prepareenckey(&aes_key, inkey, keylen);
 	if (ret)
 		return -EINVAL;
 
-	aes_encrypt(&aes_ctx, (u8 *)&k, (u8[AES_BLOCK_SIZE]){});
+	aes_encrypt(&aes_key, (u8 *)&k, (u8[AES_BLOCK_SIZE]){});
 
-	memcpy(ctx->rk, aes_ctx.key_enc, sizeof(ctx->rk));
+	/*
+	 * Note: this assumes that the arm implementation of the AES library
+	 * stores the standard round keys in k.rndkeys.
+	 */
+	memcpy(ctx->rk, aes_key.k.rndkeys, sizeof(ctx->rk));
 	ctx->rounds = 6 + keylen / 4;
 
-	memzero_explicit(&aes_ctx, sizeof(aes_ctx));
+	memzero_explicit(&aes_key, sizeof(aes_key));
 
 	ghash_reflect(ctx->h[0], &k);
 
@@ -317,9 +187,6 @@ static int gcm_encrypt(struct aead_request *req, const u8 *iv, u32 assoclen)
 	u8 *tag, *dst;
 	int tail, err;
 
-	if (WARN_ON_ONCE(!may_use_simd()))
-		return -EBUSY;
-
 	err = skcipher_walk_aead_encrypt(&walk, req, false);
 
 	kernel_neon_begin();
@@ -408,9 +275,6 @@ static int gcm_decrypt(struct aead_request *req, const u8 *iv, u32 assoclen)
 	const u8 *src;
 	u8 *tag, *dst;
 	int tail, err, ret;
-
-	if (WARN_ON_ONCE(!may_use_simd()))
-		return -EBUSY;
 
 	scatterwalk_map_and_copy(otag, req->src,
 				 req->assoclen + req->cryptlen - authsize,
@@ -567,39 +431,15 @@ static struct aead_alg gcm_aes_algs[] = {{
 
 static int __init ghash_ce_mod_init(void)
 {
-	int err;
-
-	if (!(elf_hwcap & HWCAP_NEON))
+	if (!(elf_hwcap & HWCAP_NEON) || !(elf_hwcap2 & HWCAP2_PMULL))
 		return -ENODEV;
 
-	if (elf_hwcap2 & HWCAP2_PMULL) {
-		err = crypto_register_aeads(gcm_aes_algs,
-					    ARRAY_SIZE(gcm_aes_algs));
-		if (err)
-			return err;
-		ghash_alg.base.cra_ctxsize += 3 * sizeof(u64[2]);
-		static_branch_enable(&use_p64);
-	}
-
-	err = crypto_register_shash(&ghash_alg);
-	if (err)
-		goto err_aead;
-
-	return 0;
-
-err_aead:
-	if (elf_hwcap2 & HWCAP2_PMULL)
-		crypto_unregister_aeads(gcm_aes_algs,
-					ARRAY_SIZE(gcm_aes_algs));
-	return err;
+	return crypto_register_aeads(gcm_aes_algs, ARRAY_SIZE(gcm_aes_algs));
 }
 
 static void __exit ghash_ce_mod_exit(void)
 {
-	crypto_unregister_shash(&ghash_alg);
-	if (elf_hwcap2 & HWCAP2_PMULL)
-		crypto_unregister_aeads(gcm_aes_algs,
-					ARRAY_SIZE(gcm_aes_algs));
+	crypto_unregister_aeads(gcm_aes_algs, ARRAY_SIZE(gcm_aes_algs));
 }
 
 module_init(ghash_ce_mod_init);

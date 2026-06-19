@@ -24,7 +24,7 @@ int iwlmld_kunit_test_init(struct kunit *test)
 {
 	struct iwl_mld *mld;
 	struct iwl_trans *trans;
-	const struct iwl_cfg *cfg;
+	const struct iwl_rf_cfg *cfg;
 	struct iwl_fw *fw;
 	struct ieee80211_hw *hw;
 
@@ -42,7 +42,7 @@ int iwlmld_kunit_test_init(struct kunit *test)
 	iwl_construct_mld(mld, trans, cfg, fw, hw, NULL);
 
 	fw->ucode_capa.num_stations = IWL_STATION_COUNT_MAX;
-	fw->ucode_capa.num_links = IWL_FW_MAX_LINK_ID + 1;
+	fw->ucode_capa.num_links = IWL_FW_MAX_LINKS;
 
 	mld->fwrt.trans = trans;
 	mld->fwrt.fw = fw;
@@ -68,7 +68,7 @@ int iwlmld_kunit_test_init(struct kunit *test)
 	return 0;
 }
 
-IWL_MLD_ALLOC_FN(link, bss_conf)
+static IWL_MLD_ALLOC_FN(link, bss_conf)
 
 static void iwlmld_kunit_init_link(struct ieee80211_vif *vif,
 				   struct ieee80211_bss_conf *link,
@@ -94,7 +94,7 @@ static void iwlmld_kunit_init_link(struct ieee80211_vif *vif,
 	rcu_assign_pointer(vif->link_conf[link_id], link);
 }
 
-IWL_MLD_ALLOC_FN(vif, vif)
+static IWL_MLD_ALLOC_FN(vif, vif)
 
 /* Helper function to add and initialize a VIF for KUnit tests */
 struct ieee80211_vif *iwlmld_kunit_add_vif(bool mlo, enum nl80211_iftype type)
@@ -146,7 +146,7 @@ iwlmld_kunit_add_link(struct ieee80211_vif *vif, int link_id)
 }
 
 struct ieee80211_chanctx_conf *
-iwlmld_kunit_add_chanctx_from_def(struct cfg80211_chan_def *def)
+iwlmld_kunit_add_chanctx(const struct cfg80211_chan_def *def)
 {
 	struct kunit *test = kunit_get_current_test();
 	struct iwl_mld *mld = test->priv;
@@ -199,7 +199,7 @@ void iwlmld_kunit_assign_chanctx_to_link(struct ieee80211_vif *vif,
 		vif->active_links |= BIT(link->link_id);
 }
 
-IWL_MLD_ALLOC_FN(link_sta, link_sta)
+static IWL_MLD_ALLOC_FN(link_sta, link_sta)
 
 static void iwlmld_kunit_add_link_sta(struct ieee80211_sta *sta,
 				      struct ieee80211_link_sta *link_sta,
@@ -346,8 +346,7 @@ iwlmld_kunit_setup_assoc(bool mlo, struct iwl_mld_kunit_link *assoc_link)
 	else
 		link = &vif->bss_conf;
 
-	chan_ctx = iwlmld_kunit_add_chanctx(assoc_link->band,
-					    assoc_link->bandwidth);
+	chan_ctx = iwlmld_kunit_add_chanctx(assoc_link->chandef);
 
 	wiphy_lock(mld->wiphy);
 	iwlmld_kunit_assign_chanctx_to_link(vif, link, chan_ctx);
@@ -428,7 +427,7 @@ struct ieee80211_vif *iwlmld_kunit_assoc_emlsr(struct iwl_mld_kunit_link *link1,
 	link = wiphy_dereference(mld->wiphy, vif->link_conf[link2->id]);
 	KUNIT_EXPECT_NOT_NULL(test, link);
 
-	chan_ctx = iwlmld_kunit_add_chanctx(link2->band, link2->bandwidth);
+	chan_ctx = iwlmld_kunit_add_chanctx(link2->chandef);
 	iwlmld_kunit_assign_chanctx_to_link(vif, link, chan_ctx);
 
 	wiphy_unlock(mld->wiphy);
@@ -472,3 +471,33 @@ struct iwl_mld_phy *iwlmld_kunit_get_phy_of_link(struct ieee80211_vif *vif,
 
 	return iwl_mld_phy_from_mac80211(chanctx);
 }
+
+static const struct chandef_case {
+	const char *desc;
+	const struct cfg80211_chan_def *chandef;
+} chandef_cases[] = {
+#define CHANDEF(c, ...) { .desc = "chandef " #c " valid", .chandef = &c, },
+	CHANDEF_LIST
+#undef CHANDEF
+};
+
+KUNIT_ARRAY_PARAM_DESC(chandef, chandef_cases, desc);
+
+static void test_iwl_mld_chandef_valid(struct kunit *test)
+{
+	const struct chandef_case *params = test->param_value;
+
+	KUNIT_EXPECT_EQ(test, true, cfg80211_chandef_valid(params->chandef));
+}
+
+static struct kunit_case chandef_test_cases[] = {
+	KUNIT_CASE_PARAM(test_iwl_mld_chandef_valid, chandef_gen_params),
+	{}
+};
+
+static struct kunit_suite chandef_tests = {
+	.name = "iwlmld_valid_test_chandefs",
+	.test_cases = chandef_test_cases,
+};
+
+kunit_test_suite(chandef_tests);

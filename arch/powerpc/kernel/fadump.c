@@ -290,10 +290,8 @@ static void __init fadump_show_config(void)
 	if (!fw_dump.fadump_supported)
 		return;
 
-	pr_debug("Fadump enabled    : %s\n",
-				(fw_dump.fadump_enabled ? "yes" : "no"));
-	pr_debug("Dump Active       : %s\n",
-				(fw_dump.dump_active ? "yes" : "no"));
+	pr_debug("Fadump enabled    : %s\n", str_yes_no(fw_dump.fadump_enabled));
+	pr_debug("Dump Active       : %s\n", str_yes_no(fw_dump.dump_active));
 	pr_debug("Dump section sizes:\n");
 	pr_debug("    CPU state data size: %lx\n", fw_dump.cpu_state_data_size);
 	pr_debug("    HPTE region size   : %lx\n", fw_dump.hpte_region_size);
@@ -335,7 +333,7 @@ static __init u64 fadump_calculate_reserve_size(void)
 	 * memory at a predefined offset.
 	 */
 	ret = parse_crashkernel(boot_command_line, memblock_phys_mem_size(),
-				&size, &base, NULL, NULL);
+				&size, &base, NULL, NULL, NULL);
 	if (ret == 0 && size > 0) {
 		unsigned long max_size;
 
@@ -777,24 +775,12 @@ void __init fadump_update_elfcore_header(char *bufp)
 
 static void *__init fadump_alloc_buffer(unsigned long size)
 {
-	unsigned long count, i;
-	struct page *page;
-	void *vaddr;
-
-	vaddr = alloc_pages_exact(size, GFP_KERNEL | __GFP_ZERO);
-	if (!vaddr)
-		return NULL;
-
-	count = PAGE_ALIGN(size) / PAGE_SIZE;
-	page = virt_to_page(vaddr);
-	for (i = 0; i < count; i++)
-		mark_page_reserved(page + i);
-	return vaddr;
+	return  alloc_pages_exact(size, GFP_KERNEL | __GFP_ZERO);
 }
 
 static void fadump_free_buffer(unsigned long vaddr, unsigned long size)
 {
-	free_reserved_area((void *)vaddr, (void *)(vaddr + size), -1, NULL);
+	free_pages_exact((void *)vaddr, size);
 }
 
 s32 __init fadump_setup_cpu_notes_buf(u32 num_cpus)
@@ -1375,14 +1361,11 @@ static void fadump_free_elfcorehdr_buf(void)
 
 static void fadump_invalidate_release_mem(void)
 {
-	mutex_lock(&fadump_mutex);
-	if (!fw_dump.dump_active) {
-		mutex_unlock(&fadump_mutex);
-		return;
+	scoped_guard(mutex, &fadump_mutex) {
+		if (!fw_dump.dump_active)
+			return;
+		fadump_cleanup();
 	}
-
-	fadump_cleanup();
-	mutex_unlock(&fadump_mutex);
 
 	fadump_free_elfcorehdr_buf();
 	fadump_release_memory(fw_dump.boot_mem_top, memblock_end_of_DRAM());
@@ -1751,6 +1734,9 @@ err_out:
 void __init fadump_setup_param_area(void)
 {
 	phys_addr_t range_start, range_end;
+
+	if (!fw_dump.fadump_enabled)
+		return;
 
 	if (!fw_dump.param_area_supported || fw_dump.dump_active)
 		return;

@@ -82,6 +82,7 @@ struct drm_mode_config_funcs {
 	 */
 	struct drm_framebuffer *(*fb_create)(struct drm_device *dev,
 					     struct drm_file *file_priv,
+					     const struct drm_format_info *info,
 					     const struct drm_mode_fb_cmd2 *mode_cmd);
 
 	/**
@@ -95,7 +96,7 @@ struct drm_mode_config_funcs {
 	 * The format information specific to the given fb metadata, or
 	 * NULL if none is found.
 	 */
-	const struct drm_format_info *(*get_format_info)(const struct drm_mode_fb_cmd2 *mode_cmd);
+	const struct drm_format_info *(*get_format_info)(u32 pixel_format, u64 modifier);
 
 	/**
 	 * @mode_valid:
@@ -500,6 +501,24 @@ struct drm_mode_config {
 	struct raw_spinlock panic_lock;
 
 	/**
+	 * @num_colorop:
+	 *
+	 * Number of colorop objects on this device.
+	 * This is invariant over the lifetime of a device and hence doesn't
+	 * need any locks.
+	 */
+	int num_colorop;
+
+	/**
+	 * @colorop_list:
+	 *
+	 * List of colorop objects linked with &drm_colorop.head. This is
+	 * invariant over the lifetime of a device and hence doesn't need any
+	 * locks.
+	 */
+	struct list_head colorop_list;
+
+	/**
 	 * @num_crtc:
 	 *
 	 * Number of CRTCs on this device linked with &drm_crtc.head. This is invariant over the lifetime
@@ -532,8 +551,8 @@ struct drm_mode_config {
 	 */
 	struct list_head privobj_list;
 
-	int min_width, min_height;
-	int max_width, max_height;
+	unsigned int min_width, min_height;
+	unsigned int max_width, max_height;
 	const struct drm_mode_config_funcs *funcs;
 
 	/* output poll support */
@@ -581,6 +600,10 @@ struct drm_mode_config {
 	 * multiple CRTCs.
 	 */
 	struct drm_property *tile_property;
+	/**
+	 * @panel_type_property: Default connector property for panel type
+	 */
+	struct drm_property *panel_type_property;
 	/**
 	 * @link_status_property: Default connector property for link status
 	 * of a connector
@@ -813,6 +836,11 @@ struct drm_mode_config {
 	 * gamma LUT as supported by the driver (read-only).
 	 */
 	struct drm_property *gamma_lut_size_property;
+	/**
+	 * @background_color_property: Optional CRTC property to set the
+	 * background color.
+	 */
+	struct drm_property *background_color_property;
 
 	/**
 	 * @suggested_x_property: Optional connector property with a hint for
@@ -935,6 +963,12 @@ struct drm_mode_config {
 	 * combination.
 	 */
 	struct drm_property *modifiers_property;
+
+	/**
+	 * @async_modifiers_property: Plane property to list support modifier/format
+	 * combination for asynchronous flips.
+	 */
+	struct drm_property *async_modifiers_property;
 
 	/**
 	 * @size_hints_property: Plane SIZE_HINTS property.

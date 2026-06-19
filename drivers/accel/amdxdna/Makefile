@@ -11,12 +11,14 @@ amdxdna-y := \
 	aie2_solver.o \
 	amdxdna_ctx.o \
 	amdxdna_gem.o \
+	amdxdna_iommu.o \
 	amdxdna_mailbox.o \
 	amdxdna_mailbox_helper.o \
 	amdxdna_pci_drv.o \
+	amdxdna_pm.o \
 	amdxdna_sysfs.o \
+	amdxdna_ubuf.o \
 	npu1_regs.o \
-	npu2_regs.o \
 	npu4_regs.o \
 	npu5_regs.o \
 	npu6_regs.o

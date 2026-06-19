@@ -471,7 +471,7 @@ static void s2255_reset_dsppower(struct s2255_dev *dev)
  */
 static void s2255_timer(struct timer_list *t)
 {
-	struct s2255_dev *dev = from_timer(dev, t, timer);
+	struct s2255_dev *dev = timer_container_of(dev, t, timer);
 	struct s2255_fw *data = dev->fw_data;
 	if (usb_submit_urb(data->fw_urb, GFP_ATOMIC) < 0) {
 		pr_err("s2255: can't submit urb\n");
@@ -2207,7 +2207,7 @@ static int s2255_probe(struct usb_interface *interface,
 	int fw_size;
 
 	/* allocate memory for our device state and initialize it to zero */
-	dev = kzalloc(sizeof(struct s2255_dev), GFP_KERNEL);
+	dev = kzalloc_obj(struct s2255_dev);
 	if (dev == NULL) {
 		s2255_dev_err(&interface->dev, "out of memory\n");
 		return -ENOMEM;
@@ -2221,7 +2221,7 @@ static int s2255_probe(struct usb_interface *interface,
 
 	refcount_set(&dev->num_channels, 0);
 	dev->pid = id->idProduct;
-	dev->fw_data = kzalloc(sizeof(struct s2255_fw), GFP_KERNEL);
+	dev->fw_data = kzalloc_obj(struct s2255_fw);
 	if (!dev->fw_data)
 		goto errorFWDATA1;
 	mutex_init(&dev->lock);

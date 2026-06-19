@@ -119,7 +119,8 @@ static void fw_dnld_over(struct nfcmrvl_private *priv, u32 error)
 
 static void fw_dnld_timeout(struct timer_list *t)
 {
-	struct nfcmrvl_private *priv = from_timer(priv, t, fw_dnld.timer);
+	struct nfcmrvl_private *priv = timer_container_of(priv, t,
+							  fw_dnld.timer);
 
 	nfc_err(priv->dev, "FW loading timeout");
 	priv->fw_dnld.state = STATE_RESET;
@@ -491,7 +492,7 @@ int nfcmrvl_fw_dnld_start(struct nci_dev *ndev, const char *firmware_name)
 	if (!firmware_name || !firmware_name[0])
 		return -EINVAL;
 
-	strcpy(fw_dnld->name, firmware_name);
+	strscpy(fw_dnld->name, firmware_name);
 
 	/*
 	 * Retrieve FW binary file and parse it to initialize FW download

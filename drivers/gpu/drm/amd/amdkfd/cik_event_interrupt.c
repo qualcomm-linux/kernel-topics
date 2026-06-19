@@ -91,18 +91,17 @@ static void cik_event_interrupt_wq(struct kfd_node *dev,
 	const struct cik_ih_ring_entry *ihre =
 			(const struct cik_ih_ring_entry *)ih_ring_entry;
 	uint32_t context_id = ihre->data & 0xfffffff;
-	unsigned int vmid  = (ihre->ring_id & 0x0000ff00) >> 8;
 	u32 pasid = (ihre->ring_id & 0xffff0000) >> 16;
 
 	if (pasid == 0)
 		return;
 
 	if (ihre->source_id == CIK_INTSRC_CP_END_OF_PIPE)
-		kfd_signal_event_interrupt(pasid, context_id, 28);
+		kfd_signal_event_interrupt(pasid, context_id, 28, true);
 	else if (ihre->source_id == CIK_INTSRC_SDMA_TRAP)
-		kfd_signal_event_interrupt(pasid, context_id, 28);
+		kfd_signal_event_interrupt(pasid, context_id, 28, true);
 	else if (ihre->source_id == CIK_INTSRC_SQ_INTERRUPT_MSG)
-		kfd_signal_event_interrupt(pasid, context_id & 0xff, 8);
+		kfd_signal_event_interrupt(pasid, context_id & 0xff, 8, true);
 	else if (ihre->source_id == CIK_INTSRC_CP_BAD_OPCODE)
 		kfd_signal_hw_exception_event(pasid);
 	else if (ihre->source_id == CIK_INTSRC_GFX_PAGE_INV_FAULT ||
@@ -125,11 +124,7 @@ static void cik_event_interrupt_wq(struct kfd_node *dev,
 			return;
 		}
 
-		if (info.vmid == vmid)
-			kfd_signal_vm_fault_event(pdd, &info, NULL);
-		else
-			kfd_signal_vm_fault_event(pdd, &info, NULL);
-
+		kfd_signal_vm_fault_event(pdd, &info, NULL);
 		kfd_unref_process(p);
 	}
 }

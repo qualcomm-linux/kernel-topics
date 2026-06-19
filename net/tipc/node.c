@@ -535,7 +535,7 @@ update:
 
 		goto exit;
 	}
-	n = kzalloc(sizeof(*n), GFP_ATOMIC);
+	n = kzalloc_obj(*n, GFP_ATOMIC);
 	if (!n) {
 		pr_warn("Node creation failed, no memory\n");
 		goto exit;
@@ -703,7 +703,7 @@ int tipc_node_add_conn(struct net *net, u32 dnode, u32 port, u32 peer_port)
 		pr_warn("Connecting sock to node 0x%x failed\n", dnode);
 		return -EHOSTUNREACH;
 	}
-	conn = kmalloc(sizeof(*conn), GFP_ATOMIC);
+	conn = kmalloc_obj(*conn, GFP_ATOMIC);
 	if (!conn) {
 		err = -EHOSTUNREACH;
 		goto exit;
@@ -800,7 +800,7 @@ static bool tipc_node_cleanup(struct tipc_node *peer)
  */
 static void tipc_node_timeout(struct timer_list *t)
 {
-	struct tipc_node *n = from_timer(n, t, timer);
+	struct tipc_node *n = timer_container_of(n, t, timer);
 	struct tipc_link_entry *le;
 	struct sk_buff_head xmitq;
 	int remains = n->link_cnt;
@@ -1275,7 +1275,7 @@ void tipc_node_check_dest(struct net *net, u32 addr,
 			goto exit;
 
 		if_name = strchr(b->name, ':') + 1;
-		get_random_bytes(&session, sizeof(u16));
+		session = get_random_u16();
 		if (!tipc_link_create(net, if_name, b->identity, b->tolerance,
 				      b->net_plane, b->mtu, b->priority,
 				      b->min_win, b->max_win, session,
@@ -1581,7 +1581,7 @@ int tipc_node_get_linkname(struct net *net, u32 bearer_id, u32 addr,
 	tipc_node_read_lock(node);
 	link = node->links[bearer_id].link;
 	if (link) {
-		strncpy(linkname, tipc_link_name(link), len);
+		strscpy(linkname, tipc_link_name(link), len);
 		err = 0;
 	}
 	tipc_node_read_unlock(node);

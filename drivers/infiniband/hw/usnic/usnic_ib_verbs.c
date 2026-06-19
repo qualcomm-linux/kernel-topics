@@ -476,7 +476,7 @@ int usnic_ib_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 	if (init_attr->create_flags)
 		return -EOPNOTSUPP;
 
-	err = ib_copy_from_udata(&cmd, udata, sizeof(cmd));
+	err = ib_copy_validate_udata_in(udata, cmd, spec);
 	if (err) {
 		usnic_err("%s: cannot copy udata for create_qp\n",
 			  dev_name(&us_ibdev->ib_dev.dev));
@@ -592,6 +592,7 @@ int usnic_ib_destroy_cq(struct ib_cq *cq, struct ib_udata *udata)
 
 struct ib_mr *usnic_ib_reg_mr(struct ib_pd *pd, u64 start, u64 length,
 					u64 virt_addr, int access_flags,
+					struct ib_dmah *dmah,
 					struct ib_udata *udata)
 {
 	struct usnic_ib_mr *mr;
@@ -600,7 +601,10 @@ struct ib_mr *usnic_ib_reg_mr(struct ib_pd *pd, u64 start, u64 length,
 	usnic_dbg("start 0x%llx va 0x%llx length 0x%llx\n", start,
 			virt_addr, length);
 
-	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	if (dmah)
+		return ERR_PTR(-EOPNOTSUPP);
+
+	mr = kzalloc_obj(*mr);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
 

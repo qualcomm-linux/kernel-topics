@@ -10,6 +10,7 @@
  */
 
 #include <linux/dma-fence.h>
+#include <linux/export.h>
 
 #include <drm/drm_crtc.h>
 #include <drm/drm_device.h>
@@ -80,7 +81,7 @@
  *	From userspace, this property will always read as zero.
  */
 
-#define fence_to_wb_connector(x) container_of(x->lock, \
+#define fence_to_wb_connector(x) container_of(x->extern_lock, \
 					      struct drm_writeback_connector, \
 					      fence_lock)
 
@@ -343,17 +344,18 @@ EXPORT_SYMBOL(drm_writeback_connector_init_with_encoder);
 /**
  * drm_writeback_connector_cleanup - Cleanup the writeback connector
  * @dev: DRM device
- * @wb_connector: Pointer to the writeback connector to clean up
+ * @data: Pointer to the writeback connector to clean up
  *
  * This will decrement the reference counter of blobs and destroy properties. It
  * will also clean the remaining jobs in this writeback connector. Caution: This helper will not
  * clean up the attached encoder and the drm_connector.
  */
 static void drm_writeback_connector_cleanup(struct drm_device *dev,
-					    struct drm_writeback_connector *wb_connector)
+					    void *data)
 {
 	unsigned long flags;
 	struct drm_writeback_job *pos, *n;
+	struct drm_writeback_connector *wb_connector = data;
 
 	delete_writeback_properties(dev);
 	drm_property_blob_put(wb_connector->pixel_formats_blob_ptr);
@@ -405,7 +407,7 @@ int drmm_writeback_connector_init(struct drm_device *dev,
 	if (ret)
 		return ret;
 
-	ret = drmm_add_action_or_reset(dev, (void *)drm_writeback_connector_cleanup,
+	ret = drmm_add_action_or_reset(dev, drm_writeback_connector_cleanup,
 				       wb_connector);
 	if (ret)
 		return ret;
@@ -420,8 +422,7 @@ int drm_writeback_set_fb(struct drm_connector_state *conn_state,
 	WARN_ON(conn_state->connector->connector_type != DRM_MODE_CONNECTOR_WRITEBACK);
 
 	if (!conn_state->writeback_job) {
-		conn_state->writeback_job =
-			kzalloc(sizeof(*conn_state->writeback_job), GFP_KERNEL);
+		conn_state->writeback_job = kzalloc_obj(*conn_state->writeback_job);
 		if (!conn_state->writeback_job)
 			return -ENOMEM;
 
@@ -579,7 +580,7 @@ drm_writeback_get_out_fence(struct drm_writeback_connector *wb_connector)
 		    DRM_MODE_CONNECTOR_WRITEBACK))
 		return NULL;
 
-	fence = kzalloc(sizeof(*fence), GFP_KERNEL);
+	fence = kzalloc_obj(*fence);
 	if (!fence)
 		return NULL;
 

@@ -136,13 +136,15 @@ EXPORT_SYMBOL(generic_fill_statx_attr);
  * @stat:	Where to fill in the attribute flags
  * @unit_min:	Minimum supported atomic write length in bytes
  * @unit_max:	Maximum supported atomic write length in bytes
+ * @unit_max_opt: Optimised maximum supported atomic write length in bytes
  *
  * Fill in the STATX{_ATTR}_WRITE_ATOMIC flags in the kstat structure from
  * atomic write unit_min and unit_max values.
  */
 void generic_fill_statx_atomic_writes(struct kstat *stat,
 				      unsigned int unit_min,
-				      unsigned int unit_max)
+				      unsigned int unit_max,
+				      unsigned int unit_max_opt)
 {
 	/* Confirm that the request type is known */
 	stat->result_mask |= STATX_WRITE_ATOMIC;
@@ -153,6 +155,7 @@ void generic_fill_statx_atomic_writes(struct kstat *stat,
 	if (unit_min) {
 		stat->atomic_write_unit_min = unit_min;
 		stat->atomic_write_unit_max = unit_max;
+		stat->atomic_write_unit_max_opt = unit_max_opt;
 		/* Initially only allow 1x segment */
 		stat->atomic_write_segments_max = 1;
 
@@ -254,7 +257,7 @@ int vfs_getattr(const struct path *path, struct kstat *stat,
 	int retval;
 
 	retval = security_inode_getattr(path);
-	if (retval)
+	if (unlikely(retval))
 		return retval;
 	return vfs_getattr_nosec(path, stat, request_mask, query_flags);
 }
@@ -290,7 +293,7 @@ static int statx_lookup_flags(int flags)
 	return lookup_flags;
 }
 
-static int vfs_statx_path(struct path *path, int flags, struct kstat *stat,
+static int vfs_statx_path(const struct path *path, int flags, struct kstat *stat,
 			  u32 request_mask)
 {
 	int error = vfs_getattr(path, stat, request_mask, flags);
@@ -362,17 +365,13 @@ retry:
 int vfs_fstatat(int dfd, const char __user *filename,
 			      struct kstat *stat, int flags)
 {
-	int ret;
-	int statx_flags = flags | AT_NO_AUTOMOUNT;
-	struct filename *name = getname_maybe_null(filename, flags);
+	CLASS(filename_maybe_null, name)(filename, flags);
 
 	if (!name && dfd >= 0)
 		return vfs_fstat(dfd, stat);
 
-	ret = vfs_statx(dfd, name, statx_flags, stat, STATX_BASIC_STATS);
-	putname(name);
-
-	return ret;
+	return vfs_statx(dfd, name, flags | AT_NO_AUTOMOUNT,
+			 stat, STATX_BASIC_STATS);
 }
 
 #ifdef __ARCH_WANT_OLD_STAT
@@ -425,7 +424,7 @@ SYSCALL_DEFINE2(stat, const char __user *, filename,
 	int error;
 
 	error = vfs_stat(filename, &stat);
-	if (error)
+	if (unlikely(error))
 		return error;
 
 	return cp_old_stat(&stat, statbuf);
@@ -438,7 +437,7 @@ SYSCALL_DEFINE2(lstat, const char __user *, filename,
 	int error;
 
 	error = vfs_lstat(filename, &stat);
-	if (error)
+	if (unlikely(error))
 		return error;
 
 	return cp_old_stat(&stat, statbuf);
@@ -447,12 +446,13 @@ SYSCALL_DEFINE2(lstat, const char __user *, filename,
 SYSCALL_DEFINE2(fstat, unsigned int, fd, struct __old_kernel_stat __user *, statbuf)
 {
 	struct kstat stat;
-	int error = vfs_fstat(fd, &stat);
+	int error;
 
-	if (!error)
-		error = cp_old_stat(&stat, statbuf);
+	error = vfs_fstat(fd, &stat);
+	if (unlikely(error))
+		return error;
 
-	return error;
+	return cp_old_stat(&stat, statbuf);
 }
 
 #endif /* __ARCH_WANT_OLD_STAT */
@@ -506,10 +506,12 @@ SYSCALL_DEFINE2(newstat, const char __user *, filename,
 		struct stat __user *, statbuf)
 {
 	struct kstat stat;
-	int error = vfs_stat(filename, &stat);
+	int error;
 
-	if (error)
+	error = vfs_stat(filename, &stat);
+	if (unlikely(error))
 		return error;
+
 	return cp_new_stat(&stat, statbuf);
 }
 
@@ -520,7 +522,7 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
 	int error;
 
 	error = vfs_lstat(filename, &stat);
-	if (error)
+	if (unlikely(error))
 		return error;
 
 	return cp_new_stat(&stat, statbuf);
@@ -534,8 +536,9 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 	int error;
 
 	error = vfs_fstatat(dfd, filename, &stat, flag);
-	if (error)
+	if (unlikely(error))
 		return error;
+
 	return cp_new_stat(&stat, statbuf);
 }
 #endif
@@ -543,12 +546,13 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
 {
 	struct kstat stat;
-	int error = vfs_fstat(fd, &stat);
+	int error;
 
-	if (!error)
-		error = cp_new_stat(&stat, statbuf);
+	error = vfs_fstat(fd, &stat);
+	if (unlikely(error))
+		return error;
 
-	return error;
+	return cp_new_stat(&stat, statbuf);
 }
 #endif
 
@@ -556,20 +560,17 @@ static int do_readlinkat(int dfd, const char __user *pathname,
 			 char __user *buf, int bufsiz)
 {
 	struct path path;
-	struct filename *name;
 	int error;
-	unsigned int lookup_flags = LOOKUP_EMPTY;
+	unsigned int lookup_flags = 0;
 
 	if (bufsiz <= 0)
 		return -EINVAL;
 
+	CLASS(filename_flags, name)(pathname, LOOKUP_EMPTY);
 retry:
-	name = getname_flags(pathname, lookup_flags);
 	error = filename_lookup(dfd, name, lookup_flags, &path, NULL);
-	if (unlikely(error)) {
-		putname(name);
+	if (unlikely(error))
 		return error;
-	}
 
 	/*
 	 * AFS mountpoints allow readlink(2) but are not symlinks
@@ -585,7 +586,6 @@ retry:
 		error = (name->name[0] == '\0') ? -ENOENT : -EINVAL;
 	}
 	path_put(&path);
-	putname(name);
 	if (retry_estale(error, lookup_flags)) {
 		lookup_flags |= LOOKUP_REVAL;
 		goto retry;
@@ -736,6 +736,7 @@ cp_statx(const struct kstat *stat, struct statx __user *buffer)
 	tmp.stx_atomic_write_unit_min = stat->atomic_write_unit_min;
 	tmp.stx_atomic_write_unit_max = stat->atomic_write_unit_max;
 	tmp.stx_atomic_write_segments_max = stat->atomic_write_segments_max;
+	tmp.stx_atomic_write_unit_max_opt = stat->atomic_write_unit_max_opt;
 
 	return copy_to_user(buffer, &tmp, sizeof(tmp)) ? -EFAULT : 0;
 }
@@ -805,16 +806,12 @@ SYSCALL_DEFINE5(statx,
 		unsigned int, mask,
 		struct statx __user *, buffer)
 {
-	int ret;
-	struct filename *name = getname_maybe_null(filename, flags);
+	CLASS(filename_maybe_null, name)(filename, flags);
 
 	if (!name && dfd >= 0)
 		return do_statx_fd(dfd, flags & ~AT_NO_AUTOMOUNT, mask, buffer);
 
-	ret = do_statx(dfd, name, flags, mask, buffer);
-	putname(name);
-
-	return ret;
+	return do_statx(dfd, name, flags, mask, buffer);
 }
 
 #if defined(CONFIG_COMPAT) && defined(__ARCH_WANT_COMPAT_STAT)

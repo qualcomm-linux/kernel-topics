@@ -11,4 +11,7 @@ int netdev_queue_update_kobjects(struct net_device *net,
 int netdev_change_owner(struct net_device *, const struct net *net_old,
 			const struct net *net_new);
 
+extern struct mutex rps_default_mask_mutex;
+
+DECLARE_STATIC_KEY_FALSE(skb_defer_disable_key);
 #endif

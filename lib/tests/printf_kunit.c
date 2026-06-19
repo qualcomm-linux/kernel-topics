@@ -17,6 +17,7 @@
 #include <linux/dcache.h>
 #include <linux/socket.h>
 #include <linux/in.h>
+#include <linux/in6.h>
 
 #include <linux/gfp.h>
 #include <linux/mm.h>
@@ -266,15 +267,17 @@ hash_pointer(struct kunit *kunittest)
 	KUNIT_EXPECT_MEMNEQ(kunittest, buf, PTR_STR, PTR_WIDTH);
 }
 
-static void
-test_hashed(struct kunit *kunittest, const char *fmt, const void *p)
-{
-	char buf[PLAIN_BUF_SIZE];
-
-	plain_hash_to_buffer(kunittest, p, buf, PLAIN_BUF_SIZE);
-
-	test(buf, fmt, p);
-}
+/*
+ * This is a macro so that the compiler can compare its arguments to the
+ * __printf() attribute on __test(). This cannot be a function with a __printf()
+ * attribute because GCC requires __printf() functions to be variadic.
+ */
+#define test_hashed(kunittest, fmt, p)						\
+	do {									\
+		char buf[PLAIN_BUF_SIZE];					\
+		plain_hash_to_buffer(kunittest, p, buf, PLAIN_BUF_SIZE);	\
+		test(buf, fmt, p);						\
+	} while (0)
 
 /*
  * NULL pointers aren't hashed.
@@ -435,6 +438,27 @@ ip4(struct kunit *kunittest)
 static void
 ip6(struct kunit *kunittest)
 {
+	const struct in6_addr addr = {
+		.s6_addr = { 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04,
+			     0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08 }
+	};
+	const struct in6_addr single_zero = {
+		.s6_addr = { 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x04,
+			     0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08 }
+	};
+	struct sockaddr_in6 sa = {
+		.sin6_family = AF_INET6,
+		.sin6_port = cpu_to_be16(12345),
+		.sin6_addr = addr,
+	};
+
+	test("00010002000300040005000600070008|0001:0002:0003:0004:0005:0006:0007:0008",
+	     "%pi6|%pI6", &addr, &addr);
+	test("00010002000300040005000600070008|0001:0002:0003:0004:0005:0006:0007:0008",
+	     "%piS|%pIS", &sa, &sa);
+	test("1:2:3:4:5:6:7:8", "%pI6c", &addr);
+	test("1:0:3:4:5:6:7:8", "%pI6c", &single_zero);
+	test("[1:2:3:4:5:6:7:8]:12345", "%pISpc", &sa);
 }
 
 static void
@@ -504,6 +528,7 @@ time_and_date(struct kunit *kunittest)
 	};
 	/* 2019-01-04T15:32:23 */
 	time64_t t = 1546615943;
+	struct timespec64 ts = { .tv_sec = t, .tv_nsec = 11235813 };
 
 	test("(%pt?)", "%pt", &tm);
 	test("2018-11-26T05:35:43", "%ptR", &tm);
@@ -522,6 +547,9 @@ time_and_date(struct kunit *kunittest)
 	test("0119-00-04 15:32:23", "%ptTsr", &t);
 	test("15:32:23|2019-01-04", "%ptTts|%ptTds", &t, &t);
 	test("15:32:23|0119-00-04", "%ptTtrs|%ptTdrs", &t, &t);
+
+	test("2019-01-04T15:32:23.011235813", "%ptS", &ts);
+	test("1546615943.011235813", "%ptSp", &ts);
 }
 
 static void
@@ -701,21 +729,46 @@ static void fwnode_pointer(struct kunit *kunittest)
 	software_node_unregister_node_group(group);
 }
 
+struct fourcc_struct {
+	u32 code;
+	const char *str;
+};
+
+static void fourcc_pointer_test(struct kunit *kunittest, const struct fourcc_struct *fc,
+				size_t n, const char *fmt)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		test(fc[i].str, fmt, &fc[i].code);
+}
+
 static void fourcc_pointer(struct kunit *kunittest)
 {
-	struct {
-		u32 code;
-		char *str;
-	} const try[] = {
+	static const struct fourcc_struct try_cc[] = {
 		{ 0x3231564e, "NV12 little-endian (0x3231564e)", },
 		{ 0xb231564e, "NV12 big-endian (0xb231564e)", },
 		{ 0x10111213, ".... little-endian (0x10111213)", },
 		{ 0x20303159, "Y10  little-endian (0x20303159)", },
 	};
-	unsigned int i;
+	static const struct fourcc_struct try_ch[] = {
+		{ 0x41424344, "ABCD (0x41424344)", },
+	};
+	static const struct fourcc_struct try_chR[] = {
+		{ 0x41424344, "DCBA (0x44434241)", },
+	};
+	static const struct fourcc_struct try_cl[] = {
+		{ (__force u32)cpu_to_le32(0x41424344), "ABCD (0x41424344)", },
+	};
+	static const struct fourcc_struct try_cb[] = {
+		{ (__force u32)cpu_to_be32(0x41424344), "ABCD (0x41424344)", },
+	};
 
-	for (i = 0; i < ARRAY_SIZE(try); i++)
-		test(try[i].str, "%p4cc", &try[i].code);
+	fourcc_pointer_test(kunittest, try_cc, ARRAY_SIZE(try_cc), "%p4cc");
+	fourcc_pointer_test(kunittest, try_ch, ARRAY_SIZE(try_ch), "%p4ch");
+	fourcc_pointer_test(kunittest, try_chR, ARRAY_SIZE(try_chR), "%p4chR");
+	fourcc_pointer_test(kunittest, try_cl, ARRAY_SIZE(try_cl), "%p4cl");
+	fourcc_pointer_test(kunittest, try_cb, ARRAY_SIZE(try_cb), "%p4cb");
 }
 
 static void

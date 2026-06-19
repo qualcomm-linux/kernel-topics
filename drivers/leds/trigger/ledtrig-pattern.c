@@ -150,7 +150,7 @@ static void pattern_trig_timer_common_function(struct pattern_trig_data *data)
 
 static void pattern_trig_timer_function(struct timer_list *t)
 {
-	struct pattern_trig_data *data = from_timer(data, t, timer);
+	struct pattern_trig_data *data = timer_container_of(data, t, timer);
 
 	return pattern_trig_timer_common_function(data);
 }
@@ -465,7 +465,7 @@ static int pattern_trig_activate(struct led_classdev *led_cdev)
 {
 	struct pattern_trig_data *data;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data)
 		return -ENOMEM;
 

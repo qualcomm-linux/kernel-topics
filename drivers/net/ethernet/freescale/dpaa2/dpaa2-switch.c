@@ -1448,12 +1448,19 @@ static int dpaa2_switch_port_connect_mac(struct ethsw_port_priv *port_priv)
 	if (PTR_ERR(dpmac_dev) == -EPROBE_DEFER)
 		return PTR_ERR(dpmac_dev);
 
-	if (IS_ERR(dpmac_dev) || dpmac_dev->dev.type != &fsl_mc_bus_dpmac_type)
+	if (IS_ERR(dpmac_dev))
 		return 0;
 
-	mac = kzalloc(sizeof(*mac), GFP_KERNEL);
-	if (!mac)
-		return -ENOMEM;
+	if (dpmac_dev->dev.type != &fsl_mc_bus_dpmac_type) {
+		err = 0;
+		goto out_put_device;
+	}
+
+	mac = kzalloc_obj(*mac);
+	if (!mac) {
+		err = -ENOMEM;
+		goto out_put_device;
+	}
 
 	mac->mc_dev = dpmac_dev;
 	mac->mc_io = port_priv->ethsw_data->mc_io;
@@ -1483,6 +1490,8 @@ err_close_mac:
 	dpaa2_mac_close(mac);
 err_free_mac:
 	kfree(mac);
+out_put_device:
+	put_device(&dpmac_dev->dev);
 	return err;
 }
 
@@ -1522,6 +1531,10 @@ static irqreturn_t dpaa2_switch_irq0_handler_thread(int irq_num, void *arg)
 	}
 
 	if_id = (status & 0xFFFF0000) >> 16;
+	if (if_id >= ethsw->sw_attr.num_ifs) {
+		dev_err(dev, "Invalid if_id %d in IRQ status\n", if_id);
+		goto out_clear;
+	}
 	port_priv = ethsw->ports[if_id];
 
 	if (status & DPSW_IRQ_EVENT_LINK_CHANGED)
@@ -1540,6 +1553,7 @@ static irqreturn_t dpaa2_switch_irq0_handler_thread(int irq_num, void *arg)
 			dpaa2_switch_port_connect_mac(port_priv);
 	}
 
+out_clear:
 	err = dpsw_clear_irq_status(ethsw->mc_io, 0, ethsw->dpsw_handle,
 				    DPSW_IRQ_INDEX_IF, status);
 	if (err)
@@ -2321,7 +2335,7 @@ static int dpaa2_switch_port_event(struct notifier_block *nb,
 	if (!dpaa2_switch_port_dev_check(dev))
 		return NOTIFY_DONE;
 
-	switchdev_work = kzalloc(sizeof(*switchdev_work), GFP_ATOMIC);
+	switchdev_work = kzalloc_obj(*switchdev_work, GFP_ATOMIC);
 	if (!switchdev_work)
 		return NOTIFY_BAD;
 
@@ -2727,7 +2741,7 @@ static int dpaa2_switch_setup_dpbp(struct ethsw_core *ethsw)
 		dev_err(dev, "dpsw_ctrl_if_set_pools() failed\n");
 		goto err_get_attr;
 	}
-	ethsw->bpid = dpbp_attrs.id;
+	ethsw->bpid = dpbp_attrs.bpid;
 
 	return 0;
 
@@ -3012,6 +3026,19 @@ static int dpaa2_switch_init(struct fsl_mc_device *sw_dev)
 				  &ethsw->sw_attr);
 	if (err) {
 		dev_err(dev, "dpsw_get_attributes err %d\n", err);
+		goto err_close;
+	}
+
+	if (!ethsw->sw_attr.num_ifs) {
+		dev_err(dev, "DPSW device has no interfaces\n");
+		err = -ENODEV;
+		goto err_close;
+	}
+
+	if (ethsw->sw_attr.num_ifs >= DPSW_MAX_IF) {
+		dev_err(dev, "DPSW num_ifs %u exceeds max %u\n",
+			ethsw->sw_attr.num_ifs, DPSW_MAX_IF);
+		err = -EINVAL;
 		goto err_close;
 	}
 
@@ -3366,7 +3393,7 @@ static int dpaa2_switch_probe(struct fsl_mc_device *sw_dev)
 	int i, err;
 
 	/* Allocate switch core*/
-	ethsw = kzalloc(sizeof(*ethsw), GFP_KERNEL);
+	ethsw = kzalloc_obj(*ethsw);
 
 	if (!ethsw)
 		return -ENOMEM;
@@ -3389,23 +3416,20 @@ static int dpaa2_switch_probe(struct fsl_mc_device *sw_dev)
 	if (err)
 		goto err_free_cmdport;
 
-	ethsw->ports = kcalloc(ethsw->sw_attr.num_ifs, sizeof(*ethsw->ports),
-			       GFP_KERNEL);
+	ethsw->ports = kzalloc_objs(*ethsw->ports, ethsw->sw_attr.num_ifs);
 	if (!(ethsw->ports)) {
 		err = -ENOMEM;
 		goto err_teardown;
 	}
 
-	ethsw->fdbs = kcalloc(ethsw->sw_attr.num_ifs, sizeof(*ethsw->fdbs),
-			      GFP_KERNEL);
+	ethsw->fdbs = kzalloc_objs(*ethsw->fdbs, ethsw->sw_attr.num_ifs);
 	if (!ethsw->fdbs) {
 		err = -ENOMEM;
 		goto err_free_ports;
 	}
 
-	ethsw->filter_blocks = kcalloc(ethsw->sw_attr.num_ifs,
-				       sizeof(*ethsw->filter_blocks),
-				       GFP_KERNEL);
+	ethsw->filter_blocks = kzalloc_objs(*ethsw->filter_blocks,
+					    ethsw->sw_attr.num_ifs);
 	if (!ethsw->filter_blocks) {
 		err = -ENOMEM;
 		goto err_free_fdbs;

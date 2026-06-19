@@ -192,8 +192,8 @@ static int gve_rx_prefill_pages(struct gve_rx_ring *rx,
 	 */
 	slots = rx->mask + 1;
 
-	rx->data.page_info = kvzalloc(slots *
-				      sizeof(*rx->data.page_info), GFP_KERNEL);
+	rx->data.page_info = kvcalloc_node(slots, sizeof(*rx->data.page_info),
+					   GFP_KERNEL, priv->numa_node);
 	if (!rx->data.page_info)
 		return -ENOMEM;
 
@@ -216,7 +216,8 @@ static int gve_rx_prefill_pages(struct gve_rx_ring *rx,
 
 	if (!rx->data.raw_addressing) {
 		for (j = 0; j < rx->qpl_copy_pool_mask + 1; j++) {
-			struct page *page = alloc_page(GFP_KERNEL);
+			struct page *page = alloc_pages_node(priv->numa_node,
+							     GFP_KERNEL, 0);
 
 			if (!page) {
 				err = -ENOMEM;
@@ -277,7 +278,6 @@ int gve_rx_alloc_ring_gqi(struct gve_priv *priv,
 	struct device *hdev = &priv->pdev->dev;
 	u32 slots = cfg->ring_size;
 	int filled_pages;
-	int qpl_page_cnt;
 	u32 qpl_id = 0;
 	size_t bytes;
 	int err;
@@ -303,10 +303,9 @@ int gve_rx_alloc_ring_gqi(struct gve_priv *priv,
 
 	rx->qpl_copy_pool_mask = min_t(u32, U32_MAX, slots * 2) - 1;
 	rx->qpl_copy_pool_head = 0;
-	rx->qpl_copy_pool = kvcalloc(rx->qpl_copy_pool_mask + 1,
-				     sizeof(rx->qpl_copy_pool[0]),
-				     GFP_KERNEL);
-
+	rx->qpl_copy_pool = kvcalloc_node(rx->qpl_copy_pool_mask + 1,
+					  sizeof(rx->qpl_copy_pool[0]),
+					  GFP_KERNEL, priv->numa_node);
 	if (!rx->qpl_copy_pool) {
 		err = -ENOMEM;
 		goto abort_with_slots;
@@ -314,10 +313,8 @@ int gve_rx_alloc_ring_gqi(struct gve_priv *priv,
 
 	if (!rx->data.raw_addressing) {
 		qpl_id = gve_get_rx_qpl_id(cfg->qcfg_tx, rx->q_num);
-		qpl_page_cnt = cfg->ring_size;
-
 		rx->data.qpl = gve_alloc_queue_page_list(priv, qpl_id,
-							 qpl_page_cnt);
+							 cfg->pages_per_qpl);
 		if (!rx->data.qpl) {
 			err = -ENOMEM;
 			goto abort_with_copy_pool;
@@ -390,8 +387,7 @@ int gve_rx_alloc_rings_gqi(struct gve_priv *priv,
 	int err = 0;
 	int i, j;
 
-	rx = kvcalloc(cfg->qcfg_rx->max_queues, sizeof(struct gve_rx_ring),
-		      GFP_KERNEL);
+	rx = kvzalloc_objs(struct gve_rx_ring, cfg->qcfg_rx->max_queues);
 	if (!rx)
 		return -ENOMEM;
 

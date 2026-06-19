@@ -8,6 +8,7 @@
 #include <linux/sched.h>
 #include <linux/cpuhotplug.h>
 #include <linux/vmalloc.h>
+#include <linux/sysfs.h>
 
 #include "zcomp.h"
 
@@ -83,29 +84,32 @@ static const struct zcomp_ops *lookup_backend_ops(const char *comp)
 	return backends[i];
 }
 
-bool zcomp_available_algorithm(const char *comp)
+const char *zcomp_lookup_backend_name(const char *comp)
 {
-	return lookup_backend_ops(comp) != NULL;
+	const struct zcomp_ops *backend = lookup_backend_ops(comp);
+
+	if (backend)
+		return backend->name;
+
+	return NULL;
 }
 
 /* show available compressors */
-ssize_t zcomp_available_show(const char *comp, char *buf)
+ssize_t zcomp_available_show(const char *comp, char *buf, ssize_t at)
 {
-	ssize_t sz = 0;
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(backends) - 1; i++) {
 		if (!strcmp(comp, backends[i]->name)) {
-			sz += scnprintf(buf + sz, PAGE_SIZE - sz - 2,
-					"[%s] ", backends[i]->name);
+			at += sysfs_emit_at(buf, at, "[%s] ",
+					    backends[i]->name);
 		} else {
-			sz += scnprintf(buf + sz, PAGE_SIZE - sz - 2,
-					"%s ", backends[i]->name);
+			at += sysfs_emit_at(buf, at, "%s ", backends[i]->name);
 		}
 	}
 
-	sz += scnprintf(buf + sz, PAGE_SIZE - sz, "\n");
-	return sz;
+	at += sysfs_emit_at(buf, at, "\n");
+	return at;
 }
 
 struct zcomp_strm *zcomp_stream_get(struct zcomp *comp)
@@ -239,7 +243,7 @@ struct zcomp *zcomp_create(const char *alg, struct zcomp_params *params)
 	 */
 	BUILD_BUG_ON(ARRAY_SIZE(backends) <= 1);
 
-	comp = kzalloc(sizeof(struct zcomp), GFP_KERNEL);
+	comp = kzalloc_obj(struct zcomp);
 	if (!comp)
 		return ERR_PTR(-ENOMEM);
 

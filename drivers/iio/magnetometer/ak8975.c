@@ -545,7 +545,7 @@ static int ak8975_set_mode(struct ak8975_data *data, enum ak_ctrl_mode mode)
 		return ret;
 	}
 	data->cntl_cache = regval;
-	/* After mode change wait atleast 100us */
+	/* After mode change wait at least 100us */
 	usleep_range(100, 500);
 
 	return 0;
@@ -581,7 +581,7 @@ static int ak8975_setup_irq(struct ak8975_data *data)
 		irq = gpiod_to_irq(data->eoc_gpiod);
 
 	rc = devm_request_irq(&client->dev, irq, ak8975_irq_handler,
-			      IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+			      IRQF_TRIGGER_RISING,
 			      dev_name(&client->dev), data);
 	if (rc < 0) {
 		dev_err(&client->dev, "irq %d request failed: %d\n", irq, rc);
@@ -697,7 +697,7 @@ static int wait_conversion_complete_polled(struct ak8975_data *data)
 	return read_status;
 }
 
-/* Returns 0 if the end of conversion interrupt occured or -ETIME otherwise */
+/* Returns 0 if the end of conversion interrupt occurred or -ETIME otherwise */
 static int wait_conversion_complete_interrupt(struct ak8975_data *data)
 {
 	int ret;
@@ -759,7 +759,7 @@ static int ak8975_read_axis(struct iio_dev *indio_dev, int index, int *val)
 	if (ret < 0)
 		goto exit;
 
-	/* Read out ST2 for release lock on measurment data. */
+	/* Read out ST2 for release lock on measurement data. */
 	ret = i2c_smbus_read_byte_data(client, data->def->ctrl_regs[ST2]);
 	if (ret < 0) {
 		dev_err(&client->dev, "Error in reading ST2\n");
@@ -775,7 +775,6 @@ static int ak8975_read_axis(struct iio_dev *indio_dev, int index, int *val)
 
 	mutex_unlock(&data->lock);
 
-	pm_runtime_mark_last_busy(&data->client->dev);
 	pm_runtime_put_autosuspend(&data->client->dev);
 
 	/* Swap bytes and convert to valid range. */
@@ -882,8 +881,8 @@ static void ak8975_fill_buffer(struct iio_dev *indio_dev)
 	data->scan.channels[1] = clamp_t(s16, le16_to_cpu(fval[1]), -def->range, def->range);
 	data->scan.channels[2] = clamp_t(s16, le16_to_cpu(fval[2]), -def->range, def->range);
 
-	iio_push_to_buffers_with_timestamp(indio_dev, &data->scan,
-					   iio_get_time_ns(indio_dev));
+	iio_push_to_buffers_with_ts(indio_dev, &data->scan, sizeof(data->scan),
+				    iio_get_time_ns(indio_dev));
 
 	return;
 
@@ -1107,7 +1106,7 @@ static const struct i2c_device_id ak8975_id[] = {
 	{"ak09912", (kernel_ulong_t)&ak_def_array[AK09912] },
 	{"ak09916", (kernel_ulong_t)&ak_def_array[AK09916] },
 	{"ak09918", (kernel_ulong_t)&ak_def_array[AK09918] },
-	{}
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ak8975_id);
 
@@ -1122,7 +1121,7 @@ static const struct of_device_id ak8975_of_match[] = {
 	{ .compatible = "ak09912", .data = &ak_def_array[AK09912] },
 	{ .compatible = "asahi-kasei,ak09916", .data = &ak_def_array[AK09916] },
 	{ .compatible = "asahi-kasei,ak09918", .data = &ak_def_array[AK09918] },
-	{}
+	{ }
 };
 MODULE_DEVICE_TABLE(of, ak8975_of_match);
 

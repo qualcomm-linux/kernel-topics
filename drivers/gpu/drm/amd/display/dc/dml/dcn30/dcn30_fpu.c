@@ -339,7 +339,8 @@ void dcn30_fpu_calculate_wm_and_dlg(
 			 * newly found dummy_latency_index
 			 */
 			context->bw_ctx.dml.soc.dram_clock_change_latency_us = dc->clk_mgr->bw_params->wm_table.nv_entries[WM_A].dml_input.pstate_latency_us;
-			dcn30_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel, false, true);
+			dcn30_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel,
+				DC_VALIDATE_MODE_AND_PROGRAMMING, true);
 			maxMpcComb = context->bw_ctx.dml.vba.maxMpcComb;
 			dcfclk = context->bw_ctx.dml.vba.DCFCLKState[vlevel][context->bw_ctx.dml.vba.maxMpcComb];
 			pstate_en = context->bw_ctx.dml.vba.DRAMClockChangeSupport[vlevel][maxMpcComb] != dm_dram_clock_change_unsupported;
@@ -570,6 +571,7 @@ void dcn30_fpu_update_bw_bounding_box(struct dc *dc,
 	unsigned int *dcfclk_mhz,
 	unsigned int *dram_speed_mts)
 {
+	(void)bw_params;
 	unsigned int i;
 
 	dc_assert_fp_enabled();
@@ -630,7 +632,8 @@ int dcn30_find_dummy_latency_index_for_fw_based_mclk_switch(struct dc *dc,
 	while (dummy_latency_index < max_latency_table_entries) {
 		context->bw_ctx.dml.soc.dram_clock_change_latency_us =
 				dc->clk_mgr->bw_params->dummy_pstate_table[dummy_latency_index].dummy_pstate_latency_us;
-		dcn30_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel, false, true);
+		dcn30_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel,
+			DC_VALIDATE_MODE_AND_PROGRAMMING, true);
 
 		if (context->bw_ctx.dml.soc.allow_dram_self_refresh_or_dram_clock_change_in_vblank ==
 			dm_allow_self_refresh_and_mclk_switch)
@@ -718,6 +721,7 @@ void dcn3_fpu_build_wm_range_table(struct clk_mgr *base)
 
 void patch_dcn30_soc_bounding_box(struct dc *dc, struct _vcs_dpi_soc_bounding_box_st *dcn3_0_ip)
 {
+	(void)dcn3_0_ip;
 	dc_assert_fp_enabled();
 
 	if (dc->ctx->dc_bios->funcs->get_soc_bb_info) {

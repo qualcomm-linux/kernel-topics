@@ -113,6 +113,8 @@ struct aq_stats_s {
 #define AQ_HW_POWER_STATE_D0   0U
 #define AQ_HW_POWER_STATE_D3   3U
 
+#define	AQ_FW_WAKE_ON_LINK_RTPM BIT(10)
+
 #define AQ_HW_FLAG_STARTED     0x00000004U
 #define AQ_HW_FLAG_STOPPING    0x00000008U
 #define AQ_HW_FLAG_RESETTING   0x00000010U
@@ -402,6 +404,9 @@ struct aq_fw_ops {
 	int (*send_macsec_req)(struct aq_hw_s *self,
 			       struct macsec_msg_fw_request *msg,
 			       struct macsec_msg_fw_response *resp);
+
+	int (*read_module_eeprom)(struct aq_hw_s *self, u8 dev_addr,
+				  u8 reg_start_addr, int len, u8 *data);
 };
 
 #endif /* AQ_HW_H */

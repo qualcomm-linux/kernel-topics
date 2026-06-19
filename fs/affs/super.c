@@ -108,6 +108,7 @@ static struct inode *affs_alloc_inode(struct super_block *sb)
 	i->i_lc = NULL;
 	i->i_ext_bh = NULL;
 	i->i_pa_cnt = 0;
+	mmb_init(&i->i_metadata_bhs, &i->vfs_inode.i_data);
 
 	return &i->vfs_inode;
 }
@@ -327,7 +328,7 @@ static int affs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_time_min = sys_tz.tz_minuteswest * 60 + AFFS_EPOCH_DELTA;
 	sb->s_time_max = 86400LL * U32_MAX + 86400 + sb->s_time_min;
 
-	sbi = kzalloc(sizeof(struct affs_sb_info), GFP_KERNEL);
+	sbi = kzalloc_obj(struct affs_sb_info);
 	if (!sbi)
 		return -ENOMEM;
 
@@ -500,9 +501,9 @@ got_root:
 		return PTR_ERR(root_inode);
 
 	if (affs_test_opt(AFFS_SB(sb)->s_flags, SF_INTL))
-		sb->s_d_op = &affs_intl_dentry_operations;
+		set_default_d_op(sb, &affs_intl_dentry_operations);
 	else
-		sb->s_d_op = &affs_dentry_operations;
+		set_default_d_op(sb, &affs_dentry_operations);
 
 	sb->s_root = d_make_root(root_inode);
 	if (!sb->s_root) {
@@ -615,7 +616,7 @@ static int affs_init_fs_context(struct fs_context *fc)
 {
 	struct affs_context *ctx;
 
-	ctx = kzalloc(sizeof(struct affs_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct affs_context);
 	if (!ctx)
 		return -ENOMEM;
 

@@ -137,8 +137,8 @@ enum iwl_antenna_ok iwl_tx_ant_restriction(struct iwl_priv *priv)
  */
 static void iwl_tt_check_exit_ct_kill(struct timer_list *t)
 {
-	struct iwl_priv *priv = from_timer(priv, t,
-					   thermal_throttle.ct_kill_exit_tm);
+	struct iwl_priv *priv = timer_container_of(priv, t,
+						   thermal_throttle.ct_kill_exit_tm);
 	struct iwl_tt_mgmt *tt = &priv->thermal_throttle;
 
 	if (test_bit(STATUS_EXIT_PENDING, &priv->status))
@@ -187,8 +187,8 @@ static void iwl_perform_ct_kill_task(struct iwl_priv *priv,
 
 static void iwl_tt_ready_for_ct_kill(struct timer_list *t)
 {
-	struct iwl_priv *priv = from_timer(priv, t,
-					   thermal_throttle.ct_kill_waiting_tm);
+	struct iwl_priv *priv = timer_container_of(priv, t,
+						   thermal_throttle.ct_kill_waiting_tm);
 	struct iwl_tt_mgmt *tt = &priv->thermal_throttle;
 
 	if (test_bit(STATUS_EXIT_PENDING, &priv->status))
@@ -595,13 +595,10 @@ void iwl_tt_initialize(struct iwl_priv *priv)
 
 	if (priv->lib->adv_thermal_throttle) {
 		IWL_DEBUG_TEMP(priv, "Advanced Thermal Throttling\n");
-		tt->restriction = kcalloc(IWL_TI_STATE_MAX,
-					  sizeof(struct iwl_tt_restriction),
-					  GFP_KERNEL);
-		tt->transaction = kcalloc(IWL_TI_STATE_MAX *
-					  (IWL_TI_STATE_MAX - 1),
-					  sizeof(struct iwl_tt_trans),
-					  GFP_KERNEL);
+		tt->restriction = kzalloc_objs(struct iwl_tt_restriction,
+					       IWL_TI_STATE_MAX);
+		tt->transaction = kzalloc_objs(struct iwl_tt_trans,
+					       IWL_TI_STATE_MAX * (IWL_TI_STATE_MAX - 1));
 		if (!tt->restriction || !tt->transaction) {
 			IWL_ERR(priv, "Fallback to Legacy Throttling\n");
 			priv->thermal_throttle.advanced_tt = false;

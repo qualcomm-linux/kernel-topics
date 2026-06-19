@@ -11,6 +11,7 @@ obj-$(CONFIG_IPVLAN) += ipvlan/
 obj-$(CONFIG_IPVTAP) += ipvlan/
 obj-$(CONFIG_DUMMY) += dummy.o
 obj-$(CONFIG_WIREGUARD) += wireguard/
+obj-$(CONFIG_OVPN) += ovpn/
 obj-$(CONFIG_EQUALIZER) += eql.o
 obj-$(CONFIG_IFB) += ifb.o
 obj-$(CONFIG_MACSEC) += macsec.o
@@ -47,15 +48,12 @@ obj-$(CONFIG_MHI_NET) += mhi_net.o
 # Networking Drivers
 #
 obj-$(CONFIG_ARCNET) += arcnet/
-obj-$(CONFIG_CAIF) += caif/
 obj-$(CONFIG_CAN) += can/
 ifdef CONFIG_NET_DSA
 obj-y += dsa/
 endif
 obj-$(CONFIG_ETHERNET) += ethernet/
 obj-$(CONFIG_FDDI) += fddi/
-obj-$(CONFIG_HIPPI) += hippi/
-obj-$(CONFIG_HAMRADIO) += hamradio/
 obj-$(CONFIG_QCOM_IPA) += ipa/
 obj-$(CONFIG_PLIP) += plip/
 obj-$(CONFIG_PPP) += ppp/

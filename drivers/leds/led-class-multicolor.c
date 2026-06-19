@@ -34,14 +34,14 @@ static ssize_t multi_intensity_store(struct device *dev,
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	struct led_classdev_mc *mcled_cdev = lcdev_to_mccdev(led_cdev);
 	int nrchars, offset = 0;
-	int intensity_value[LED_COLOR_ID_MAX];
+	unsigned int intensity_value[LED_COLOR_ID_MAX];
 	int i;
 	ssize_t ret;
 
 	mutex_lock(&led_cdev->led_access);
 
 	for (i = 0; i < mcled_cdev->num_colors; i++) {
-		ret = sscanf(buf + offset, "%i%n",
+		ret = sscanf(buf + offset, "%u%n",
 			     &intensity_value[i], &nrchars);
 		if (ret != 1) {
 			ret = -EINVAL;
@@ -59,7 +59,8 @@ static ssize_t multi_intensity_store(struct device *dev,
 	for (i = 0; i < mcled_cdev->num_colors; i++)
 		mcled_cdev->subled_info[i].intensity = intensity_value[i];
 
-	led_set_brightness(led_cdev, led_cdev->brightness);
+	if (!test_bit(LED_BLINK_SW, &led_cdev->work_flags))
+		led_set_brightness(led_cdev, led_cdev->brightness);
 	ret = size;
 err_out:
 	mutex_unlock(&led_cdev->led_access);

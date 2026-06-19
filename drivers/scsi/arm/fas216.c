@@ -2202,11 +2202,12 @@ no_command:
  * Returns: 0 on success, else error.
  * Notes: io_request_lock is held, interrupts are disabled.
  */
-static int fas216_queue_command_internal(struct scsi_cmnd *SCpnt,
-					 void (*done)(struct scsi_cmnd *))
+static enum scsi_qc_status
+fas216_queue_command_internal(struct scsi_cmnd *SCpnt,
+			      void (*done)(struct scsi_cmnd *))
 {
 	FAS216_Info *info = (FAS216_Info *)SCpnt->device->host->hostdata;
-	int result;
+	enum scsi_qc_status result;
 
 	fas216_checkmagic(info);
 
@@ -2243,7 +2244,7 @@ static int fas216_queue_command_internal(struct scsi_cmnd *SCpnt,
 	return result;
 }
 
-static int fas216_queue_command_lck(struct scsi_cmnd *SCpnt)
+static enum scsi_qc_status fas216_queue_command_lck(struct scsi_cmnd *SCpnt)
 {
 	return fas216_queue_command_internal(SCpnt, scsi_done);
 }
@@ -2273,7 +2274,7 @@ static void fas216_internal_done(struct scsi_cmnd *SCpnt)
  * Returns: scsi result code.
  * Notes: io_request_lock is held, interrupts are disabled.
  */
-static int fas216_noqueue_command_lck(struct scsi_cmnd *SCpnt)
+static enum scsi_qc_status fas216_noqueue_command_lck(struct scsi_cmnd *SCpnt)
 {
 	FAS216_Info *info = (FAS216_Info *)SCpnt->device->host->hostdata;
 
@@ -2327,7 +2328,7 @@ DEF_SCSI_QCMD(fas216_noqueue_command)
  */
 static void fas216_eh_timer(struct timer_list *t)
 {
-	FAS216_Info *info = from_timer(info, t, eh_timer);
+	FAS216_Info *info = timer_container_of(info, t, eh_timer);
 
 	fas216_log(info, LOG_ERROR, "error handling timed out\n");
 

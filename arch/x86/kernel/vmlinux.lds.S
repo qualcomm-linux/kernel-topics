@@ -67,7 +67,18 @@ const_cpu_current_top_of_stack = cpu_current_top_of_stack;
 
 #define ALIGN_ENTRY_TEXT_BEGIN	. = ALIGN(PMD_SIZE);
 #define ALIGN_ENTRY_TEXT_END	. = ALIGN(PMD_SIZE);
+#else
 
+#define X86_ALIGN_RODATA_BEGIN
+#define X86_ALIGN_RODATA_END					\
+		. = ALIGN(PAGE_SIZE);				\
+		__end_rodata_aligned = .;
+
+#define ALIGN_ENTRY_TEXT_BEGIN
+#define ALIGN_ENTRY_TEXT_END
+#endif
+
+#ifdef CONFIG_AMD_MEM_ENCRYPT
 /*
  * This section contains data which will be mapped as decrypted. Memory
  * encryption operates on a page basis. Make this section PMD-aligned
@@ -79,24 +90,18 @@ const_cpu_current_top_of_stack = cpu_current_top_of_stack;
 #define BSS_DECRYPTED						\
 	. = ALIGN(PMD_SIZE);					\
 	__start_bss_decrypted = .;				\
+	__pi___start_bss_decrypted = .;				\
 	*(.bss..decrypted);					\
 	. = ALIGN(PAGE_SIZE);					\
 	__start_bss_decrypted_unused = .;			\
 	. = ALIGN(PMD_SIZE);					\
 	__end_bss_decrypted = .;				\
+	__pi___end_bss_decrypted = .;				\
 
 #else
-
-#define X86_ALIGN_RODATA_BEGIN
-#define X86_ALIGN_RODATA_END					\
-		. = ALIGN(PAGE_SIZE);				\
-		__end_rodata_aligned = .;
-
-#define ALIGN_ENTRY_TEXT_BEGIN
-#define ALIGN_ENTRY_TEXT_END
 #define BSS_DECRYPTED
-
 #endif
+
 #if defined(CONFIG_X86_64) && defined(CONFIG_KEXEC_CORE)
 #define KEXEC_RELOCATE_KERNEL					\
 	. = ALIGN(0x100);					\
@@ -128,6 +133,7 @@ SECTIONS
 	/* Text and read-only data */
 	.text :  AT(ADDR(.text) - LOAD_OFFSET) {
 		_text = .;
+		__pi__text = .;
 		_stext = .;
 		ALIGN_ENTRY_TEXT_BEGIN
 		*(.text..__x86.rethunk_untrain)
@@ -155,11 +161,6 @@ SECTIONS
 		STATIC_CALL_TEXT
 		*(.gnu.warning)
 
-	} :text = 0xcccccccc
-
-	/* bootstrapping code */
-	.head.text : AT(ADDR(.head.text) - LOAD_OFFSET) {
-		HEAD_TEXT
 	} :text = 0xcccccccc
 
 	/* End of text section, which should occupy whole number of pages */
@@ -224,6 +225,8 @@ SECTIONS
 	 */
 	.altinstr_aux : AT(ADDR(.altinstr_aux) - LOAD_OFFSET) {
 		*(.altinstr_aux)
+		. = ALIGN(PAGE_SIZE);
+		__inittext_end = .;
 	}
 
 	INIT_DATA_SECTION(16)
@@ -391,6 +394,7 @@ SECTIONS
 
 	. = ALIGN(PAGE_SIZE);		/* keep VO_INIT_SIZE page aligned */
 	_end = .;
+	__pi__end = .;
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 	/*
@@ -423,6 +427,7 @@ SECTIONS
 	.llvm_bb_addr_map : { *(.llvm_bb_addr_map) }
 #endif
 
+	MODINFO
 	ELF_DETAILS
 
 	DISCARDS
@@ -505,6 +510,16 @@ PROVIDE(__ref_stack_chk_guard = __stack_chk_guard);
 		"SRSO function pair won't alias");
 #endif
 
+#if defined(CONFIG_MITIGATION_ITS) && !defined(CONFIG_DEBUG_FORCE_FUNCTION_ALIGN_64B)
+. = ASSERT(__x86_indirect_its_thunk_rax & 0x20, "__x86_indirect_thunk_rax not in second half of cacheline");
+. = ASSERT(((__x86_indirect_its_thunk_rcx - __x86_indirect_its_thunk_rax) % 64) == 0, "Indirect thunks are not cacheline apart");
+. = ASSERT(__x86_indirect_its_thunk_array == __x86_indirect_its_thunk_rax, "Gap in ITS thunk array");
+#endif
+
+#if defined(CONFIG_MITIGATION_ITS) && !defined(CONFIG_DEBUG_FORCE_FUNCTION_ALIGN_64B)
+. = ASSERT(its_return_thunk & 0x20, "its_return_thunk not in second half of cacheline");
+#endif
+
 #endif /* CONFIG_X86_64 */
 
 /*
@@ -521,3 +536,5 @@ xen_elfnote_entry_value =
 xen_elfnote_phys32_entry_value =
 	ABSOLUTE(xen_elfnote_phys32_entry) + ABSOLUTE(pvh_start_xen - LOAD_OFFSET);
 #endif
+
+#include "../boot/startup/exports.h"

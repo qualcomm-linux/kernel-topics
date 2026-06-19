@@ -12,6 +12,14 @@ RTLA depends on the following libraries and tools:
  - libtracefs
  - libtraceevent
  - libcpupower (optional, for --deepest-idle-state)
+ - libcheck (optional, for unit tests)
+
+For BPF sample collection support, the following extra dependencies are
+required:
+
+ - libbpf 1.0.0 or later
+ - bpftool with skeleton support
+ - clang with BPF CO-RE support
 
 It also depends on python3-docutils to compile man pages.
 

@@ -25,14 +25,15 @@
  *   Jani Nikula <jani.nikula@intel.com>
  */
 
+#include <linux/iopoll.h>
+
 #include <drm/display/drm_dsc_helper.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_fixed.h>
 #include <drm/drm_mipi_dsi.h>
+#include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 
-#include "i915_reg.h"
-#include "i915_utils.h"
 #include "icl_dsi.h"
 #include "icl_dsi_regs.h"
 #include "intel_atomic.h"
@@ -44,6 +45,8 @@
 #include "intel_crtc.h"
 #include "intel_ddi.h"
 #include "intel_de.h"
+#include "intel_display_regs.h"
+#include "intel_display_utils.h"
 #include "intel_dsi.h"
 #include "intel_dsi_vbt.h"
 #include "intel_panel.h"
@@ -70,8 +73,12 @@ static int payload_credits_available(struct intel_display *display,
 static bool wait_for_header_credits(struct intel_display *display,
 				    enum transcoder dsi_trans, int hdr_credit)
 {
-	if (wait_for_us(header_credits_available(display, dsi_trans) >=
-			hdr_credit, 100)) {
+	int ret, available;
+
+	ret = poll_timeout_us(available = header_credits_available(display, dsi_trans),
+			      available >= hdr_credit,
+			      10, 100, false);
+	if (ret) {
 		drm_err(display->drm, "DSI header credits not released\n");
 		return false;
 	}
@@ -82,8 +89,12 @@ static bool wait_for_header_credits(struct intel_display *display,
 static bool wait_for_payload_credits(struct intel_display *display,
 				     enum transcoder dsi_trans, int payld_credit)
 {
-	if (wait_for_us(payload_credits_available(display, dsi_trans) >=
-			payld_credit, 100)) {
+	int ret, available;
+
+	ret = poll_timeout_us(available = payload_credits_available(display, dsi_trans),
+			      available >= payld_credit,
+			      10, 100, false);
+	if (ret) {
 		drm_err(display->drm, "DSI payload credits not released\n");
 		return false;
 	}
@@ -135,8 +146,11 @@ static void wait_for_cmds_dispatched_to_panel(struct intel_encoder *encoder)
 	/* wait for LP TX in progress bit to be cleared */
 	for_each_dsi_port(port, intel_dsi->ports) {
 		dsi_trans = dsi_port_to_transcoder(port);
-		if (wait_for_us(!(intel_de_read(display, DSI_LP_MSG(dsi_trans)) &
-				  LPTX_IN_PROGRESS), 20))
+
+		ret = intel_de_wait_for_clear_us(display,
+						 DSI_LP_MSG(dsi_trans),
+						 LPTX_IN_PROGRESS, 20);
+		if (ret)
 			drm_err(display->drm, "LPTX bit not cleared\n");
 	}
 }
@@ -191,12 +205,12 @@ static int dsi_send_pkt_hdr(struct intel_dsi_host *host,
 	else
 		tmp &= ~PAYLOAD_PRESENT;
 
-	tmp &= ~VBLANK_FENCE;
+	tmp &= ~(VBLANK_FENCE | LP_DATA_TRANSFER | PIPELINE_FLUSH);
 
 	if (enable_lpdt)
 		tmp |= LP_DATA_TRANSFER;
 	else
-		tmp &= ~LP_DATA_TRANSFER;
+		tmp |= PIPELINE_FLUSH;
 
 	tmp &= ~(PARAM_WC_MASK | VC_MASK | DT_MASK);
 	tmp |= ((packet->header[0] & VC_MASK) << VC_SHIFT);
@@ -514,13 +528,14 @@ static void gen11_dsi_enable_ddi_buffer(struct intel_encoder *encoder)
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
 	enum port port;
+	int ret;
 
 	for_each_dsi_port(port, intel_dsi->ports) {
 		intel_de_rmw(display, DDI_BUF_CTL(port), 0, DDI_BUF_CTL_ENABLE);
 
-		if (wait_for_us(!(intel_de_read(display, DDI_BUF_CTL(port)) &
-				  DDI_BUF_IS_IDLE),
-				  500))
+		ret = intel_de_wait_for_clear_us(display, DDI_BUF_CTL(port),
+						 DDI_BUF_IS_IDLE, 500);
+		if (ret)
 			drm_err(display->drm, "DDI port:%c buffer idle\n",
 				port_name(port));
 	}
@@ -657,7 +672,7 @@ static void gen11_dsi_map_pll(struct intel_encoder *encoder,
 {
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
-	struct intel_shared_dpll *pll = crtc_state->shared_dpll;
+	struct intel_dpll *pll = crtc_state->intel_dpll;
 	enum phy phy;
 	u32 val;
 
@@ -696,7 +711,7 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 		dsi_trans = dsi_port_to_transcoder(port);
 		tmp = intel_de_read(display, DSI_TRANS_FUNC_CONF(dsi_trans));
 
-		if (intel_dsi->eotp_pkt)
+		if (intel_dsi->eot_pkt)
 			tmp &= ~EOTP_DISABLED;
 		else
 			tmp |= EOTP_DISABLED;
@@ -713,6 +728,12 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 			tmp |= CLK_ENTER_LP_AFTER_DATA;
 		else
 			tmp |= CLK_HS_CONTINUOUS;
+
+		if (DISPLAY_VER(display) >= 12 &&
+		    intel_dsi->lp_clock_during_lpm)
+			tmp |= LP_CLK_DURING_LPM;
+		else
+			tmp &= ~LP_CLK_DURING_LPM;
 
 		/* configure buffer threshold limit to minimum */
 		tmp &= ~PIX_BUF_THRESHOLD_MASK;
@@ -750,10 +771,11 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 			}
 		}
 
-		if (DISPLAY_VER(display) >= 12) {
-			if (is_vid_mode(intel_dsi))
-				tmp |= BLANKING_PACKET_ENABLE;
-		}
+		if (DISPLAY_VER(display) >= 12 &&
+		    is_vid_mode(intel_dsi) && intel_dsi->blanking_pkt)
+			tmp |= BLANKING_PACKET_ENABLE;
+		else
+			tmp &= ~BLANKING_PACKET_ENABLE;
 
 		/* program DSI operation mode */
 		if (is_vid_mode(intel_dsi)) {
@@ -836,9 +858,14 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 
 	/* wait for link ready */
 	for_each_dsi_port(port, intel_dsi->ports) {
+		int ret;
+
 		dsi_trans = dsi_port_to_transcoder(port);
-		if (wait_for_us((intel_de_read(display, DSI_TRANS_FUNC_CONF(dsi_trans)) &
-				 LINK_READY), 2500))
+
+		ret = intel_de_wait_for_set_us(display,
+					       DSI_TRANS_FUNC_CONF(dsi_trans),
+					       LINK_READY, 2500);
+		if (ret)
 			drm_err(display->drm, "DSI link not ready\n");
 	}
 }
@@ -868,7 +895,7 @@ gen11_dsi_set_transcoder_timings(struct intel_encoder *encoder,
 	 * non-compressed link speeds, and simplifies down to the ratio between
 	 * compressed and non-compressed bpp.
 	 */
-	if (crtc_state->dsc.compression_enable) {
+	if (is_vid_mode(intel_dsi) && crtc_state->dsc.compression_enable) {
 		mul = fxp_q4_to_int(crtc_state->dsc.compressed_bpp_x16);
 		div = mipi_dsi_pixel_format_to_bpp(intel_dsi->pixel_format);
 	}
@@ -1026,8 +1053,8 @@ static void gen11_dsi_enable_transcoder(struct intel_encoder *encoder)
 			     TRANSCONF_ENABLE);
 
 		/* wait for transcoder to be enabled */
-		if (intel_de_wait_for_set(display, TRANSCONF(display, dsi_trans),
-					  TRANSCONF_STATE_ENABLE, 10))
+		if (intel_de_wait_for_set_ms(display, TRANSCONF(display, dsi_trans),
+					     TRANSCONF_STATE_ENABLE, 10))
 			drm_err(display->drm,
 				"DSI transcoder not enabled\n");
 	}
@@ -1275,6 +1302,8 @@ static void gen11_dsi_enable(struct intel_atomic_state *state,
 	intel_backlight_enable(crtc_state, conn_state);
 	intel_dsi_vbt_exec_sequence(intel_dsi, MIPI_SEQ_BACKLIGHT_ON);
 
+	intel_panel_prepare(crtc_state, conn_state);
+
 	intel_crtc_vblank_on(crtc_state);
 }
 
@@ -1293,8 +1322,8 @@ static void gen11_dsi_disable_transcoder(struct intel_encoder *encoder)
 			     TRANSCONF_ENABLE, 0);
 
 		/* wait for transcoder to be disabled */
-		if (intel_de_wait_for_clear(display, TRANSCONF(display, dsi_trans),
-					    TRANSCONF_STATE_ENABLE, 50))
+		if (intel_de_wait_for_clear_ms(display, TRANSCONF(display, dsi_trans),
+					       TRANSCONF_STATE_ENABLE, 50))
 			drm_err(display->drm,
 				"DSI trancoder not disabled\n");
 	}
@@ -1317,6 +1346,7 @@ static void gen11_dsi_deconfigure_trancoder(struct intel_encoder *encoder)
 	enum port port;
 	enum transcoder dsi_trans;
 	u32 tmp;
+	int ret;
 
 	/* disable periodic update mode */
 	if (is_cmd_mode(intel_dsi)) {
@@ -1333,9 +1363,9 @@ static void gen11_dsi_deconfigure_trancoder(struct intel_encoder *encoder)
 		tmp &= ~LINK_ULPS_TYPE_LP11;
 		intel_de_write(display, DSI_LP_MSG(dsi_trans), tmp);
 
-		if (wait_for_us((intel_de_read(display, DSI_LP_MSG(dsi_trans)) &
-				 LINK_IN_ULPS),
-				10))
+		ret = intel_de_wait_for_set_us(display, DSI_LP_MSG(dsi_trans),
+					       LINK_IN_ULPS, 10);
+		if (ret)
 			drm_err(display->drm, "DSI link not in ULPS\n");
 	}
 
@@ -1363,14 +1393,16 @@ static void gen11_dsi_disable_port(struct intel_encoder *encoder)
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
 	enum port port;
+	int ret;
 
 	gen11_dsi_ungate_clocks(encoder);
 	for_each_dsi_port(port, intel_dsi->ports) {
 		intel_de_rmw(display, DDI_BUF_CTL(port), DDI_BUF_CTL_ENABLE, 0);
 
-		if (wait_for_us((intel_de_read(display, DDI_BUF_CTL(port)) &
-				 DDI_BUF_IS_IDLE),
-				 8))
+		ret = intel_de_wait_for_set_us(display, DDI_BUF_CTL(port),
+					       DDI_BUF_IS_IDLE, 8);
+
+		if (ret)
 			drm_err(display->drm,
 				"DDI port:%c buffer not idle\n",
 				port_name(port));
@@ -1385,7 +1417,7 @@ static void gen11_dsi_disable_io_power(struct intel_encoder *encoder)
 	enum port port;
 
 	for_each_dsi_port(port, intel_dsi->ports) {
-		intel_wakeref_t wakeref;
+		struct ref_tracker *wakeref;
 
 		wakeref = fetch_and_zero(&intel_dsi->io_wakeref[port]);
 		intel_display_power_put(display,
@@ -1407,6 +1439,8 @@ static void gen11_dsi_disable(struct intel_atomic_state *state,
 			      const struct drm_connector_state *old_conn_state)
 {
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
+
+	intel_panel_unprepare(old_conn_state);
 
 	/* step1: turn off backlight */
 	intel_dsi_vbt_exec_sequence(intel_dsi, MIPI_SEQ_BACKLIGHT_OFF);
@@ -1475,7 +1509,7 @@ static void gen11_dsi_get_timings(struct intel_encoder *encoder,
 	struct drm_display_mode *adjusted_mode =
 					&pipe_config->hw.adjusted_mode;
 
-	if (pipe_config->dsc.compressed_bpp_x16) {
+	if (is_vid_mode(intel_dsi) && pipe_config->dsc.compressed_bpp_x16) {
 		int div = fxp_q4_to_int(pipe_config->dsc.compressed_bpp_x16);
 		int mul = mipi_dsi_pixel_format_to_bpp(intel_dsi->pixel_format);
 
@@ -1596,12 +1630,6 @@ static int gen11_dsi_dsc_compute_config(struct intel_encoder *encoder,
 	if (crtc_state->pipe_bpp < 8 * 3)
 		return -EINVAL;
 
-	/* FIXME: split only when necessary */
-	if (crtc_state->dsc.slice_count > 1)
-		crtc_state->dsc.num_streams = 2;
-	else
-		crtc_state->dsc.num_streams = 1;
-
 	/* FIXME: initialize from VBT */
 	vdsc_cfg->rc_model_size = DSC_RC_MODEL_SIZE_CONST;
 
@@ -1624,7 +1652,7 @@ static int gen11_dsi_dsc_compute_config(struct intel_encoder *encoder,
 	if (ret)
 		return ret;
 
-	crtc_state->dsc.compression_enable = true;
+	intel_dsc_enable_on_crtc(crtc_state);
 
 	return 0;
 }
@@ -1694,7 +1722,7 @@ static bool gen11_dsi_get_hw_state(struct intel_encoder *encoder,
 	struct intel_display *display = to_intel_display(encoder);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
 	enum transcoder dsi_trans;
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 	enum port port;
 	bool ret = false;
 	u32 tmp;
@@ -1826,107 +1854,56 @@ static const struct mipi_dsi_host_ops gen11_dsi_host_ops = {
 	.transfer = gen11_dsi_host_transfer,
 };
 
-#define ICL_PREPARE_CNT_MAX	0x7
-#define ICL_CLK_ZERO_CNT_MAX	0xf
-#define ICL_TRAIL_CNT_MAX	0x7
-#define ICL_TCLK_PRE_CNT_MAX	0x3
-#define ICL_TCLK_POST_CNT_MAX	0x7
-#define ICL_HS_ZERO_CNT_MAX	0xf
-#define ICL_EXIT_ZERO_CNT_MAX	0x7
-
 static void icl_dphy_param_init(struct intel_dsi *intel_dsi)
 {
-	struct intel_display *display = to_intel_display(&intel_dsi->base);
 	struct intel_connector *connector = intel_dsi->attached_connector;
 	struct mipi_config *mipi_config = connector->panel.vbt.dsi.config;
 	u32 tlpx_ns;
-	u32 prepare_cnt, exit_zero_cnt, clk_zero_cnt, trail_cnt;
-	u32 ths_prepare_ns, tclk_trail_ns;
-	u32 hs_zero_cnt;
-	u32 tclk_pre_cnt;
+	u32 tclk_prepare_esc_clk, tclk_zero_esc_clk, tclk_pre_esc_clk;
+	u32 ths_prepare_esc_clk, ths_zero_esc_clk, ths_exit_esc_clk;
 
 	tlpx_ns = intel_dsi_tlpx_ns(intel_dsi);
 
-	tclk_trail_ns = max(mipi_config->tclk_trail, mipi_config->ths_trail);
-	ths_prepare_ns = max(mipi_config->ths_prepare,
-			     mipi_config->tclk_prepare);
-
 	/*
-	 * prepare cnt in escape clocks
-	 * this field represents a hexadecimal value with a precision
-	 * of 1.2 – i.e. the most significant bit is the integer
-	 * and the least significant 2 bits are fraction bits.
-	 * so, the field can represent a range of 0.25 to 1.75
+	 * The clock and data lane prepare timing parameters are in expressed in
+	 * units of 1/4 escape clocks, and all the other timings parameters in
+	 * escape clocks.
 	 */
-	prepare_cnt = DIV_ROUND_UP(ths_prepare_ns * 4, tlpx_ns);
-	if (prepare_cnt > ICL_PREPARE_CNT_MAX) {
-		drm_dbg_kms(display->drm, "prepare_cnt out of range (%d)\n",
-			    prepare_cnt);
-		prepare_cnt = ICL_PREPARE_CNT_MAX;
-	}
+	tclk_prepare_esc_clk = DIV_ROUND_UP(mipi_config->tclk_prepare * 4, tlpx_ns);
+	tclk_prepare_esc_clk = min(tclk_prepare_esc_clk, 7);
 
-	/* clk zero count in escape clocks */
-	clk_zero_cnt = DIV_ROUND_UP(mipi_config->tclk_prepare_clkzero -
-				    ths_prepare_ns, tlpx_ns);
-	if (clk_zero_cnt > ICL_CLK_ZERO_CNT_MAX) {
-		drm_dbg_kms(display->drm,
-			    "clk_zero_cnt out of range (%d)\n", clk_zero_cnt);
-		clk_zero_cnt = ICL_CLK_ZERO_CNT_MAX;
-	}
+	tclk_zero_esc_clk = DIV_ROUND_UP(mipi_config->tclk_prepare_clkzero -
+					 mipi_config->tclk_prepare, tlpx_ns);
+	tclk_zero_esc_clk = min(tclk_zero_esc_clk, 15);
 
-	/* trail cnt in escape clocks*/
-	trail_cnt = DIV_ROUND_UP(tclk_trail_ns, tlpx_ns);
-	if (trail_cnt > ICL_TRAIL_CNT_MAX) {
-		drm_dbg_kms(display->drm, "trail_cnt out of range (%d)\n",
-			    trail_cnt);
-		trail_cnt = ICL_TRAIL_CNT_MAX;
-	}
+	tclk_pre_esc_clk = DIV_ROUND_UP(mipi_config->tclk_pre, tlpx_ns);
+	tclk_pre_esc_clk = min(tclk_pre_esc_clk, 3);
 
-	/* tclk pre count in escape clocks */
-	tclk_pre_cnt = DIV_ROUND_UP(mipi_config->tclk_pre, tlpx_ns);
-	if (tclk_pre_cnt > ICL_TCLK_PRE_CNT_MAX) {
-		drm_dbg_kms(display->drm,
-			    "tclk_pre_cnt out of range (%d)\n", tclk_pre_cnt);
-		tclk_pre_cnt = ICL_TCLK_PRE_CNT_MAX;
-	}
+	ths_prepare_esc_clk = DIV_ROUND_UP(mipi_config->ths_prepare * 4, tlpx_ns);
+	ths_prepare_esc_clk = min(ths_prepare_esc_clk, 7);
 
-	/* hs zero cnt in escape clocks */
-	hs_zero_cnt = DIV_ROUND_UP(mipi_config->ths_prepare_hszero -
-				   ths_prepare_ns, tlpx_ns);
-	if (hs_zero_cnt > ICL_HS_ZERO_CNT_MAX) {
-		drm_dbg_kms(display->drm, "hs_zero_cnt out of range (%d)\n",
-			    hs_zero_cnt);
-		hs_zero_cnt = ICL_HS_ZERO_CNT_MAX;
-	}
+	ths_zero_esc_clk = DIV_ROUND_UP(mipi_config->ths_prepare_hszero -
+					mipi_config->ths_prepare, tlpx_ns);
+	ths_zero_esc_clk = min(ths_zero_esc_clk, 15);
 
-	/* hs exit zero cnt in escape clocks */
-	exit_zero_cnt = DIV_ROUND_UP(mipi_config->ths_exit, tlpx_ns);
-	if (exit_zero_cnt > ICL_EXIT_ZERO_CNT_MAX) {
-		drm_dbg_kms(display->drm,
-			    "exit_zero_cnt out of range (%d)\n",
-			    exit_zero_cnt);
-		exit_zero_cnt = ICL_EXIT_ZERO_CNT_MAX;
-	}
+	ths_exit_esc_clk = DIV_ROUND_UP(mipi_config->ths_exit, tlpx_ns);
+	ths_exit_esc_clk = min(ths_exit_esc_clk, 7);
 
 	/* clock lane dphy timings */
 	intel_dsi->dphy_reg = (CLK_PREPARE_OVERRIDE |
-			       CLK_PREPARE(prepare_cnt) |
+			       CLK_PREPARE(tclk_prepare_esc_clk) |
 			       CLK_ZERO_OVERRIDE |
-			       CLK_ZERO(clk_zero_cnt) |
+			       CLK_ZERO(tclk_zero_esc_clk) |
 			       CLK_PRE_OVERRIDE |
-			       CLK_PRE(tclk_pre_cnt) |
-			       CLK_TRAIL_OVERRIDE |
-			       CLK_TRAIL(trail_cnt));
+			       CLK_PRE(tclk_pre_esc_clk));
 
 	/* data lanes dphy timings */
 	intel_dsi->dphy_data_lane_reg = (HS_PREPARE_OVERRIDE |
-					 HS_PREPARE(prepare_cnt) |
+					 HS_PREPARE(ths_prepare_esc_clk) |
 					 HS_ZERO_OVERRIDE |
-					 HS_ZERO(hs_zero_cnt) |
-					 HS_TRAIL_OVERRIDE |
-					 HS_TRAIL(trail_cnt) |
+					 HS_ZERO(ths_zero_esc_clk) |
 					 HS_EXIT_OVERRIDE |
-					 HS_EXIT(exit_zero_cnt));
+					 HS_EXIT(ths_exit_esc_clk));
 
 	intel_dsi_log_params(intel_dsi);
 }
@@ -1957,7 +1934,7 @@ void icl_dsi_init(struct intel_display *display,
 	if (port == PORT_NONE)
 		return;
 
-	intel_dsi = kzalloc(sizeof(*intel_dsi), GFP_KERNEL);
+	intel_dsi = kzalloc_obj(*intel_dsi);
 	if (!intel_dsi)
 		return;
 

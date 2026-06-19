@@ -215,6 +215,7 @@ static struct inode *ext2_alloc_inode(struct super_block *sb)
 #ifdef CONFIG_QUOTA
 	memset(&ei->i_dquot, 0, sizeof(ei->i_dquot));
 #endif
+	mmb_init(&ei->i_metadata_bhs, &ei->vfs_inode.i_data);
 
 	return &ei->vfs_inode;
 }
@@ -601,7 +602,8 @@ static int ext2_parse_param(struct fs_context *fc, struct fs_parameter *param)
 	case Opt_dax:
 #ifdef CONFIG_FS_DAX
 		ext2_msg_fc(fc, KERN_WARNING,
-		    "DAX enabled. Warning: EXPERIMENTAL, use at your own risk");
+		    "DAX enabled. Warning: DAX support in ext2 driver is deprecated"
+		    " and will be removed at the end of 2025. Please use ext4 driver instead.");
 		ctx_set_mount_opt(ctx, EXT2_MOUNT_DAX);
 #else
 		ext2_msg_fc(fc, KERN_INFO, "dax option not supported");
@@ -892,12 +894,12 @@ static int ext2_fill_super(struct super_block *sb, struct fs_context *fc)
 	__le32 features;
 	int err;
 
-	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
+	sbi = kzalloc_obj(*sbi);
 	if (!sbi)
 		return -ENOMEM;
 
 	sbi->s_blockgroup_lock =
-		kzalloc(sizeof(struct blockgroup_lock), GFP_KERNEL);
+		kzalloc_obj(struct blockgroup_lock);
 	if (!sbi->s_blockgroup_lock) {
 		kfree(sbi);
 		return -ENOMEM;
@@ -1121,9 +1123,7 @@ static int ext2_fill_super(struct super_block *sb, struct fs_context *fc)
 	}
 	db_count = (sbi->s_groups_count + EXT2_DESC_PER_BLOCK(sb) - 1) /
 		   EXT2_DESC_PER_BLOCK(sb);
-	sbi->s_group_desc = kvmalloc_array(db_count,
-					   sizeof(struct buffer_head *),
-					   GFP_KERNEL);
+	sbi->s_group_desc = kvmalloc_objs(struct buffer_head *, db_count);
 	if (sbi->s_group_desc == NULL) {
 		ret = -ENOMEM;
 		ext2_msg(sb, KERN_ERR, "error: not enough memory");
@@ -1152,7 +1152,7 @@ static int ext2_fill_super(struct super_block *sb, struct fs_context *fc)
 		goto failed_mount2;
 	}
 	sbi->s_gdb_count = db_count;
-	get_random_bytes(&sbi->s_next_generation, sizeof(u32));
+	sbi->s_next_generation = get_random_u32();
 	spin_lock_init(&sbi->s_next_gen_lock);
 
 	/* per filesystem reservation list head & lock */
@@ -1669,7 +1669,7 @@ static int ext2_init_fs_context(struct fs_context *fc)
 {
 	struct ext2_fs_context *ctx;
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = kzalloc_obj(*ctx);
 	if (!ctx)
 		return -ENOMEM;
 

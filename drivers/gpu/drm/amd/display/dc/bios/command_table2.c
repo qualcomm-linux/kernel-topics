@@ -396,6 +396,7 @@ static enum bp_result transmitter_control_v1_7(
 				process_phy_transition_init_params.display_port_link_rate   = link->cur_link_settings.link_rate;
 				process_phy_transition_init_params.transition_bitmask       = link->phy_transition_bitmask;
 			}
+			dig_v1_7.skip_phy_ssc_reduction = link->wa_flags.skip_phy_ssc_reduction;
 		}
 
 		// Handle PRE_OFF_TO_ON: Process ACPI PHY Transition Interlock
@@ -782,6 +783,8 @@ static enum bp_result external_encoder_control_v3(
 	struct bios_parser *bp,
 	struct bp_external_encoder_control *cntl)
 {
+	(void)bp;
+	(void)cntl;
 	/* TODO */
 	return BP_RESULT_OK;
 }

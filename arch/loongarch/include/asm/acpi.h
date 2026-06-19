@@ -33,17 +33,12 @@ static inline bool acpi_has_cpu_in_madt(void)
 	return true;
 }
 
-#define MAX_CORE_PIC 256
+#define MAX_CORE_PIC 2048
 
 extern struct list_head acpi_wakeup_device_list;
 extern struct acpi_madt_core_pic acpi_core_pic[MAX_CORE_PIC];
 
 extern int __init parse_acpi_topology(void);
-
-static inline u32 get_acpi_id_for_cpu(unsigned int cpu)
-{
-	return acpi_core_pic[cpu_logical_map(cpu)].processor_id;
-}
 
 #endif /* !CONFIG_ACPI */
 

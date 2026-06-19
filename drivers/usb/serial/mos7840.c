@@ -383,7 +383,7 @@ static void mos7840_set_led_sync(struct usb_serial_port *port, __u16 reg,
 
 static void mos7840_led_off(struct timer_list *t)
 {
-	struct moschip_port *mcs = from_timer(mcs, t, led_timer1);
+	struct moschip_port *mcs = timer_container_of(mcs, t, led_timer1);
 
 	/* Turn off LED */
 	mos7840_set_led_async(mcs, 0x0300, MODEM_CONTROL_REGISTER);
@@ -393,7 +393,7 @@ static void mos7840_led_off(struct timer_list *t)
 
 static void mos7840_led_flag_off(struct timer_list *t)
 {
-	struct moschip_port *mcs = from_timer(mcs, t, led_timer2);
+	struct moschip_port *mcs = timer_container_of(mcs, t, led_timer2);
 
 	clear_bit_unlock(MOS7840_FLAG_LED_BUSY, &mcs->flags);
 }
@@ -1532,7 +1532,7 @@ static int mos7840_port_probe(struct usb_serial_port *port)
 	pnum = port->port_number;
 
 	dev_dbg(&port->dev, "mos7840_startup: configuring port %d\n", pnum);
-	mos7840_port = kzalloc(sizeof(struct moschip_port), GFP_KERNEL);
+	mos7840_port = kzalloc_obj(struct moschip_port);
 	if (!mos7840_port)
 		return -ENOMEM;
 
@@ -1677,8 +1677,7 @@ static int mos7840_port_probe(struct usb_serial_port *port)
 	/* Initialize LED timers */
 	if (mos7840_port->has_led) {
 		mos7840_port->led_urb = usb_alloc_urb(0, GFP_KERNEL);
-		mos7840_port->led_dr = kmalloc(sizeof(*mos7840_port->led_dr),
-								GFP_KERNEL);
+		mos7840_port->led_dr = kmalloc_obj(*mos7840_port->led_dr);
 		if (!mos7840_port->led_urb || !mos7840_port->led_dr) {
 			status = -ENOMEM;
 			goto error;

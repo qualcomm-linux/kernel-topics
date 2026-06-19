@@ -32,6 +32,12 @@
 //! will require the `std` feature, because stable compilers have neither `Box` nor `Arc` in no-std
 //! mode.
 //!
+//! ## Nightly needed for `unsafe-pinned` feature
+//!
+//! This feature enables the `Wrapper` implementation on the unstable `core::pin::UnsafePinned` type.
+//! This requires the [`unsafe_pinned` unstable feature](https://github.com/rust-lang/rust/issues/125735)
+//! and therefore a nightly compiler. Note that this feature is not enabled by default.
+//!
 //! # Overview
 //!
 //! To initialize a `struct` with an in-place constructor you will need two things:
@@ -140,9 +146,9 @@
 //!
 //! impl DriverData {
 //!     fn new() -> impl PinInit<Self, Error> {
-//!         try_pin_init!(Self {
+//!         pin_init!(Self {
 //!             status <- CMutex::new(0),
-//!             buffer: Box::init(pin_init::zeroed())?,
+//!             buffer: Box::init(pin_init::init_zeroed())?,
 //!         }? Error)
 //!     }
 //! }
@@ -166,7 +172,6 @@
 //! # #![feature(extern_types)]
 //! use pin_init::{pin_data, pinned_drop, PinInit, PinnedDrop, pin_init_from_closure};
 //! use core::{
-//!     ptr::addr_of_mut,
 //!     marker::PhantomPinned,
 //!     cell::UnsafeCell,
 //!     pin::Pin,
@@ -205,7 +210,7 @@
 //!         unsafe {
 //!             pin_init_from_closure(move |slot: *mut Self| {
 //!                 // `slot` contains uninit memory, avoid creating a reference.
-//!                 let foo = addr_of_mut!((*slot).foo);
+//!                 let foo = &raw mut (*slot).foo;
 //!                 let foo = UnsafeCell::raw_get(foo).cast::<bindings::foo>();
 //!
 //!                 // Initialize the `foo`
@@ -241,7 +246,7 @@
 //! [`sync`]: https://rust.docs.kernel.org/kernel/sync/index.html
 //! [pinning]: https://doc.rust-lang.org/std/pin/index.html
 //! [structurally pinned fields]:
-//!     https://doc.rust-lang.org/std/pin/index.html#pinning-is-structural-for-field
+//!     https://doc.rust-lang.org/std/pin/index.html#projections-and-structural-pinning
 //! [stack]: crate::stack_pin_init
 #![cfg_attr(
     kernel,
@@ -258,17 +263,21 @@
 //! [`impl Init<T, E>`]: crate::Init
 //! [Rust-for-Linux]: https://rust-for-linux.com/
 
-#![cfg_attr(not(RUSTC_LINT_REASONS_IS_STABLE), feature(lint_reasons))]
+#![cfg_attr(USE_RUSTC_FEATURES, feature(lint_reasons))]
+#![cfg_attr(USE_RUSTC_FEATURES, feature(raw_ref_op))]
 #![cfg_attr(
-    all(
-        any(feature = "alloc", feature = "std"),
-        not(RUSTC_NEW_UNINIT_IS_STABLE)
-    ),
+    all(any(feature = "alloc", feature = "std"), USE_RUSTC_FEATURES),
     feature(new_uninit)
 )]
 #![forbid(missing_docs, unsafe_op_in_unsafe_fn)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "alloc", feature(allocator_api))]
+#![cfg_attr(
+    all(feature = "unsafe-pinned", CONFIG_RUSTC_HAS_UNSAFE_PINNED),
+    feature(unsafe_pinned)
+)]
+#![cfg_attr(all(USE_RUSTC_FEATURES, doc), allow(internal_features))]
+#![cfg_attr(all(USE_RUSTC_FEATURES, doc), feature(rustdoc_internals))]
 
 use core::{
     cell::UnsafeCell,
@@ -280,10 +289,13 @@ use core::{
     ptr::{self, NonNull},
 };
 
+// This is used by doc-tests -- the proc-macros expand to `::pin_init::...` and without this the
+// doc-tests wouldn't have an extern crate named `pin_init`.
+#[allow(unused_extern_crates)]
+extern crate self as pin_init;
+
 #[doc(hidden)]
 pub mod __internal;
-#[doc(hidden)]
-pub mod macros;
 
 #[cfg(any(feature = "std", feature = "alloc"))]
 mod alloc;
@@ -385,9 +397,10 @@ pub use ::pin_init_internal::pin_data;
 /// ```
 pub use ::pin_init_internal::pinned_drop;
 
-/// Derives the [`Zeroable`] trait for the given struct.
+/// Derives the [`Zeroable`] trait for the given `struct` or `union`.
 ///
-/// This can only be used for structs where every field implements the [`Zeroable`] trait.
+/// This can only be used for `struct`s/`union`s where every field implements the [`Zeroable`]
+/// trait.
 ///
 /// # Examples
 ///
@@ -396,12 +409,53 @@ pub use ::pin_init_internal::pinned_drop;
 ///
 /// #[derive(Zeroable)]
 /// pub struct DriverData {
-///     id: i64,
+///     pub(crate) id: i64,
 ///     buf_ptr: *mut u8,
 ///     len: usize,
 /// }
 /// ```
+///
+/// ```
+/// use pin_init::Zeroable;
+///
+/// #[derive(Zeroable)]
+/// pub union SignCast {
+///     signed: i64,
+///     unsigned: u64,
+/// }
+/// ```
 pub use ::pin_init_internal::Zeroable;
+
+/// Derives the [`Zeroable`] trait for the given `struct` or `union` if all fields implement
+/// [`Zeroable`].
+///
+/// Contrary to the derive macro named [`macro@Zeroable`], this one silently fails when a field
+/// doesn't implement [`Zeroable`].
+///
+/// # Examples
+///
+/// ```
+/// use pin_init::MaybeZeroable;
+///
+/// // implmements `Zeroable`
+/// #[derive(MaybeZeroable)]
+/// pub struct DriverData {
+///     pub(crate) id: i64,
+///     buf_ptr: *mut u8,
+///     len: usize,
+/// }
+///
+/// // does not implmement `Zeroable`
+/// #[derive(MaybeZeroable)]
+/// pub struct DriverData2 {
+///     pub(crate) id: i64,
+///     buf_ptr: *mut u8,
+///     len: usize,
+///     // this field doesn't implement `Zeroable`
+///     other_data: &'static i32,
+/// }
+/// ```
+pub use ::pin_init_internal::MaybeZeroable;
 
 /// Initialize and pin a type directly on the stack.
 ///
@@ -476,7 +530,7 @@ macro_rules! stack_pin_init {
 ///     x: u32,
 /// }
 ///
-/// stack_try_pin_init!(let foo: Foo = try_pin_init!(Foo {
+/// stack_try_pin_init!(let foo: Foo = pin_init!(Foo {
 ///     a <- CMutex::new(42),
 ///     b: Box::try_new(Bar {
 ///         x: 64,
@@ -503,7 +557,7 @@ macro_rules! stack_pin_init {
 ///     x: u32,
 /// }
 ///
-/// stack_try_pin_init!(let foo: Foo =? try_pin_init!(Foo {
+/// stack_try_pin_init!(let foo: Foo =? pin_init!(Foo {
 ///     a <- CMutex::new(42),
 ///     b: Box::try_new(Bar {
 ///         x: 64,
@@ -532,10 +586,10 @@ macro_rules! stack_try_pin_init {
     };
 }
 
-/// Construct an in-place, pinned initializer for `struct`s.
+/// Construct an in-place, fallible pinned initializer for `struct`s.
 ///
-/// This macro defaults the error to [`Infallible`]. If you need a different error, then use
-/// [`try_pin_init!`].
+/// The error type defaults to [`Infallible`]; if you need a different one, write `? Error` at the
+/// end, after the struct initializer.
 ///
 /// The syntax is almost identical to that of a normal `struct` initializer:
 ///
@@ -688,9 +742,11 @@ macro_rules! stack_try_pin_init {
 /// As already mentioned in the examples above, inside of `pin_init!` a `struct` initializer with
 /// the following modifications is expected:
 /// - Fields that you want to initialize in-place have to use `<-` instead of `:`.
+/// - You can use `_: { /* run any user-code here */ },` anywhere where you can place fields in
+///   order to run arbitrary code.
 /// - In front of the initializer you can write `&this in` to have access to a [`NonNull<Self>`]
 ///   pointer named `this` inside of the initializer.
-/// - Using struct update syntax one can place `..Zeroable::zeroed()` at the very end of the
+/// - Using struct update syntax one can place `..Zeroable::init_zeroed()` at the very end of the
 ///   struct, this initializes every field with 0 and then runs all initializers specified in the
 ///   body. This can only be done if [`Zeroable`] is implemented for the struct.
 ///
@@ -698,7 +754,7 @@ macro_rules! stack_try_pin_init {
 ///
 /// ```rust
 /// # use pin_init::*;
-/// # use core::{ptr::addr_of_mut, marker::PhantomPinned};
+/// # use core::marker::PhantomPinned;
 /// #[pin_data]
 /// #[derive(Zeroable)]
 /// struct Buf {
@@ -712,91 +768,22 @@ macro_rules! stack_try_pin_init {
 /// let init = pin_init!(&this in Buf {
 ///     buf: [0; 64],
 ///     // SAFETY: TODO.
-///     ptr: unsafe { addr_of_mut!((*this.as_ptr()).buf).cast() },
+///     ptr: unsafe { (&raw mut (*this.as_ptr()).buf).cast() },
 ///     pin: PhantomPinned,
 /// });
 /// let init = pin_init!(Buf {
 ///     buf: [1; 64],
-///     ..Zeroable::zeroed()
+///     ..Zeroable::init_zeroed()
 /// });
 /// ```
 ///
 /// [`NonNull<Self>`]: core::ptr::NonNull
-// For a detailed example of how this macro works, see the module documentation of the hidden
-// module `macros` inside of `macros.rs`.
-#[macro_export]
-macro_rules! pin_init {
-    ($(&$this:ident in)? $t:ident $(::<$($generics:ty),* $(,)?>)? {
-        $($fields:tt)*
-    }) => {
-        $crate::try_pin_init!($(&$this in)? $t $(::<$($generics),*>)? {
-            $($fields)*
-        }? ::core::convert::Infallible)
-    };
-}
+pub use pin_init_internal::pin_init;
 
-/// Construct an in-place, fallible pinned initializer for `struct`s.
+/// Construct an in-place, fallible initializer for `struct`s.
 ///
-/// If the initialization can complete without error (or [`Infallible`]), then use [`pin_init!`].
-///
-/// You can use the `?` operator or use `return Err(err)` inside the initializer to stop
-/// initialization and return the error.
-///
-/// IMPORTANT: if you have `unsafe` code inside of the initializer you have to ensure that when
-/// initialization fails, the memory can be safely deallocated without any further modifications.
-///
-/// The syntax is identical to [`pin_init!`] with the following exception: you must append `? $type`
-/// after the `struct` initializer to specify the error type you want to use.
-///
-/// # Examples
-///
-/// ```rust
-/// # #![feature(allocator_api)]
-/// # #[path = "../examples/error.rs"] mod error; use error::Error;
-/// use pin_init::{pin_data, try_pin_init, PinInit, InPlaceInit, zeroed};
-///
-/// #[pin_data]
-/// struct BigBuf {
-///     big: Box<[u8; 1024 * 1024 * 1024]>,
-///     small: [u8; 1024 * 1024],
-///     ptr: *mut u8,
-/// }
-///
-/// impl BigBuf {
-///     fn new() -> impl PinInit<Self, Error> {
-///         try_pin_init!(Self {
-///             big: Box::init(zeroed())?,
-///             small: [0; 1024 * 1024],
-///             ptr: core::ptr::null_mut(),
-///         }? Error)
-///     }
-/// }
-/// # let _ = Box::pin_init(BigBuf::new());
-/// ```
-// For a detailed example of how this macro works, see the module documentation of the hidden
-// module `macros` inside of `macros.rs`.
-#[macro_export]
-macro_rules! try_pin_init {
-    ($(&$this:ident in)? $t:ident $(::<$($generics:ty),* $(,)?>)? {
-        $($fields:tt)*
-    }? $err:ty) => {
-        $crate::__init_internal!(
-            @this($($this)?),
-            @typ($t $(::<$($generics),*>)? ),
-            @fields($($fields)*),
-            @error($err),
-            @data(PinData, use_data),
-            @has_data(HasPinData, __pin_data),
-            @construct_closure(pin_init_from_closure),
-            @munch_fields($($fields)*),
-        )
-    }
-}
-
-/// Construct an in-place initializer for `struct`s.
-///
-/// This macro defaults the error to [`Infallible`]. If you need a different error, then use
-/// [`try_init!`].
+/// This macro defaults the error to [`Infallible`]; if you need a different one, write `? Error`
+/// at the end, after the struct initializer.
 ///
 /// The syntax is identical to [`pin_init!`] and its safety caveats also apply:
 /// - `unsafe` code must guarantee either full initialization or return an error and allow
@@ -814,7 +801,7 @@ macro_rules! try_pin_init {
 /// # #[path = "../examples/error.rs"] mod error; use error::Error;
 /// # #[path = "../examples/mutex.rs"] mod mutex; use mutex::*;
 /// # use pin_init::InPlaceInit;
-/// use pin_init::{init, Init, zeroed};
+/// use pin_init::{init, Init, init_zeroed};
 ///
 /// struct BigBuf {
 ///     small: [u8; 1024 * 1024],
@@ -823,85 +810,18 @@ macro_rules! try_pin_init {
 /// impl BigBuf {
 ///     fn new() -> impl Init<Self> {
 ///         init!(Self {
-///             small <- zeroed(),
+///             small <- init_zeroed(),
 ///         })
 ///     }
 /// }
 /// # let _ = Box::init(BigBuf::new());
 /// ```
-// For a detailed example of how this macro works, see the module documentation of the hidden
-// module `macros` inside of `macros.rs`.
-#[macro_export]
-macro_rules! init {
-    ($(&$this:ident in)? $t:ident $(::<$($generics:ty),* $(,)?>)? {
-        $($fields:tt)*
-    }) => {
-        $crate::try_init!($(&$this in)? $t $(::<$($generics),*>)? {
-            $($fields)*
-        }? ::core::convert::Infallible)
-    }
-}
-
-/// Construct an in-place fallible initializer for `struct`s.
-///
-/// If the initialization can complete without error (or [`Infallible`]), then use
-/// [`init!`].
-///
-/// The syntax is identical to [`try_pin_init!`]. You need to specify a custom error
-/// via `? $type` after the `struct` initializer.
-/// The safety caveats from [`try_pin_init!`] also apply:
-/// - `unsafe` code must guarantee either full initialization or return an error and allow
-///   deallocation of the memory.
-/// - the fields are initialized in the order given in the initializer.
-/// - no references to fields are allowed to be created inside of the initializer.
-///
-/// # Examples
-///
-/// ```rust
-/// # #![feature(allocator_api)]
-/// # use core::alloc::AllocError;
-/// # use pin_init::InPlaceInit;
-/// use pin_init::{try_init, Init, zeroed};
-///
-/// struct BigBuf {
-///     big: Box<[u8; 1024 * 1024 * 1024]>,
-///     small: [u8; 1024 * 1024],
-/// }
-///
-/// impl BigBuf {
-///     fn new() -> impl Init<Self, AllocError> {
-///         try_init!(Self {
-///             big: Box::init(zeroed())?,
-///             small: [0; 1024 * 1024],
-///         }? AllocError)
-///     }
-/// }
-/// # let _ = Box::init(BigBuf::new());
-/// ```
-// For a detailed example of how this macro works, see the module documentation of the hidden
-// module `macros` inside of `macros.rs`.
-#[macro_export]
-macro_rules! try_init {
-    ($(&$this:ident in)? $t:ident $(::<$($generics:ty),* $(,)?>)? {
-        $($fields:tt)*
-    }? $err:ty) => {
-        $crate::__init_internal!(
-            @this($($this)?),
-            @typ($t $(::<$($generics),*>)?),
-            @fields($($fields)*),
-            @error($err),
-            @data(InitData, /*no use_data*/),
-            @has_data(HasInitData, __init_data),
-            @construct_closure(init_from_closure),
-            @munch_fields($($fields)*),
-        )
-    }
-}
+pub use pin_init_internal::init;
 
 /// Asserts that a field on a struct using `#[pin_data]` is marked with `#[pin]` ie. that it is
 /// structurally pinned.
 ///
-/// # Example
+/// # Examples
 ///
 /// This will succeed:
 /// ```
@@ -942,7 +862,7 @@ macro_rules! try_init {
 /// }
 ///
 /// impl<T> Foo<T> {
-///     fn project(self: Pin<&mut Self>) -> Pin<&mut T> {
+///     fn project_this(self: Pin<&mut Self>) -> Pin<&mut T> {
 ///         assert_pinned!(Foo<T>, elem, T, inline);
 ///
 ///         // SAFETY: The field is structurally pinned.
@@ -1118,7 +1038,7 @@ pub unsafe trait Init<T: ?Sized, E = Infallible>: PinInit<T, E> {
     ///
     /// ```rust
     /// # #![expect(clippy::disallowed_names)]
-    /// use pin_init::{init, zeroed, Init};
+    /// use pin_init::{init, init_zeroed, Init};
     ///
     /// struct Foo {
     ///     buf: [u8; 1_000_000],
@@ -1131,7 +1051,7 @@ pub unsafe trait Init<T: ?Sized, E = Infallible>: PinInit<T, E> {
     /// }
     ///
     /// let foo = init!(Foo {
-    ///     buf <- zeroed()
+    ///     buf <- init_zeroed()
     /// }).chain(|foo| {
     ///     foo.setup();
     ///     Ok(())
@@ -1214,6 +1134,44 @@ pub const unsafe fn init_from_closure<T: ?Sized, E>(
     f: impl FnOnce(*mut T) -> Result<(), E>,
 ) -> impl Init<T, E> {
     __internal::InitClosure(f, PhantomData)
+}
+
+/// Changes the to be initialized type.
+///
+/// # Safety
+///
+/// - `*mut U` must be castable to `*mut T` and any value of type `T` written through such a
+///   pointer must result in a valid `U`.
+pub const unsafe fn cast_pin_init<T, U, E>(init: impl PinInit<T, E>) -> impl PinInit<U, E> {
+    // SAFETY: initialization delegated to a valid initializer. Cast is valid by function safety
+    // requirements.
+    let res = unsafe { pin_init_from_closure(|ptr: *mut U| init.__pinned_init(ptr.cast::<T>())) };
+    // FIXME: this let binding is required to avoid a compiler error (cycle when computing the opaque
+    // type returned by this function) before Rust 1.81. Remove after MSRV bump.
+    #[allow(
+        clippy::let_and_return,
+        reason = "some clippy versions warn about the let binding"
+    )]
+    res
+}
+
+/// Changes the to be initialized type.
+///
+/// # Safety
+///
+/// - `*mut U` must be castable to `*mut T` and any value of type `T` written through such a
+///   pointer must result in a valid `U`.
+pub const unsafe fn cast_init<T, U, E>(init: impl Init<T, E>) -> impl Init<U, E> {
+    // SAFETY: initialization delegated to a valid initializer. Cast is valid by function safety
+    // requirements.
+    let res = unsafe { init_from_closure(|ptr: *mut U| init.__init(ptr.cast::<T>())) };
+    // FIXME: this let binding is required to avoid a compiler error (cycle when computing the opaque
+    // type returned by this function) before Rust 1.81. Remove after MSRV bump.
+    #[allow(
+        clippy::let_and_return,
+        reason = "some clippy versions warn about the let binding"
+    )]
+    res
 }
 
 /// An initializer that leaves the memory uninitialized.
@@ -1306,20 +1264,131 @@ where
     unsafe { pin_init_from_closure(init) }
 }
 
-// SAFETY: Every type can be initialized by-value.
-unsafe impl<T, E> Init<T, E> for T {
-    unsafe fn __init(self, slot: *mut T) -> Result<(), E> {
-        // SAFETY: TODO.
+/// Construct an initializer in a closure and run it.
+///
+/// Returns an initializer that first runs the closure and then the initializer returned by it.
+///
+/// See also [`init_scope`].
+///
+/// # Examples
+///
+/// ```
+/// # use pin_init::*;
+/// # #[pin_data]
+/// # struct Foo { a: u64, b: isize }
+/// # struct Bar { a: u32, b: isize }
+/// # fn lookup_bar() -> Result<Bar, Error> { todo!() }
+/// # struct Error;
+/// fn init_foo() -> impl PinInit<Foo, Error> {
+///     pin_init_scope(|| {
+///         let bar = lookup_bar()?;
+///         Ok(pin_init!(Foo { a: bar.a.into(), b: bar.b }? Error))
+///     })
+/// }
+/// ```
+///
+/// This initializer will first execute `lookup_bar()`, match on it, if it returned an error, the
+/// initializer itself will fail with that error. If it returned `Ok`, then it will run the
+/// initializer returned by the [`pin_init!`] invocation.
+pub fn pin_init_scope<T, E, F, I>(make_init: F) -> impl PinInit<T, E>
+where
+    F: FnOnce() -> Result<I, E>,
+    I: PinInit<T, E>,
+{
+    // SAFETY:
+    // - If `make_init` returns `Err`, `Err` is returned and `slot` is completely uninitialized,
+    // - If `make_init` returns `Ok`, safety requirement are fulfilled by `init.__pinned_init`.
+    // - The safety requirements of `init.__pinned_init` are fulfilled, since it's being called
+    //   from an initializer.
+    unsafe {
+        pin_init_from_closure(move |slot: *mut T| -> Result<(), E> {
+            let init = make_init()?;
+            init.__pinned_init(slot)
+        })
+    }
+}
+
+/// Construct an initializer in a closure and run it.
+///
+/// Returns an initializer that first runs the closure and then the initializer returned by it.
+///
+/// See also [`pin_init_scope`].
+///
+/// # Examples
+///
+/// ```
+/// # use pin_init::*;
+/// # struct Foo { a: u64, b: isize }
+/// # struct Bar { a: u32, b: isize }
+/// # fn lookup_bar() -> Result<Bar, Error> { todo!() }
+/// # struct Error;
+/// fn init_foo() -> impl Init<Foo, Error> {
+///     init_scope(|| {
+///         let bar = lookup_bar()?;
+///         Ok(init!(Foo { a: bar.a.into(), b: bar.b }? Error))
+///     })
+/// }
+/// ```
+///
+/// This initializer will first execute `lookup_bar()`, match on it, if it returned an error, the
+/// initializer itself will fail with that error. If it returned `Ok`, then it will run the
+/// initializer returned by the [`init!`] invocation.
+pub fn init_scope<T, E, F, I>(make_init: F) -> impl Init<T, E>
+where
+    F: FnOnce() -> Result<I, E>,
+    I: Init<T, E>,
+{
+    // SAFETY:
+    // - If `make_init` returns `Err`, `Err` is returned and `slot` is completely uninitialized,
+    // - If `make_init` returns `Ok`, safety requirement are fulfilled by `init.__init`.
+    // - The safety requirements of `init.__init` are fulfilled, since it's being called from an
+    //   initializer.
+    unsafe {
+        init_from_closure(move |slot: *mut T| -> Result<(), E> {
+            let init = make_init()?;
+            init.__init(slot)
+        })
+    }
+}
+
+// SAFETY: the `__init` function always returns `Ok(())` and initializes every field of `slot`.
+unsafe impl<T> Init<T> for T {
+    unsafe fn __init(self, slot: *mut T) -> Result<(), Infallible> {
+        // SAFETY: `slot` is valid for writes by the safety requirements of this function.
         unsafe { slot.write(self) };
         Ok(())
     }
 }
 
-// SAFETY: Every type can be initialized by-value. `__pinned_init` calls `__init`.
-unsafe impl<T, E> PinInit<T, E> for T {
+// SAFETY: the `__pinned_init` function always returns `Ok(())` and initializes every field of
+// `slot`. Additionally, all pinning invariants of `T` are upheld.
+unsafe impl<T> PinInit<T> for T {
+    unsafe fn __pinned_init(self, slot: *mut T) -> Result<(), Infallible> {
+        // SAFETY: `slot` is valid for writes by the safety requirements of this function.
+        unsafe { slot.write(self) };
+        Ok(())
+    }
+}
+
+// SAFETY: when the `__init` function returns with
+// - `Ok(())`, `slot` was initialized and all pinned invariants of `T` are upheld.
+// - `Err(err)`, slot was not written to.
+unsafe impl<T, E> Init<T, E> for Result<T, E> {
+    unsafe fn __init(self, slot: *mut T) -> Result<(), E> {
+        // SAFETY: `slot` is valid for writes by the safety requirements of this function.
+        unsafe { slot.write(self?) };
+        Ok(())
+    }
+}
+
+// SAFETY: when the `__pinned_init` function returns with
+// - `Ok(())`, `slot` was initialized and all pinned invariants of `T` are upheld.
+// - `Err(err)`, slot was not written to.
+unsafe impl<T, E> PinInit<T, E> for Result<T, E> {
     unsafe fn __pinned_init(self, slot: *mut T) -> Result<(), E> {
-        // SAFETY: TODO.
-        unsafe { self.__init(slot) }
+        // SAFETY: `slot` is valid for writes by the safety requirements of this function.
+        unsafe { slot.write(self?) };
+        Ok(())
     }
 }
 
@@ -1337,6 +1406,33 @@ pub trait InPlaceWrite<T> {
     ///
     /// Does not drop the current value and considers it as uninitialized memory.
     fn write_pin_init<E>(self, init: impl PinInit<T, E>) -> Result<Pin<Self::Initialized>, E>;
+}
+
+impl<T> InPlaceWrite<T> for &'static mut MaybeUninit<T> {
+    type Initialized = &'static mut T;
+
+    fn write_init<E>(self, init: impl Init<T, E>) -> Result<Self::Initialized, E> {
+        let slot = self.as_mut_ptr();
+
+        // SAFETY: `slot` is a valid pointer to uninitialized memory.
+        unsafe { init.__init(slot)? };
+
+        // SAFETY: The above call initialized the memory.
+        unsafe { Ok(self.assume_init_mut()) }
+    }
+
+    fn write_pin_init<E>(self, init: impl PinInit<T, E>) -> Result<Pin<Self::Initialized>, E> {
+        let slot = self.as_mut_ptr();
+
+        // SAFETY: `slot` is a valid pointer to uninitialized memory.
+        //
+        // The `'static` borrow guarantees the data will not be
+        // moved/invalidated until it gets dropped (which is never).
+        unsafe { init.__pinned_init(slot)? };
+
+        // SAFETY: The above call initialized the memory.
+        Ok(Pin::static_mut(unsafe { self.assume_init_mut() }))
+    }
 }
 
 /// Trait facilitating pinned destruction.
@@ -1387,7 +1483,45 @@ pub unsafe trait PinnedDrop: __internal::HasPinData {
 /// ```rust,ignore
 /// let val: Self = unsafe { core::mem::zeroed() };
 /// ```
-pub unsafe trait Zeroable {}
+pub unsafe trait Zeroable {
+    /// Create a new zeroed `Self`.
+    ///
+    /// The returned initializer will write `0x00` to every byte of the given `slot`.
+    #[inline]
+    fn init_zeroed() -> impl Init<Self>
+    where
+        Self: Sized,
+    {
+        init_zeroed()
+    }
+
+    /// Create a `Self` consisting of all zeroes.
+    ///
+    /// Whenever a type implements [`Zeroable`], this function should be preferred over
+    /// [`core::mem::zeroed()`] or using `MaybeUninit<T>::zeroed().assume_init()`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pin_init::{Zeroable, zeroed};
+    ///
+    /// #[derive(Zeroable)]
+    /// struct Point {
+    ///     x: u32,
+    ///     y: u32,
+    /// }
+    ///
+    /// let point: Point = zeroed();
+    /// assert_eq!(point.x, 0);
+    /// assert_eq!(point.y, 0);
+    /// ```
+    fn zeroed() -> Self
+    where
+        Self: Sized,
+    {
+        zeroed()
+    }
+}
 
 /// Marker trait for types that allow `Option<Self>` to be set to all zeroes in order to write
 /// `None` to that location.
@@ -1400,11 +1534,21 @@ pub unsafe trait ZeroableOption {}
 // SAFETY: by the safety requirement of `ZeroableOption`, this is valid.
 unsafe impl<T: ZeroableOption> Zeroable for Option<T> {}
 
-/// Create a new zeroed T.
+// SAFETY: `Option<&T>` is part of the option layout optimization guarantee:
+// <https://doc.rust-lang.org/stable/std/option/index.html#representation>.
+unsafe impl<T> ZeroableOption for &T {}
+// SAFETY: `Option<&mut T>` is part of the option layout optimization guarantee:
+// <https://doc.rust-lang.org/stable/std/option/index.html#representation>.
+unsafe impl<T> ZeroableOption for &mut T {}
+// SAFETY: `Option<NonNull<T>>` is part of the option layout optimization guarantee:
+// <https://doc.rust-lang.org/stable/std/option/index.html#representation>.
+unsafe impl<T> ZeroableOption for NonNull<T> {}
+
+/// Create an initializer for a zeroed `T`.
 ///
 /// The returned initializer will write `0x00` to every byte of the given `slot`.
 #[inline]
-pub fn zeroed<T: Zeroable>() -> impl Init<T> {
+pub fn init_zeroed<T: Zeroable>() -> impl Init<T> {
     // SAFETY: Because `T: Zeroable`, all bytes zero is a valid bit pattern for `T`
     // and because we write all zeroes, the memory is initialized.
     unsafe {
@@ -1413,6 +1557,31 @@ pub fn zeroed<T: Zeroable>() -> impl Init<T> {
             Ok(())
         })
     }
+}
+
+/// Create a `T` consisting of all zeroes.
+///
+/// Whenever a type implements [`Zeroable`], this function should be preferred over
+/// [`core::mem::zeroed()`] or using `MaybeUninit<T>::zeroed().assume_init()`.
+///
+/// # Examples
+///
+/// ```
+/// use pin_init::{Zeroable, zeroed};
+///
+/// #[derive(Zeroable)]
+/// struct Point {
+///     x: u32,
+///     y: u32,
+/// }
+///
+/// let point: Point = zeroed();
+/// assert_eq!(point.x, 0);
+/// assert_eq!(point.y, 0);
+/// ```
+pub const fn zeroed<T: Zeroable>() -> T {
+    // SAFETY:By the type invariants of `Zeroable`, all zeroes is a valid bit pattern for `T`.
+    unsafe { core::mem::zeroed() }
 }
 
 macro_rules! impl_zeroable {
@@ -1446,14 +1615,6 @@ impl_zeroable! {
     // SAFETY: `T: Zeroable` and `UnsafeCell` is `repr(transparent)`.
     {<T: ?Sized + Zeroable>} UnsafeCell<T>,
 
-    // SAFETY: All zeros is equivalent to `None` (option layout optimization guarantee:
-    // <https://doc.rust-lang.org/stable/std/option/index.html#representation>).
-    Option<NonZeroU8>, Option<NonZeroU16>, Option<NonZeroU32>, Option<NonZeroU64>,
-    Option<NonZeroU128>, Option<NonZeroUsize>,
-    Option<NonZeroI8>, Option<NonZeroI16>, Option<NonZeroI32>, Option<NonZeroI64>,
-    Option<NonZeroI128>, Option<NonZeroIsize>,
-    {<T>} Option<NonNull<T>>,
-
     // SAFETY: `null` pointer is valid.
     //
     // We cannot use `T: ?Sized`, since the VTABLE pointer part of fat pointers is not allowed to be
@@ -1472,8 +1633,14 @@ impl_zeroable! {
 }
 
 macro_rules! impl_tuple_zeroable {
-    ($(,)?) => {};
+    ($first:ident, $(,)?) => {
+        #[cfg_attr(all(USE_RUSTC_FEATURES, doc), doc(fake_variadic))]
+        /// Implemented for tuples up to 10 items long.
+        // SAFETY: All elements are zeroable and padding can be zero.
+        unsafe impl<$first: Zeroable> Zeroable for ($first,) {}
+    };
     ($first:ident, $($t:ident),* $(,)?) => {
+        #[cfg_attr(doc, doc(hidden))]
         // SAFETY: All elements are zeroable and padding can be zero.
         unsafe impl<$first: Zeroable, $($t: Zeroable),*> Zeroable for ($first, $($t),*) {}
         impl_tuple_zeroable!($($t),* ,);
@@ -1481,3 +1648,94 @@ macro_rules! impl_tuple_zeroable {
 }
 
 impl_tuple_zeroable!(A, B, C, D, E, F, G, H, I, J);
+
+macro_rules! impl_fn_zeroable_option {
+    ([$($abi:literal),* $(,)?] $args:tt) => {
+        $(impl_fn_zeroable_option!({extern $abi} $args);)*
+        $(impl_fn_zeroable_option!({unsafe extern $abi} $args);)*
+    };
+    ({$($prefix:tt)*} {$(,)?}) => {};
+    ({$($prefix:tt)*} {$ret:ident, $arg:ident $(,)?}) => {
+        #[cfg_attr(all(USE_RUSTC_FEATURES, doc), doc(fake_variadic))]
+        /// Implemented for function pointers with up to 20 arity.
+        // SAFETY: function pointers are part of the option layout optimization:
+        // <https://doc.rust-lang.org/stable/std/option/index.html#representation>.
+        unsafe impl<$ret, $arg> ZeroableOption for $($prefix)* fn($arg) -> $ret {}
+        impl_fn_zeroable_option!({$($prefix)*} {$arg,});
+    };
+    ({$($prefix:tt)*} {$ret:ident, $($rest:ident),* $(,)?}) => {
+        #[cfg_attr(doc, doc(hidden))]
+        // SAFETY: function pointers are part of the option layout optimization:
+        // <https://doc.rust-lang.org/stable/std/option/index.html#representation>.
+        unsafe impl<$ret, $($rest),*> ZeroableOption for $($prefix)* fn($($rest),*) -> $ret {}
+        impl_fn_zeroable_option!({$($prefix)*} {$($rest),*,});
+    };
+}
+
+impl_fn_zeroable_option!(["Rust", "C"] { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U });
+
+macro_rules! impl_non_zero_int_zeroable_option {
+    ($($int:ty),* $(,)?) => {
+        // SAFETY: Safety comment written in the macro invocation.
+        $(unsafe impl ZeroableOption for $int {})*
+    };
+}
+
+impl_non_zero_int_zeroable_option! {
+    // SAFETY: All zeros is equivalent to `None` (option layout optimization guarantee:
+    // <https://doc.rust-lang.org/stable/std/option/index.html#representation>).
+    NonZeroU8, NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU128, NonZeroUsize,
+    NonZeroI8, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI128, NonZeroIsize,
+}
+
+/// This trait allows creating an instance of `Self` which contains exactly one
+/// [structurally pinned value](https://doc.rust-lang.org/std/pin/index.html#projections-and-structural-pinning).
+///
+/// This is useful when using wrapper `struct`s like [`UnsafeCell`] or with new-type `struct`s.
+///
+/// # Examples
+///
+/// ```
+/// # use core::cell::UnsafeCell;
+/// # use pin_init::{pin_data, pin_init, Wrapper};
+///
+/// #[pin_data]
+/// struct Foo {}
+///
+/// #[pin_data]
+/// struct Bar {
+///     #[pin]
+///     content: UnsafeCell<Foo>
+/// };
+///
+/// let foo_initializer = pin_init!(Foo{});
+/// let initializer = pin_init!(Bar {
+///     content <- UnsafeCell::pin_init(foo_initializer)
+/// });
+/// ```
+pub trait Wrapper<T> {
+    /// Creates an pin-initializer for a [`Self`] containing `T` from the `value_init` initializer.
+    fn pin_init<E>(value_init: impl PinInit<T, E>) -> impl PinInit<Self, E>;
+}
+
+impl<T> Wrapper<T> for UnsafeCell<T> {
+    fn pin_init<E>(value_init: impl PinInit<T, E>) -> impl PinInit<Self, E> {
+        // SAFETY: `UnsafeCell<T>` has a compatible layout to `T`.
+        unsafe { cast_pin_init(value_init) }
+    }
+}
+
+impl<T> Wrapper<T> for MaybeUninit<T> {
+    fn pin_init<E>(value_init: impl PinInit<T, E>) -> impl PinInit<Self, E> {
+        // SAFETY: `MaybeUninit<T>` has a compatible layout to `T`.
+        unsafe { cast_pin_init(value_init) }
+    }
+}
+
+#[cfg(all(feature = "unsafe-pinned", CONFIG_RUSTC_HAS_UNSAFE_PINNED))]
+impl<T> Wrapper<T> for core::pin::UnsafePinned<T> {
+    fn pin_init<E>(init: impl PinInit<T, E>) -> impl PinInit<Self, E> {
+        // SAFETY: `UnsafePinned<T>` has a compatible layout to `T`.
+        unsafe { cast_pin_init(init) }
+    }
+}

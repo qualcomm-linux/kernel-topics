@@ -13,7 +13,6 @@
 #include <linux/mount.h>
 #include <linux/mm.h>
 #include <linux/pagemap.h>
-#include "cifspdu.h"
 #include "cifsglob.h"
 #include "cifsproto.h"
 #include "cifs_debug.h"
@@ -134,7 +133,7 @@ static long smb_mnt_get_fsinfo(unsigned int xid, struct cifs_tcon *tcon,
 	int rc = 0;
 	struct smb_mnt_fs_info *fsinf;
 
-	fsinf = kzalloc(sizeof(struct smb_mnt_fs_info), GFP_KERNEL);
+	fsinf = kzalloc_obj(struct smb_mnt_fs_info);
 	if (fsinf == NULL)
 		return -ENOMEM;
 
@@ -217,7 +216,7 @@ static int cifs_shutdown(struct super_block *sb, unsigned long arg)
 	 */
 	case CIFS_GOING_FLAGS_LOGFLUSH:
 	case CIFS_GOING_FLAGS_NOLOGFLUSH:
-		sbi->mnt_cifs_flags |= CIFS_MOUNT_SHUTDOWN;
+		atomic_or(CIFS_MOUNT_SHUTDOWN, &sbi->mnt_cifs_flags);
 		goto shutdown_good;
 	default:
 		rc = -EINVAL;
@@ -506,7 +505,7 @@ long cifs_ioctl(struct file *filep, unsigned int command, unsigned long arg)
 				le16_to_cpu(tcon->ses->server->cipher_type);
 			pkey_inf.Suid = tcon->ses->Suid;
 			memcpy(pkey_inf.auth_key, tcon->ses->auth_key.response,
-					16 /* SMB2_NTLMV2_SESSKEY_SIZE */);
+				  SMB2_NTLMV2_SESSKEY_SIZE);
 			memcpy(pkey_inf.smb3decryptionkey,
 			      tcon->ses->smb3decryptionkey, SMB3_SIGN_KEY_SIZE);
 			memcpy(pkey_inf.smb3encryptionkey,
@@ -588,6 +587,9 @@ long cifs_ioctl(struct file *filep, unsigned int command, unsigned long arg)
 			break;
 		default:
 			cifs_dbg(FYI, "unsupported ioctl\n");
+			trace_smb3_unsupported_ioctl(xid,
+				pSMBFile ? pSMBFile->fid.persistent_fid : 0,
+				command);
 			break;
 	}
 cifs_ioc_exit:

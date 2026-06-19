@@ -397,7 +397,7 @@ static struct usb_request *dwc2_hsotg_ep_alloc_request(struct usb_ep *ep,
 {
 	struct dwc2_hsotg_req *req;
 
-	req = kzalloc(sizeof(*req), flags);
+	req = kzalloc_obj(*req, flags);
 	if (!req)
 		return NULL;
 
@@ -4049,7 +4049,7 @@ static int dwc2_hsotg_ep_enable(struct usb_ep *ep,
 		return -EINVAL;
 	}
 
-	ep_type = desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK;
+	ep_type = usb_endpoint_type(desc);
 	mps = usb_endpoint_maxp(desc);
 	mc = usb_endpoint_maxp_mult(desc);
 
@@ -4603,6 +4603,14 @@ static int dwc2_hsotg_udc_stop(struct usb_gadget *gadget)
 
 	if (!hsotg)
 		return -ENODEV;
+
+	/* Exit clock gating when driver is stopped. */
+	if (hsotg->params.power_down == DWC2_POWER_DOWN_PARAM_NONE &&
+	    hsotg->bus_suspended && !hsotg->params.no_clock_gating) {
+		spin_lock_irqsave(&hsotg->lock, flags);
+		dwc2_gadget_exit_clock_gating(hsotg, 0);
+		spin_unlock_irqrestore(&hsotg->lock, flags);
+	}
 
 	/* all endpoints should be shutdown */
 	for (ep = 1; ep < hsotg->num_of_eps; ep++) {
@@ -5383,20 +5391,34 @@ int dwc2_gadget_enter_hibernation(struct dwc2_hsotg *hsotg)
 	if (gusbcfg & GUSBCFG_ULPI_UTMI_SEL) {
 		/* ULPI interface */
 		gpwrdn |= GPWRDN_ULPI_LATCH_EN_DURING_HIB_ENTRY;
+		dwc2_writel(hsotg, gpwrdn, GPWRDN);
+		udelay(10);
+
+		/* Suspend the Phy Clock */
+		pcgcctl = dwc2_readl(hsotg, PCGCTL);
+		pcgcctl |= PCGCTL_STOPPCLK;
+		dwc2_writel(hsotg, pcgcctl, PCGCTL);
+		udelay(10);
+
+		gpwrdn = dwc2_readl(hsotg, GPWRDN);
+		gpwrdn |= GPWRDN_PMUACTV;
+		dwc2_writel(hsotg, gpwrdn, GPWRDN);
+		udelay(10);
+	} else {
+		/* UTMI+ Interface */
+		dwc2_writel(hsotg, gpwrdn, GPWRDN);
+		udelay(10);
+
+		gpwrdn = dwc2_readl(hsotg, GPWRDN);
+		gpwrdn |= GPWRDN_PMUACTV;
+		dwc2_writel(hsotg, gpwrdn, GPWRDN);
+		udelay(10);
+
+		pcgcctl = dwc2_readl(hsotg, PCGCTL);
+		pcgcctl |= PCGCTL_STOPPCLK;
+		dwc2_writel(hsotg, pcgcctl, PCGCTL);
+		udelay(10);
 	}
-	dwc2_writel(hsotg, gpwrdn, GPWRDN);
-	udelay(10);
-
-	/* Suspend the Phy Clock */
-	pcgcctl = dwc2_readl(hsotg, PCGCTL);
-	pcgcctl |= PCGCTL_STOPPCLK;
-	dwc2_writel(hsotg, pcgcctl, PCGCTL);
-	udelay(10);
-
-	gpwrdn = dwc2_readl(hsotg, GPWRDN);
-	gpwrdn |= GPWRDN_PMUACTV;
-	dwc2_writel(hsotg, gpwrdn, GPWRDN);
-	udelay(10);
 
 	/* Set flag to indicate that we are in hibernation */
 	hsotg->hibernated = 1;

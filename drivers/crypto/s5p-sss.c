@@ -9,11 +9,17 @@
 //
 // Hash part based on omap-sham.c driver.
 
+#include <crypto/aes.h>
+#include <crypto/ctr.h>
+#include <crypto/internal/hash.h>
+#include <crypto/internal/skcipher.h>
+#include <crypto/md5.h>
+#include <crypto/scatterwalk.h>
+#include <crypto/sha1.h>
+#include <crypto/sha2.h>
 #include <linux/clk.h>
-#include <linux/crypto.h>
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
-#include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -22,17 +28,9 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/scatterlist.h>
-
-#include <crypto/ctr.h>
-#include <crypto/aes.h>
-#include <crypto/algapi.h>
-#include <crypto/scatterwalk.h>
-
-#include <crypto/hash.h>
-#include <crypto/md5.h>
-#include <crypto/sha1.h>
-#include <crypto/sha2.h>
-#include <crypto/internal/hash.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/string.h>
 
 #define _SBF(s, v)			((v) << (s))
 
@@ -501,7 +499,7 @@ static int s5p_make_sg_cpy(struct s5p_aes_dev *dev, struct scatterlist *src,
 	void *pages;
 	int len;
 
-	*dst = kmalloc(sizeof(**dst), GFP_ATOMIC);
+	*dst = kmalloc_obj(**dst, GFP_ATOMIC);
 	if (!*dst)
 		return -ENOMEM;
 
@@ -1058,7 +1056,7 @@ static int s5p_hash_copy_sg_lists(struct s5p_hash_reqctx *ctx,
 	if (ctx->bufcnt)
 		n++;
 
-	ctx->sg = kmalloc_array(n, sizeof(*sg), GFP_KERNEL);
+	ctx->sg = kmalloc_objs(*sg, n);
 	if (!ctx->sg) {
 		ctx->error = true;
 		return -ENOMEM;
@@ -2133,7 +2131,7 @@ static struct skcipher_alg algs[] = {
 static int s5p_aes_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	int i, j, err;
+	int i, err;
 	const struct samsung_aes_variant *variant;
 	struct s5p_aes_dev *pdata;
 	struct resource *res;
@@ -2239,8 +2237,11 @@ static int s5p_aes_probe(struct platform_device *pdev)
 
 	for (i = 0; i < ARRAY_SIZE(algs); i++) {
 		err = crypto_register_skcipher(&algs[i]);
-		if (err)
+		if (err) {
+			dev_err(dev, "can't register '%s': %d\n",
+				algs[i].base.cra_name, err);
 			goto err_algs;
+		}
 	}
 
 	if (pdata->use_hash) {
@@ -2267,20 +2268,12 @@ static int s5p_aes_probe(struct platform_device *pdev)
 	return 0;
 
 err_hash:
-	for (j = hash_i - 1; j >= 0; j--)
-		crypto_unregister_ahash(&algs_sha1_md5_sha256[j]);
-
+	crypto_unregister_ahashes(algs_sha1_md5_sha256, hash_i);
 	tasklet_kill(&pdata->hash_tasklet);
 	res->end -= 0x300;
 
 err_algs:
-	if (i < ARRAY_SIZE(algs))
-		dev_err(dev, "can't register '%s': %d\n", algs[i].base.cra_name,
-			err);
-
-	for (j = 0; j < i; j++)
-		crypto_unregister_skcipher(&algs[j]);
-
+	crypto_unregister_skciphers(algs, i);
 	tasklet_kill(&pdata->tasklet);
 
 err_irq:
@@ -2296,15 +2289,13 @@ err_clk:
 static void s5p_aes_remove(struct platform_device *pdev)
 {
 	struct s5p_aes_dev *pdata = platform_get_drvdata(pdev);
-	int i;
 
-	for (i = 0; i < ARRAY_SIZE(algs); i++)
-		crypto_unregister_skcipher(&algs[i]);
+	crypto_unregister_skciphers(algs, ARRAY_SIZE(algs));
 
 	tasklet_kill(&pdata->tasklet);
 	if (pdata->use_hash) {
-		for (i = ARRAY_SIZE(algs_sha1_md5_sha256) - 1; i >= 0; i--)
-			crypto_unregister_ahash(&algs_sha1_md5_sha256[i]);
+		crypto_unregister_ahashes(algs_sha1_md5_sha256,
+					  ARRAY_SIZE(algs_sha1_md5_sha256));
 
 		pdata->res->end -= 0x300;
 		tasklet_kill(&pdata->hash_tasklet);

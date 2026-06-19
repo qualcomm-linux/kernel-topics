@@ -14,29 +14,6 @@
 #include <linux/folio_queue.h>
 
 /**
- * sg_next - return the next scatterlist entry in a list
- * @sg:		The current sg entry
- *
- * Description:
- *   Usually the next entry will be @sg@ + 1, but if this sg element is part
- *   of a chained scatterlist, it could jump to the start of a new
- *   scatterlist array.
- *
- **/
-struct scatterlist *sg_next(struct scatterlist *sg)
-{
-	if (sg_is_last(sg))
-		return NULL;
-
-	sg++;
-	if (unlikely(sg_is_chain(sg)))
-		sg = sg_chain_ptr(sg);
-
-	return sg;
-}
-EXPORT_SYMBOL(sg_next);
-
-/**
  * sg_nents - return total count of entries in scatterlist
  * @sg:		The scatterlist
  *
@@ -88,6 +65,32 @@ int sg_nents_for_len(struct scatterlist *sg, u64 len)
 EXPORT_SYMBOL(sg_nents_for_len);
 
 /**
+ * sg_nents_for_dma - return the count of DMA-capable entries in scatterlist
+ * @sgl:	The scatterlist
+ * @sglen:	The current number of entries
+ * @len:	The maximum length of DMA-capable block
+ *
+ * Description:
+ * Determines the number of entries in @sgl which would be permitted in
+ * DMA-capable transfer if list had been split accordingly, taking into
+ * account chaining as well.
+ *
+ * Returns:
+ *   the number of sgl entries needed
+ *
+ **/
+int sg_nents_for_dma(struct scatterlist *sgl, unsigned int sglen, size_t len)
+{
+	struct scatterlist *sg;
+	int i, nents = 0;
+
+	for_each_sg(sgl, sg, sglen, i)
+		nents += DIV_ROUND_UP(sg_dma_len(sg), len);
+	return nents;
+}
+EXPORT_SYMBOL(sg_nents_for_dma);
+
+/**
  * sg_last - return the last scatterlist entry in a list
  * @sgl:	First entry in the scatterlist
  * @nents:	Number of entries in the scatterlist
@@ -96,9 +99,9 @@ EXPORT_SYMBOL(sg_nents_for_len);
  *   Should only be used casually, it (currently) scans the entire list
  *   to get the last entry.
  *
- *   Note that the @sgl@ pointer passed in need not be the first one,
- *   the important bit is that @nents@ denotes the number of entries that
- *   exist from @sgl@.
+ *   Note that the @sgl pointer passed in need not be the first one,
+ *   the important bit is that @nents denotes the number of entries that
+ *   exist from @sgl.
  *
  **/
 struct scatterlist *sg_last(struct scatterlist *sgl, unsigned int nents)
@@ -165,8 +168,7 @@ static struct scatterlist *sg_kmalloc(unsigned int nents, gfp_t gfp_mask)
 		kmemleak_alloc(ptr, PAGE_SIZE, 1, gfp_mask);
 		return ptr;
 	} else
-		return kmalloc_array(nents, sizeof(struct scatterlist),
-				     gfp_mask);
+		return kmalloc_objs(struct scatterlist, nents, gfp_mask);
 }
 
 static void sg_kfree(struct scatterlist *sg, unsigned int nents)
@@ -368,7 +370,7 @@ EXPORT_SYMBOL(__sg_alloc_table);
  * @gfp_mask:	GFP allocation mask
  *
  *  Description:
- *    Allocate and initialize an sg table. If @nents@ is larger than
+ *    Allocate and initialize an sg table. If @nents is larger than
  *    SG_MAX_SINGLE_ALLOC a chained sg table will be setup.
  *
  **/
@@ -629,8 +631,7 @@ struct scatterlist *sgl_alloc_order(unsigned long long length,
 			return NULL;
 		nalloc++;
 	}
-	sgl = kmalloc_array(nalloc, sizeof(struct scatterlist),
-			    gfp & ~GFP_DMA);
+	sgl = kmalloc_objs(struct scatterlist, nalloc, gfp & ~GFP_DMA);
 	if (!sgl)
 		return NULL;
 
@@ -1122,8 +1123,7 @@ static ssize_t extract_user_to_sg(struct iov_iter *iter,
 	size_t len, off;
 
 	/* We decant the page list into the tail of the scatterlist */
-	pages = (void *)sgtable->sgl +
-		array_size(sg_max, sizeof(struct scatterlist));
+	pages = (void *)sg + array_size(sg_max, sizeof(struct scatterlist));
 	pages -= sg_max;
 
 	do {
@@ -1246,7 +1246,7 @@ static ssize_t extract_kvec_to_sg(struct iov_iter *iter,
 			else
 				page = virt_to_page((void *)kaddr);
 
-			sg_set_page(sg, page, len, off);
+			sg_set_page(sg, page, seg, off);
 			sgtable->nents++;
 			sg++;
 			sg_max--;
@@ -1255,6 +1255,7 @@ static ssize_t extract_kvec_to_sg(struct iov_iter *iter,
 			kaddr += PAGE_SIZE;
 			off = 0;
 		} while (len > 0 && sg_max > 0);
+		ret -= len;
 
 		if (maxsize <= 0 || sg_max == 0)
 			break;
@@ -1408,7 +1409,7 @@ ssize_t extract_iter_to_sg(struct iov_iter *iter, size_t maxsize,
 			   struct sg_table *sgtable, unsigned int sg_max,
 			   iov_iter_extraction_t extraction_flags)
 {
-	if (maxsize == 0)
+	if (maxsize == 0 || sg_max == 0)
 		return 0;
 
 	switch (iov_iter_type(iter)) {

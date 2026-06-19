@@ -78,8 +78,12 @@ static int alloc_masks(struct irq_desc *desc, int node)
 	return 0;
 }
 
-static void desc_smp_init(struct irq_desc *desc, int node,
-			  const struct cpumask *affinity)
+static void irq_redirect_work(struct irq_work *work)
+{
+	handle_irq_desc(container_of(work, struct irq_desc, redirect.work));
+}
+
+static void desc_smp_init(struct irq_desc *desc, int node, const struct cpumask *affinity)
 {
 	if (!affinity)
 		affinity = irq_default_affinity;
@@ -91,6 +95,7 @@ static void desc_smp_init(struct irq_desc *desc, int node,
 #ifdef CONFIG_NUMA
 	desc->irq_common_data.node = node;
 #endif
+	desc->redirect.work = IRQ_WORK_INIT_HARD(irq_redirect_work);
 }
 
 static void free_masks(struct irq_desc *desc)
@@ -115,8 +120,6 @@ static inline void free_masks(struct irq_desc *desc) { }
 static void desc_set_defaults(unsigned int irq, struct irq_desc *desc, int node,
 			      const struct cpumask *affinity, struct module *owner)
 {
-	int cpu;
-
 	desc->irq_common_data.handler_data = NULL;
 	desc->irq_common_data.msi_desc = NULL;
 
@@ -134,8 +137,6 @@ static void desc_set_defaults(unsigned int irq, struct irq_desc *desc, int node,
 	desc->tot_count = 0;
 	desc->name = NULL;
 	desc->owner = owner;
-	for_each_possible_cpu(cpu)
-		*per_cpu_ptr(desc->kstat_irqs, cpu) = (struct irqstat) { };
 	desc_smp_init(desc, node, affinity);
 }
 
@@ -246,8 +247,7 @@ static struct kobject *irq_kobj_base;
 #define IRQ_ATTR_RO(_name) \
 static struct kobj_attribute _name##_attr = __ATTR_RO(_name)
 
-static ssize_t per_cpu_count_show(struct kobject *kobj,
-				  struct kobj_attribute *attr, char *buf)
+static ssize_t per_cpu_count_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct irq_desc *desc = container_of(kobj, struct irq_desc, kobj);
 	ssize_t ret = 0;
@@ -257,112 +257,83 @@ static ssize_t per_cpu_count_show(struct kobject *kobj,
 	for_each_possible_cpu(cpu) {
 		unsigned int c = irq_desc_kstat_cpu(desc, cpu);
 
-		ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s%u", p, c);
+		ret += sysfs_emit_at(buf, ret, "%s%u", p, c);
 		p = ",";
 	}
 
-	ret += scnprintf(buf + ret, PAGE_SIZE - ret, "\n");
+	ret += sysfs_emit_at(buf, ret, "\n");
 	return ret;
 }
 IRQ_ATTR_RO(per_cpu_count);
 
-static ssize_t chip_name_show(struct kobject *kobj,
-			      struct kobj_attribute *attr, char *buf)
+static ssize_t chip_name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct irq_desc *desc = container_of(kobj, struct irq_desc, kobj);
-	ssize_t ret = 0;
 
-	raw_spin_lock_irq(&desc->lock);
-	if (desc->irq_data.chip && desc->irq_data.chip->name) {
-		ret = scnprintf(buf, PAGE_SIZE, "%s\n",
-				desc->irq_data.chip->name);
-	}
-	raw_spin_unlock_irq(&desc->lock);
-
-	return ret;
+	guard(raw_spinlock_irq)(&desc->lock);
+	if (desc->irq_data.chip && desc->irq_data.chip->name)
+		return sysfs_emit(buf, "%s\n", desc->irq_data.chip->name);
+	return 0;
 }
 IRQ_ATTR_RO(chip_name);
 
-static ssize_t hwirq_show(struct kobject *kobj,
-			  struct kobj_attribute *attr, char *buf)
+static ssize_t hwirq_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct irq_desc *desc = container_of(kobj, struct irq_desc, kobj);
-	ssize_t ret = 0;
 
-	raw_spin_lock_irq(&desc->lock);
+	guard(raw_spinlock_irq)(&desc->lock);
 	if (desc->irq_data.domain)
-		ret = sprintf(buf, "%lu\n", desc->irq_data.hwirq);
-	raw_spin_unlock_irq(&desc->lock);
-
-	return ret;
+		return sysfs_emit(buf, "%lu\n", desc->irq_data.hwirq);
+	return 0;
 }
 IRQ_ATTR_RO(hwirq);
 
-static ssize_t type_show(struct kobject *kobj,
-			 struct kobj_attribute *attr, char *buf)
+static ssize_t type_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct irq_desc *desc = container_of(kobj, struct irq_desc, kobj);
-	ssize_t ret = 0;
 
-	raw_spin_lock_irq(&desc->lock);
-	ret = sprintf(buf, "%s\n",
-		      irqd_is_level_type(&desc->irq_data) ? "level" : "edge");
-	raw_spin_unlock_irq(&desc->lock);
-
-	return ret;
+	guard(raw_spinlock_irq)(&desc->lock);
+	return sysfs_emit(buf, "%s\n", irqd_is_level_type(&desc->irq_data) ? "level" : "edge");
 
 }
 IRQ_ATTR_RO(type);
 
-static ssize_t wakeup_show(struct kobject *kobj,
-			   struct kobj_attribute *attr, char *buf)
+static ssize_t wakeup_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct irq_desc *desc = container_of(kobj, struct irq_desc, kobj);
-	ssize_t ret = 0;
 
-	raw_spin_lock_irq(&desc->lock);
-	ret = sprintf(buf, "%s\n", str_enabled_disabled(irqd_is_wakeup_set(&desc->irq_data)));
-	raw_spin_unlock_irq(&desc->lock);
-
-	return ret;
-
+	guard(raw_spinlock_irq)(&desc->lock);
+	return sysfs_emit(buf, "%s\n", str_enabled_disabled(irqd_is_wakeup_set(&desc->irq_data)));
 }
 IRQ_ATTR_RO(wakeup);
 
-static ssize_t name_show(struct kobject *kobj,
-			 struct kobj_attribute *attr, char *buf)
+static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct irq_desc *desc = container_of(kobj, struct irq_desc, kobj);
-	ssize_t ret = 0;
 
-	raw_spin_lock_irq(&desc->lock);
+	guard(raw_spinlock_irq)(&desc->lock);
 	if (desc->name)
-		ret = scnprintf(buf, PAGE_SIZE, "%s\n", desc->name);
-	raw_spin_unlock_irq(&desc->lock);
-
-	return ret;
+		return sysfs_emit(buf, "%s\n", desc->name);
+	return 0;
 }
 IRQ_ATTR_RO(name);
 
-static ssize_t actions_show(struct kobject *kobj,
-			    struct kobj_attribute *attr, char *buf)
+static ssize_t actions_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	struct irq_desc *desc = container_of(kobj, struct irq_desc, kobj);
 	struct irqaction *action;
 	ssize_t ret = 0;
 	char *p = "";
 
-	raw_spin_lock_irq(&desc->lock);
-	for_each_action_of_desc(desc, action) {
-		ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s%s",
-				 p, action->name);
-		p = ",";
+	scoped_guard(raw_spinlock_irq, &desc->lock) {
+		for_each_action_of_desc(desc, action) {
+			ret += sysfs_emit_at(buf, ret, "%s%s", p, action->name);
+			p = ",";
+		}
 	}
-	raw_spin_unlock_irq(&desc->lock);
 
 	if (ret)
-		ret += scnprintf(buf + ret, PAGE_SIZE - ret, "\n");
-
+		ret += sysfs_emit_at(buf, ret, "\n");
 	return ret;
 }
 IRQ_ATTR_RO(actions);
@@ -418,19 +389,14 @@ static int __init irq_sysfs_init(void)
 	int irq;
 
 	/* Prevent concurrent irq alloc/free */
-	irq_lock_sparse();
-
+	guard(mutex)(&sparse_irq_lock);
 	irq_kobj_base = kobject_create_and_add("irq", kernel_kobj);
-	if (!irq_kobj_base) {
-		irq_unlock_sparse();
+	if (!irq_kobj_base)
 		return -ENOMEM;
-	}
 
 	/* Add the already allocated interrupts */
 	for_each_irq_desc(irq, desc)
 		irq_sysfs_add(irq, desc);
-	irq_unlock_sparse();
-
 	return 0;
 }
 postcore_initcall(irq_sysfs_init);
@@ -573,12 +539,12 @@ err:
 	return -ENOMEM;
 }
 
-static int irq_expand_nr_irqs(unsigned int nr)
+static bool irq_expand_nr_irqs(unsigned int nr)
 {
 	if (nr > MAX_SPARSE_IRQS)
-		return -ENOMEM;
+		return false;
 	nr_irqs = nr;
-	return 0;
+	return true;
 }
 
 int __init early_irq_init(void)
@@ -656,11 +622,14 @@ EXPORT_SYMBOL(irq_to_desc);
 static void free_desc(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
-	unsigned long flags;
+	int cpu;
 
-	raw_spin_lock_irqsave(&desc->lock, flags);
-	desc_set_defaults(irq, desc, irq_desc_get_node(desc), NULL, NULL);
-	raw_spin_unlock_irqrestore(&desc->lock, flags);
+	scoped_guard(raw_spinlock_irqsave, &desc->lock)
+		desc_set_defaults(irq, desc, irq_desc_get_node(desc), NULL, NULL);
+
+	for_each_possible_cpu(cpu)
+		*per_cpu_ptr(desc->kstat_irqs, cpu) = (struct irqstat) { };
+
 	delete_irq_desc(irq);
 }
 
@@ -679,24 +648,16 @@ static inline int alloc_descs(unsigned int start, unsigned int cnt, int node,
 	return start;
 }
 
-static int irq_expand_nr_irqs(unsigned int nr)
+static inline bool irq_expand_nr_irqs(unsigned int nr)
 {
-	return -ENOMEM;
+	return false;
 }
 
 void irq_mark_irq(unsigned int irq)
 {
-	mutex_lock(&sparse_irq_lock);
+	guard(mutex)(&sparse_irq_lock);
 	irq_insert_desc(irq, irq_desc + irq);
-	mutex_unlock(&sparse_irq_lock);
 }
-
-#ifdef CONFIG_GENERIC_IRQ_LEGACY
-void irq_init_desc(unsigned int irq)
-{
-	free_desc(irq);
-}
-#endif
 
 #endif /* !CONFIG_SPARSE_IRQ */
 
@@ -765,7 +726,7 @@ EXPORT_SYMBOL_GPL(generic_handle_irq_safe);
  * 		This function must be called from an IRQ context with irq regs
  * 		initialized.
  */
-int generic_handle_domain_irq(struct irq_domain *domain, unsigned int hwirq)
+int generic_handle_domain_irq(struct irq_domain *domain, irq_hw_number_t hwirq)
 {
 	return handle_irq_desc(irq_resolve_mapping(domain, hwirq));
 }
@@ -783,7 +744,7 @@ EXPORT_SYMBOL_GPL(generic_handle_domain_irq);
  * context). If the interrupt is marked as 'enforce IRQ-context only' then
  * the function must be invoked from hard interrupt context.
  */
-int generic_handle_domain_irq_safe(struct irq_domain *domain, unsigned int hwirq)
+int generic_handle_domain_irq_safe(struct irq_domain *domain, irq_hw_number_t hwirq)
 {
 	unsigned long flags;
 	int ret;
@@ -806,11 +767,88 @@ EXPORT_SYMBOL_GPL(generic_handle_domain_irq_safe);
  * 		This function must be called from an NMI context with irq regs
  * 		initialized.
  **/
-int generic_handle_domain_nmi(struct irq_domain *domain, unsigned int hwirq)
+int generic_handle_domain_nmi(struct irq_domain *domain, irq_hw_number_t hwirq)
 {
 	WARN_ON_ONCE(!in_nmi());
 	return handle_irq_desc(irq_resolve_mapping(domain, hwirq));
 }
+
+#ifdef CONFIG_SMP
+static bool demux_redirect_remote(struct irq_desc *desc)
+{
+	guard(raw_spinlock)(&desc->lock);
+	const struct cpumask *m = irq_data_get_effective_affinity_mask(&desc->irq_data);
+	unsigned int target_cpu = READ_ONCE(desc->redirect.target_cpu);
+
+	if (desc->irq_data.chip->irq_pre_redirect)
+		desc->irq_data.chip->irq_pre_redirect(&desc->irq_data);
+
+	/*
+	 * If the interrupt handler is already running on a CPU that's included
+	 * in the interrupt's affinity mask, redirection is not necessary.
+	 */
+	if (cpumask_test_cpu(smp_processor_id(), m))
+		return false;
+
+	/*
+	 * The desc->action check protects against IRQ shutdown: __free_irq() sets
+	 * desc->action to NULL while holding desc->lock, which we also hold.
+	 *
+	 * Calling irq_work_queue_on() here is safe w.r.t. CPU unplugging:
+	 *   - takedown_cpu() schedules multi_cpu_stop() on all active CPUs,
+	 *     including the one that's taken down.
+	 *   - multi_cpu_stop() acts like a barrier, which means all active
+	 *     CPUs go through MULTI_STOP_DISABLE_IRQ and disable hard IRQs
+	 *     *before* the dying CPU runs take_cpu_down() in MULTI_STOP_RUN.
+	 *   - Hard IRQs are re-enabled at the end of multi_cpu_stop(), *after*
+	 *     the dying CPU has run take_cpu_down() in MULTI_STOP_RUN.
+	 *   - Since we run in hard IRQ context, we run either before or after
+	 *     take_cpu_down() but never concurrently.
+	 *   - If we run before take_cpu_down(), the dying CPU hasn't been marked
+	 *     offline yet (it's marked via take_cpu_down() -> __cpu_disable()),
+	 *     so the WARN in irq_work_queue_on() can't occur.
+	 *   - Furthermore, the work item we queue will be flushed later via
+	 *     take_cpu_down() -> cpuhp_invoke_callback_range_nofail() ->
+	 *     smpcfd_dying_cpu() -> irq_work_run().
+	 *   - If we run after take_cpu_down(), target_cpu has been already
+	 *     updated via take_cpu_down() -> __cpu_disable(), which eventually
+	 *     calls irq_do_set_affinity() during IRQ migration. So, target_cpu
+	 *     no longer points to the dying CPU in this case.
+	 */
+	if (desc->action)
+		irq_work_queue_on(&desc->redirect.work, target_cpu);
+
+	return true;
+}
+#else /* CONFIG_SMP */
+static bool demux_redirect_remote(struct irq_desc *desc)
+{
+	return false;
+}
+#endif
+
+/**
+ * generic_handle_demux_domain_irq - Invoke the handler for a hardware interrupt
+ *				     of a demultiplexing domain.
+ * @domain:	The domain where to perform the lookup
+ * @hwirq:	The hardware interrupt number to convert to a logical one
+ *
+ * Returns:	True on success, or false if lookup has failed
+ */
+bool generic_handle_demux_domain_irq(struct irq_domain *domain, irq_hw_number_t hwirq)
+{
+	struct irq_desc *desc = irq_resolve_mapping(domain, hwirq);
+
+	if (unlikely(!desc))
+		return false;
+
+	if (demux_redirect_remote(desc))
+		return true;
+
+	return !handle_irq_desc(desc);
+}
+EXPORT_SYMBOL_GPL(generic_handle_demux_domain_irq);
+
 #endif
 
 /* Dynamic interrupt handling */
@@ -827,11 +865,9 @@ void irq_free_descs(unsigned int from, unsigned int cnt)
 	if (from >= nr_irqs || (from + cnt) > nr_irqs)
 		return;
 
-	mutex_lock(&sparse_irq_lock);
+	guard(mutex)(&sparse_irq_lock);
 	for (i = 0; i < cnt; i++)
 		free_desc(from + i);
-
-	mutex_unlock(&sparse_irq_lock);
 }
 EXPORT_SYMBOL_GPL(irq_free_descs);
 
@@ -848,11 +884,10 @@ EXPORT_SYMBOL_GPL(irq_free_descs);
  *
  * Returns the first irq number or error code
  */
-int __ref
-__irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int node,
-		  struct module *owner, const struct irq_affinity_desc *affinity)
+int __ref __irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int node,
+			    struct module *owner, const struct irq_affinity_desc *affinity)
 {
-	int start, ret;
+	int start;
 
 	if (!cnt)
 		return -EINVAL;
@@ -870,22 +905,17 @@ __irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int node,
 		from = arch_dynirq_lower_bound(from);
 	}
 
-	mutex_lock(&sparse_irq_lock);
+	guard(mutex)(&sparse_irq_lock);
 
 	start = irq_find_free_area(from, cnt);
-	ret = -EEXIST;
 	if (irq >=0 && start != irq)
-		goto unlock;
+		return -EEXIST;
 
 	if (start + cnt > nr_irqs) {
-		ret = irq_expand_nr_irqs(start + cnt);
-		if (ret)
-			goto unlock;
+		if (!irq_expand_nr_irqs(start + cnt))
+			return -ENOMEM;
 	}
-	ret = alloc_descs(start, cnt, node, affinity, owner);
-unlock:
-	mutex_unlock(&sparse_irq_lock);
-	return ret;
+	return alloc_descs(start, cnt, node, affinity, owner);
 }
 EXPORT_SYMBOL_GPL(__irq_alloc_descs);
 
@@ -900,27 +930,27 @@ unsigned int irq_get_next_irq(unsigned int offset)
 	return irq_find_at_or_after(offset);
 }
 
-struct irq_desc *
-__irq_get_desc_lock(unsigned int irq, unsigned long *flags, bool bus,
-		    unsigned int check)
+struct irq_desc *__irq_get_desc_lock(unsigned int irq, unsigned long *flags, bool bus,
+				     unsigned int check)
 {
-	struct irq_desc *desc = irq_to_desc(irq);
+	struct irq_desc *desc;
 
-	if (desc) {
-		if (check & _IRQ_DESC_CHECK) {
-			if ((check & _IRQ_DESC_PERCPU) &&
-			    !irq_settings_is_per_cpu_devid(desc))
-				return NULL;
+	desc = irq_to_desc(irq);
+	if (!desc)
+		return NULL;
 
-			if (!(check & _IRQ_DESC_PERCPU) &&
-			    irq_settings_is_per_cpu_devid(desc))
-				return NULL;
-		}
+	if (check & _IRQ_DESC_CHECK) {
+		if ((check & _IRQ_DESC_PERCPU) && !irq_settings_is_per_cpu_devid(desc))
+			return NULL;
 
-		if (bus)
-			chip_bus_lock(desc);
-		raw_spin_lock_irqsave(&desc->lock, *flags);
+		if (!(check & _IRQ_DESC_PERCPU) && irq_settings_is_per_cpu_devid(desc))
+			return NULL;
 	}
+
+	if (bus)
+		chip_bus_lock(desc);
+	raw_spin_lock_irqsave(&desc->lock, *flags);
+
 	return desc;
 }
 
@@ -932,43 +962,21 @@ void __irq_put_desc_unlock(struct irq_desc *desc, unsigned long flags, bool bus)
 		chip_bus_sync_unlock(desc);
 }
 
-int irq_set_percpu_devid_partition(unsigned int irq,
-				   const struct cpumask *affinity)
+int irq_set_percpu_devid(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
 
 	if (!desc || desc->percpu_enabled)
 		return -EINVAL;
 
-	desc->percpu_enabled = kzalloc(sizeof(*desc->percpu_enabled), GFP_KERNEL);
+	desc->percpu_enabled = kzalloc_obj(*desc->percpu_enabled);
 
 	if (!desc->percpu_enabled)
 		return -ENOMEM;
 
-	desc->percpu_affinity = affinity ? : cpu_possible_mask;
-
 	irq_set_percpu_devid_flags(irq);
 	return 0;
 }
-
-int irq_set_percpu_devid(unsigned int irq)
-{
-	return irq_set_percpu_devid_partition(irq, NULL);
-}
-
-int irq_get_percpu_devid_partition(unsigned int irq, struct cpumask *affinity)
-{
-	struct irq_desc *desc = irq_to_desc(irq);
-
-	if (!desc || !desc->percpu_enabled)
-		return -EINVAL;
-
-	if (affinity)
-		cpumask_copy(affinity, desc->percpu_affinity);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(irq_get_percpu_devid_partition);
 
 void kstat_incr_irq_this_cpu(unsigned int irq)
 {

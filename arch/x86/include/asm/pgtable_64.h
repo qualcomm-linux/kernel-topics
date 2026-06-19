@@ -19,10 +19,8 @@
 extern p4d_t level4_kernel_pgt[512];
 extern p4d_t level4_ident_pgt[512];
 extern pud_t level3_kernel_pgt[512];
-extern pud_t level3_ident_pgt[512];
 extern pmd_t level2_kernel_pgt[512];
 extern pmd_t level2_fixmap_pgt[512];
-extern pmd_t level2_ident_pgt[512];
 extern pte_t level1_fixmap_pgt[512 * FIXMAP_PMD_NUM];
 extern pgd_t init_top_pgt[];
 
@@ -41,11 +39,9 @@ static inline void sync_initial_page_table(void) { }
 	pr_err("%s:%d: bad pud %p(%016lx)\n",		\
 	       __FILE__, __LINE__, &(e), pud_val(e))
 
-#if CONFIG_PGTABLE_LEVELS >= 5
 #define p4d_ERROR(e)					\
 	pr_err("%s:%d: bad p4d %p(%016lx)\n",		\
 	       __FILE__, __LINE__, &(e), p4d_val(e))
-#endif
 
 #define pgd_ERROR(e)					\
 	pr_err("%s:%d: bad pgd %p(%016lx)\n",		\

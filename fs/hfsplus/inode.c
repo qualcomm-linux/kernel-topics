@@ -38,12 +38,14 @@ static void hfsplus_write_failed(struct address_space *mapping, loff_t to)
 	}
 }
 
-int hfsplus_write_begin(struct file *file, struct address_space *mapping,
-		loff_t pos, unsigned len, struct folio **foliop, void **fsdata)
+int hfsplus_write_begin(const struct kiocb *iocb,
+			struct address_space *mapping, loff_t pos,
+			unsigned len, struct folio **foliop,
+			void **fsdata)
 {
 	int ret;
 
-	ret = cont_write_begin(file, mapping, pos, len, foliop, fsdata,
+	ret = cont_write_begin(iocb, mapping, pos, len, foliop, fsdata,
 				hfsplus_get_block,
 				&HFSPLUS_I(mapping->host)->phys_size);
 	if (unlikely(ret))
@@ -178,13 +180,29 @@ const struct dentry_operations hfsplus_dentry_operations = {
 	.d_compare    = hfsplus_compare_dentry,
 };
 
-static void hfsplus_get_perms(struct inode *inode,
-		struct hfsplus_perm *perms, int dir)
+static int hfsplus_get_perms(struct inode *inode,
+			     struct hfsplus_perm *perms, int dir)
 {
 	struct hfsplus_sb_info *sbi = HFSPLUS_SB(inode->i_sb);
 	u16 mode;
 
 	mode = be16_to_cpu(perms->mode);
+	if (dir) {
+		if (mode && !S_ISDIR(mode))
+			goto bad_type;
+	} else if (mode) {
+		switch (mode & S_IFMT) {
+		case S_IFREG:
+		case S_IFLNK:
+		case S_IFCHR:
+		case S_IFBLK:
+		case S_IFIFO:
+		case S_IFSOCK:
+			break;
+		default:
+			goto bad_type;
+		}
+	}
 
 	i_uid_write(inode, be32_to_cpu(perms->owner));
 	if ((test_bit(HFSPLUS_SB_UID, &sbi->flags)) || (!i_uid_read(inode) && !mode))
@@ -210,6 +228,10 @@ static void hfsplus_get_perms(struct inode *inode,
 		inode->i_flags |= S_APPEND;
 	else
 		inode->i_flags &= ~S_APPEND;
+	return 0;
+bad_type:
+	pr_err("invalid file type 0%04o for inode %llu\n", mode, inode->i_ino);
+	return -EIO;
 }
 
 static int hfsplus_file_open(struct inode *inode, struct file *file)
@@ -302,8 +324,13 @@ int hfsplus_file_fsync(struct file *file, loff_t start, loff_t end,
 {
 	struct inode *inode = file->f_mapping->host;
 	struct hfsplus_inode_info *hip = HFSPLUS_I(inode);
+	struct super_block *sb = inode->i_sb;
 	struct hfsplus_sb_info *sbi = HFSPLUS_SB(inode->i_sb);
+	struct hfsplus_vh *vhdr = sbi->s_vhdr;
 	int error = 0, error2;
+
+	hfs_dbg("inode->i_ino %llu, start %llu, end %llu\n",
+		inode->i_ino, start, end);
 
 	error = file_write_and_wait_range(file, start, end);
 	if (error)
@@ -318,33 +345,51 @@ int hfsplus_file_fsync(struct file *file, loff_t start, loff_t end,
 	/*
 	 * And explicitly write out the btrees.
 	 */
-	if (test_and_clear_bit(HFSPLUS_I_CAT_DIRTY, &hip->flags))
+	if (test_and_clear_bit(HFSPLUS_I_CAT_DIRTY,
+				&HFSPLUS_I(HFSPLUS_CAT_TREE_I(sb))->flags)) {
+		clear_bit(HFSPLUS_I_CAT_DIRTY, &hip->flags);
 		error = filemap_write_and_wait(sbi->cat_tree->inode->i_mapping);
+	}
 
-	if (test_and_clear_bit(HFSPLUS_I_EXT_DIRTY, &hip->flags)) {
+	if (test_and_clear_bit(HFSPLUS_I_EXT_DIRTY,
+				&HFSPLUS_I(HFSPLUS_EXT_TREE_I(sb))->flags)) {
+		clear_bit(HFSPLUS_I_EXT_DIRTY, &hip->flags);
 		error2 =
 			filemap_write_and_wait(sbi->ext_tree->inode->i_mapping);
 		if (!error)
 			error = error2;
 	}
 
-	if (test_and_clear_bit(HFSPLUS_I_ATTR_DIRTY, &hip->flags)) {
-		if (sbi->attr_tree) {
+	if (sbi->attr_tree) {
+		if (test_and_clear_bit(HFSPLUS_I_ATTR_DIRTY,
+				&HFSPLUS_I(HFSPLUS_ATTR_TREE_I(sb))->flags)) {
+			clear_bit(HFSPLUS_I_ATTR_DIRTY, &hip->flags);
 			error2 =
 				filemap_write_and_wait(
 					    sbi->attr_tree->inode->i_mapping);
 			if (!error)
 				error = error2;
-		} else {
-			pr_err("sync non-existent attributes tree\n");
 		}
+	} else {
+		if (test_and_clear_bit(HFSPLUS_I_ATTR_DIRTY, &hip->flags))
+			pr_err("sync non-existent attributes tree\n");
 	}
 
-	if (test_and_clear_bit(HFSPLUS_I_ALLOC_DIRTY, &hip->flags)) {
+	if (test_and_clear_bit(HFSPLUS_I_ALLOC_DIRTY,
+				&HFSPLUS_I(sbi->alloc_file)->flags)) {
+		clear_bit(HFSPLUS_I_ALLOC_DIRTY, &hip->flags);
 		error2 = filemap_write_and_wait(sbi->alloc_file->i_mapping);
 		if (!error)
 			error = error2;
 	}
+
+	mutex_lock(&sbi->vh_mutex);
+	hfsplus_prepare_volume_header_for_commit(vhdr);
+	mutex_unlock(&sbi->vh_mutex);
+
+	error2 = hfsplus_commit_superblock(inode->i_sb);
+	if (!error)
+		error = error2;
 
 	if (!test_bit(HFSPLUS_SB_NOBARRIER, &sbi->flags))
 		blkdev_issue_flush(inode->i_sb->s_bdev);
@@ -362,12 +407,26 @@ static const struct inode_operations hfsplus_file_inode_operations = {
 	.fileattr_set	= hfsplus_fileattr_set,
 };
 
+static const struct inode_operations hfsplus_symlink_inode_operations = {
+	.get_link	= page_get_link,
+	.setattr	= hfsplus_setattr,
+	.getattr	= hfsplus_getattr,
+	.listxattr	= hfsplus_listxattr,
+};
+
+static const struct inode_operations hfsplus_special_inode_operations = {
+	.setattr	= hfsplus_setattr,
+	.getattr	= hfsplus_getattr,
+	.listxattr	= hfsplus_listxattr,
+};
+
 static const struct file_operations hfsplus_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
 	.write_iter	= generic_file_write_iter,
-	.mmap		= generic_file_mmap,
+	.mmap_prepare	= generic_file_mmap_prepare,
 	.splice_read	= filemap_splice_read,
+	.splice_write	= iter_file_splice_write,
 	.fsync		= hfsplus_file_fsync,
 	.open		= hfsplus_file_open,
 	.release	= hfsplus_file_release,
@@ -420,12 +479,17 @@ struct inode *hfsplus_new_inode(struct super_block *sb, struct inode *dir,
 		hip->clump_blocks = sbi->data_clump_blocks;
 	} else if (S_ISLNK(inode->i_mode)) {
 		sbi->file_count++;
-		inode->i_op = &page_symlink_inode_operations;
+		inode->i_op = &hfsplus_symlink_inode_operations;
 		inode_nohighmem(inode);
 		inode->i_mapping->a_ops = &hfsplus_aops;
 		hip->clump_blocks = 1;
+	} else if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode) ||
+		   S_ISFIFO(inode->i_mode) || S_ISSOCK(inode->i_mode)) {
+		sbi->file_count++;
+		inode->i_op = &hfsplus_special_inode_operations;
 	} else
 		sbi->file_count++;
+
 	insert_inode_hash(inode);
 	mark_inode_dirty(inode);
 	hfsplus_mark_mdb_dirty(sb);
@@ -513,7 +577,9 @@ int hfsplus_cat_read_inode(struct inode *inode, struct hfs_find_data *fd)
 		}
 		hfs_bnode_read(fd->bnode, &entry, fd->entryoffset,
 					sizeof(struct hfsplus_cat_folder));
-		hfsplus_get_perms(inode, &folder->permissions, 1);
+		res = hfsplus_get_perms(inode, &folder->permissions, 1);
+		if (res)
+			goto out;
 		set_nlink(inode, 1);
 		inode->i_size = 2 + be32_to_cpu(folder->valence);
 		inode_set_atime_to_ts(inode, hfsp_mt2ut(folder->access_date));
@@ -542,7 +608,9 @@ int hfsplus_cat_read_inode(struct inode *inode, struct hfs_find_data *fd)
 
 		hfsplus_inode_read_fork(inode, HFSPLUS_IS_RSRC(inode) ?
 					&file->rsrc_fork : &file->data_fork);
-		hfsplus_get_perms(inode, &file->permissions, 0);
+		res = hfsplus_get_perms(inode, &file->permissions, 0);
+		if (res)
+			goto out;
 		set_nlink(inode, 1);
 		if (S_ISREG(inode->i_mode)) {
 			if (file->permissions.dev)
@@ -552,10 +620,11 @@ int hfsplus_cat_read_inode(struct inode *inode, struct hfs_find_data *fd)
 			inode->i_fop = &hfsplus_file_operations;
 			inode->i_mapping->a_ops = &hfsplus_aops;
 		} else if (S_ISLNK(inode->i_mode)) {
-			inode->i_op = &page_symlink_inode_operations;
+			inode->i_op = &hfsplus_symlink_inode_operations;
 			inode_nohighmem(inode);
 			inode->i_mapping->a_ops = &hfsplus_aops;
 		} else {
+			inode->i_op = &hfsplus_special_inode_operations;
 			init_special_inode(inode, inode->i_mode,
 					   be32_to_cpu(file->permissions.dev));
 		}
@@ -576,9 +645,12 @@ out:
 int hfsplus_cat_write_inode(struct inode *inode)
 {
 	struct inode *main_inode = inode;
+	struct hfs_btree *tree = HFSPLUS_SB(inode->i_sb)->cat_tree;
 	struct hfs_find_data fd;
 	hfsplus_cat_entry entry;
 	int res = 0;
+
+	hfs_dbg("inode->i_ino %llu\n", inode->i_ino);
 
 	if (HFSPLUS_IS_RSRC(inode))
 		main_inode = HFSPLUS_I(inode)->rsrc_inode;
@@ -586,7 +658,7 @@ int hfsplus_cat_write_inode(struct inode *inode)
 	if (!main_inode->i_nlink)
 		return 0;
 
-	if (hfs_find_init(HFSPLUS_SB(main_inode->i_sb)->cat_tree, &fd))
+	if (hfs_find_init(tree, &fd))
 		/* panic? */
 		return -EIO;
 
@@ -648,13 +720,23 @@ int hfsplus_cat_write_inode(struct inode *inode)
 					 sizeof(struct hfsplus_cat_file));
 	}
 
+	res = hfs_btree_write(tree);
+	if (res) {
+		pr_err("b-tree write err: %d, ino %llu\n",
+		       res, inode->i_ino);
+		goto out;
+	}
+
+	set_bit(HFSPLUS_I_CAT_DIRTY,
+		&HFSPLUS_I(HFSPLUS_CAT_TREE_I(inode->i_sb))->flags);
 	set_bit(HFSPLUS_I_CAT_DIRTY, &HFSPLUS_I(inode)->flags);
 out:
 	hfs_find_exit(&fd);
+
 	return res;
 }
 
-int hfsplus_fileattr_get(struct dentry *dentry, struct fileattr *fa)
+int hfsplus_fileattr_get(struct dentry *dentry, struct file_kattr *fa)
 {
 	struct inode *inode = d_inode(dentry);
 	struct hfsplus_inode_info *hip = HFSPLUS_I(inode);
@@ -673,7 +755,7 @@ int hfsplus_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 }
 
 int hfsplus_fileattr_set(struct mnt_idmap *idmap,
-			 struct dentry *dentry, struct fileattr *fa)
+			 struct dentry *dentry, struct file_kattr *fa)
 {
 	struct inode *inode = d_inode(dentry);
 	struct hfsplus_inode_info *hip = HFSPLUS_I(inode);

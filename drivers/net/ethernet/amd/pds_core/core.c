@@ -402,6 +402,7 @@ err_out_uninit:
 
 static struct pdsc_viftype pdsc_viftype_defaults[] = {
 	[PDS_DEV_TYPE_FWCTL] = { .name = PDS_DEV_TYPE_FWCTL_STR,
+				 .enabled = true,
 				 .vif_id = PDS_DEV_TYPE_FWCTL,
 				 .dl_id = -1 },
 	[PDS_DEV_TYPE_VDPA] = { .name = PDS_DEV_TYPE_VDPA_STR,
@@ -414,8 +415,8 @@ static int pdsc_viftypes_init(struct pdsc *pdsc)
 {
 	enum pds_core_vif_types vt;
 
-	pdsc->viftype_status = kzalloc(sizeof(pdsc_viftype_defaults),
-				       GFP_KERNEL);
+	pdsc->viftype_status = kzalloc_objs(*pdsc->viftype_status,
+					    ARRAY_SIZE(pdsc_viftype_defaults));
 	if (!pdsc->viftype_status)
 		return -ENOMEM;
 
@@ -430,9 +431,6 @@ static int pdsc_viftypes_init(struct pdsc *pdsc)
 
 		/* See what the Core device has for support */
 		vt_support = !!le16_to_cpu(pdsc->dev_ident.vif_types[vt]);
-
-		if (vt == PDS_DEV_TYPE_FWCTL)
-			pdsc->viftype_status[vt].enabled = true;
 
 		dev_dbg(pdsc->dev, "VIF %s is %ssupported\n",
 			pdsc->viftype_status[vt].name,

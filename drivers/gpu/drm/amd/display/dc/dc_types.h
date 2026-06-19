@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-15 Advanced Micro Devices, Inc.
+ * Copyright 2012-2026 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -175,6 +175,7 @@ struct dc_panel_patch {
 	unsigned int embedded_tiled_slave;
 	unsigned int disable_fams;
 	unsigned int skip_avmute;
+	unsigned int skip_audio_sab_check;
 	unsigned int mst_start_top_delay;
 	unsigned int remove_sink_ext_caps;
 	unsigned int disable_colorimetry;
@@ -184,6 +185,10 @@ struct dc_panel_patch {
 	unsigned int wait_after_dpcd_poweroff_ms;
 };
 
+/**
+ * struct dc_edid_caps - Capabilities read from EDID.
+ * @analog: Whether the monitor is analog. Used by DVI-I handling.
+ */
 struct dc_edid_caps {
 	/* sink identification */
 	uint16_t manufacturer_id;
@@ -200,6 +205,8 @@ struct dc_edid_caps {
 	uint32_t audio_latency;
 	uint32_t video_latency;
 
+	unsigned char freesync_vcp_code;
+
 	uint8_t qs_bit;
 	uint8_t qy_bit;
 
@@ -210,6 +217,9 @@ struct dc_edid_caps {
 
 	bool edid_hdmi;
 	bool hdr_supported;
+	bool rr_capable;
+	bool scdc_present;
+	bool analog;
 
 	struct dc_panel_patch panel_patch;
 };
@@ -262,10 +272,12 @@ enum dc_timing_source {
 	TIMING_SOURCE_EDID_4BYTE,
 	TIMING_SOURCE_EDID_CEA_DISPLAYID_VTDB,
 	TIMING_SOURCE_EDID_CEA_RID,
+	TIMING_SOURCE_EDID_DISPLAYID_TYPE5,
 	TIMING_SOURCE_VBIOS,
 	TIMING_SOURCE_CV,
 	TIMING_SOURCE_TV,
 	TIMING_SOURCE_HDMI_VIC,
+	TIMING_SOURCE_CEA_VIC,
 
 	/* implicitly specified by display device, still safe but less important*/
 	TIMING_SOURCE_DEFAULT,
@@ -344,7 +356,8 @@ enum dc_connection_type {
 	dc_connection_none,
 	dc_connection_single,
 	dc_connection_mst_branch,
-	dc_connection_sst_branch
+	dc_connection_sst_branch,
+	dc_connection_analog_load
 };
 
 struct dc_csc_adjustments {
@@ -560,12 +573,24 @@ struct dc_info_packet_128 {
 	uint8_t sb[128];
 };
 
+struct dc_edid_read_policy {
+	uint32_t max_retry_count;
+	uint32_t delay_time_ms;
+	uint32_t ignore_checksum;
+};
+
 #define DC_PLANE_UPDATE_TIMES_MAX 10
 
 struct dc_plane_flip_time {
 	unsigned int time_elapsed_in_us[DC_PLANE_UPDATE_TIMES_MAX];
 	unsigned int index;
 	unsigned int prev_update_time_in_us;
+};
+
+enum dc_alpm_mode {
+	DC_ALPM_AUXWAKE = 0,
+	DC_ALPM_AUXLESS = 1,
+	DC_ALPM_UNSUPPORTED = 0xF,
 };
 
 enum dc_psr_state {
@@ -613,6 +638,7 @@ struct psr_config {
 	unsigned int line_time_in_us;
 	uint8_t rate_control_caps;
 	uint16_t dsc_slice_height;
+	bool os_request_force_ffu;
 };
 
 union dmcu_psr_level {
@@ -725,6 +751,7 @@ struct psr_context {
 	unsigned int line_time_in_us;
 	uint8_t rate_control_caps;
 	uint16_t dsc_slice_height;
+	bool os_request_force_ffu;
 };
 
 struct colorspace_transform {
@@ -917,6 +944,12 @@ enum dc_psr_version {
 	DC_PSR_VERSION_UNSUPPORTED		= 0xFFFFFFFF,
 };
 
+enum dc_replay_version {
+	DC_FREESYNC_REPLAY = 0,
+	DC_VESA_PANEL_REPLAY = 1,
+	DC_REPLAY_VERSION_UNSUPPORTED = 0XFF,
+};
+
 /* Possible values of display_endpoint_id.endpoint */
 enum display_endpoint_type {
 	DISPLAY_ENDPOINT_PHY = 0, /* Physical connector. */
@@ -931,6 +964,13 @@ enum display_endpoint_type {
 struct display_endpoint_id {
 	struct graphics_object_id link_id;
 	enum display_endpoint_type ep_type;
+};
+
+enum dc_panel_type {
+	PANEL_TYPE_NONE = 0, // UNKONWN, not determined yet
+	PANEL_TYPE_LCD = 1,
+	PANEL_TYPE_OLED = 2,
+	PANEL_TYPE_MINILED = 3,
 };
 
 enum backlight_control_type {
@@ -1048,6 +1088,7 @@ enum replay_coasting_vtotal_type {
 	PR_COASTING_TYPE_STATIC,
 	PR_COASTING_TYPE_FULL_SCREEN_VIDEO,
 	PR_COASTING_TYPE_TEST_HARNESS,
+	PR_COASTING_TYPE_VIDEO_CONFERENCING_V2,
 	PR_COASTING_TYPE_NUM,
 };
 
@@ -1089,7 +1130,8 @@ union replay_low_refresh_rate_enable_options {
 	struct {
 	//BIT[0-3]: Replay Low Hz Support control
 		unsigned int ENABLE_LOW_RR_SUPPORT          :1;
-		unsigned int RESERVED_1_3                   :3;
+		unsigned int SKIP_ASIC_CHECK                :1;
+		unsigned int RESERVED_2_3                   :2;
 	//BIT[4-15]: Replay Low Hz Enable Scenarios
 		unsigned int ENABLE_STATIC_SCREEN           :1;
 		unsigned int ENABLE_FULL_SCREEN_VIDEO       :1;
@@ -1102,7 +1144,22 @@ union replay_low_refresh_rate_enable_options {
 	unsigned int raw;
 };
 
+union replay_optimization {
+	struct {
+		//BIT[0-1]: Replay Teams Optimization
+		unsigned int TEAMS_OPTIMIZATION_VER_1           :1;
+		unsigned int TEAMS_OPTIMIZATION_VER_2           :1;
+		//BIT[2]: Replay Live Capture with CVT
+		unsigned int LIVE_CAPTURE_WITH_CVT              :1;
+		unsigned int RESERVED_3                         :1;
+	} bits;
+
+	unsigned int raw;
+};
+
 struct replay_config {
+	/* Replay version */
+	enum dc_replay_version replay_version;
 	/* Replay feature is supported */
 	bool replay_supported;
 	/* Replay caps support DPCD & EDID caps*/
@@ -1129,6 +1186,22 @@ struct replay_config {
 	union replay_low_refresh_rate_enable_options low_rr_enable_options;
 	/* Replay coasting vtotal is within low refresh rate range. */
 	bool low_rr_activated;
+	/* Replay low refresh rate supported*/
+	bool low_rr_supported;
+	/* Replay Video Conferencing Optimization Enabled */
+	bool replay_video_conferencing_optimization_enabled;
+	/* Replay alpm mode */
+	enum dc_alpm_mode alpm_mode;
+	/* Replay full screen only */
+	bool os_request_force_ffu;
+	/* Replay optimization */
+	union replay_optimization replay_optimization;
+	/* Replay sub feature Frame Skipping is supported */
+	bool frame_skip_supported;
+	/* Replay Received Frame Skipping Error HPD. */
+	bool received_frame_skipping_error_hpd;
+	/* Live capture with CVT is activated */
+	bool live_capture_with_cvt_activated;
 };
 
 /* Replay feature flags*/
@@ -1151,6 +1224,10 @@ struct replay_settings {
 	uint32_t coasting_vtotal_table[PR_COASTING_TYPE_NUM];
 	/* Defer Update Coasting vtotal table */
 	uint32_t defer_update_coasting_vtotal_table[PR_COASTING_TYPE_NUM];
+	/* Skip frame number table */
+	uint32_t frame_skip_number_table[PR_COASTING_TYPE_NUM];
+	/* Defer skip frame number table */
+	uint32_t defer_frame_skip_number_table[PR_COASTING_TYPE_NUM];
 	/* Maximum link off frame count */
 	uint32_t link_off_frame_count;
 	/* Replay pseudo vtotal for low refresh rate*/
@@ -1159,6 +1236,10 @@ struct replay_settings {
 	uint16_t last_pseudo_vtotal;
 	/* Replay desync error */
 	uint32_t replay_desync_error_fail_count;
+	/* The frame skip number dal send to DMUB */
+	uint16_t frame_skip_number;
+	/* Current Panel Replay events */
+	uint32_t replay_events;
 };
 
 /* To split out "global" and "per-panel" config settings.
@@ -1183,7 +1264,7 @@ struct dc_panel_config {
 		unsigned int max_nonboost_brightness_millinits;
 		unsigned int min_brightness_millinits;
 	} nits_brightness;
-	/* PSR */
+	/* PSR/Replay */
 	struct psr {
 		bool disable_psr;
 		bool disallow_psrsu;
@@ -1191,7 +1272,10 @@ struct dc_panel_config {
 		bool rc_disable;
 		bool rc_allow_static_screen;
 		bool rc_allow_fullscreen_VPB;
+		bool read_psrcap_again;
 		unsigned int replay_enable_option;
+		bool enable_frame_skipping;
+		bool enable_teams_optimization;
 	} psr;
 	/* ABM */
 	struct varib {
@@ -1208,6 +1292,31 @@ struct dc_panel_config {
 	struct ilr {
 		bool optimize_edp_link_rate; /* eDP ILR */
 	} ilr;
+	/* Adaptive VariBright*/
+	struct adaptive_vb {
+		bool disable_adaptive_vb;
+		unsigned int default_abm_vb_levels;        // default value = 0xDCAA6414
+		unsigned int default_cacp_vb_levels;
+		unsigned int default_abm_vb_hdr_levels;    // default value = 0xB4805A40
+		unsigned int default_cacp_vb_hdr_levels;
+		unsigned int abm_scaling_factors;          // default value = 0x23210012
+		unsigned int cacp_scaling_factors;
+		unsigned int battery_life_configures;      // default value = 0x0A141E
+		unsigned int abm_backlight_adaptive_pwl_1; // default value = 0x6A4F7244
+		unsigned int abm_backlight_adaptive_pwl_2; // default value = 0x4C615659
+		unsigned int abm_backlight_adaptive_pwl_3; // default value = 0x0064
+		unsigned int cacp_backlight_adaptive_pwl_1;
+		unsigned int cacp_backlight_adaptive_pwl_2;
+		unsigned int cacp_backlight_adaptive_pwl_3;
+	} adaptive_vb;
+	/* Ramless Idle Opt*/
+	struct rio {
+		bool disable_rio;
+	} rio;
+};
+
+struct mccs_caps {
+	bool freesync_supported;
 };
 
 #define MAX_SINKS_PER_LINK 4
@@ -1249,6 +1358,7 @@ enum dc_cm2_gpu_mem_layout {
 
 enum dc_cm2_gpu_mem_pixel_component_order {
 	DC_CM2_GPU_MEM_PIXEL_COMPONENT_ORDER_RGBA,
+	DC_CM2_GPU_MEM_PIXEL_COMPONENT_ORDER_BGRA
 };
 
 enum dc_cm2_gpu_mem_format {
@@ -1270,7 +1380,10 @@ struct dc_cm2_gpu_mem_format_parameters {
 
 enum dc_cm2_gpu_mem_size {
 	DC_CM2_GPU_MEM_SIZE_171717,
-	DC_CM2_GPU_MEM_SIZE_TRANSFORMED
+	DC_CM2_GPU_MEM_SIZE_333333,
+	DC_CM2_GPU_MEM_SIZE_454545,
+	DC_CM2_GPU_MEM_SIZE_656565,
+	DC_CM2_GPU_MEM_SIZE_TRANSFORMED,
 };
 
 struct dc_cm2_gpu_mem_parameters {
@@ -1279,6 +1392,7 @@ struct dc_cm2_gpu_mem_parameters {
 	struct dc_cm2_gpu_mem_format_parameters format_params;
 	enum dc_cm2_gpu_mem_pixel_component_order component_order;
 	enum dc_cm2_gpu_mem_size  size;
+	uint16_t bit_depth;
 };
 
 enum dc_cm2_transfer_func_source {
@@ -1302,6 +1416,11 @@ struct dc_cm2_func_luts {
 			const struct dc_3dlut *lut3d_func;
 			struct dc_cm2_gpu_mem_parameters gpu_mem_params;
 		};
+		bool rmcm_3dlut_shaper_select;
+		bool mpc_3dlut_enable;
+		bool rmcm_3dlut_enable;
+		bool mpc_mcm_post_blend;
+		uint8_t rmcm_tmz;
 	} lut3d_data;
 	const struct dc_transfer_func *lut1d_func;
 };
@@ -1357,6 +1476,45 @@ struct set_backlight_level_params {
 	uint32_t max_backlight_pwm;
 	/* AUX HW instance */
 	uint8_t aux_inst;
+};
+
+enum dc_validate_mode {
+	/* validate the mode and program HW */
+	DC_VALIDATE_MODE_AND_PROGRAMMING = 0,
+	/* only validate the mode */
+	DC_VALIDATE_MODE_ONLY = 1,
+	/* validate the mode and get the max state (voltage level) */
+	DC_VALIDATE_MODE_AND_STATE_INDEX = 2,
+};
+
+struct dc_validation_dpia_set {
+	const struct dc_link *link;
+	const struct dc_tunnel_settings *tunnel_settings;
+	uint32_t required_bw;
+};
+
+enum dc_cm_lut_swizzle {
+	CM_LUT_3D_SWIZZLE_LINEAR_RGB,
+	CM_LUT_3D_SWIZZLE_LINEAR_BGR,
+	CM_LUT_1D_PACKED_LINEAR
+};
+
+enum dc_cm_lut_pixel_format {
+	CM_LUT_PIXEL_FORMAT_RGBA16161616_UNORM_12MSB,
+	CM_LUT_PIXEL_FORMAT_BGRA16161616_UNORM_12MSB,
+	CM_LUT_PIXEL_FORMAT_RGBA16161616_UNORM_12LSB,
+	CM_LUT_PIXEL_FORMAT_BGRA16161616_UNORM_12LSB,
+	CM_LUT_PIXEL_FORMAT_RGBA16161616_FLOAT_FP1_5_10,
+	CM_LUT_PIXEL_FORMAT_BGRA16161616_FLOAT_FP1_5_10
+};
+
+enum dc_cm_lut_size {
+	CM_LUT_SIZE_NONE,
+	CM_LUT_SIZE_999,
+	CM_LUT_SIZE_171717,
+	CM_LUT_SIZE_333333,
+	CM_LUT_SIZE_454545,
+	CM_LUT_SIZE_656565,
 };
 
 #endif /* DC_TYPES_H_ */

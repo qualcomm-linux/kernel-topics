@@ -368,7 +368,7 @@ bool cpu_cache_has_invalidate_memregion(void)
 }
 EXPORT_SYMBOL_NS_GPL(cpu_cache_has_invalidate_memregion, "DEVMEM");
 
-int cpu_cache_invalidate_memregion(int res_desc)
+int cpu_cache_invalidate_memregion(phys_addr_t start, size_t len)
 {
 	if (WARN_ON_ONCE(!cpu_cache_has_invalidate_memregion()))
 		return -ENXIO;
@@ -438,7 +438,7 @@ static void cpa_collapse_large_pages(struct cpa_data *cpa)
 
 	list_for_each_entry_safe(ptdesc, tmp, &pgtables, pt_list) {
 		list_del(&ptdesc->pt_list);
-		__free_page(ptdesc_page(ptdesc));
+		pagetable_free(ptdesc);
 	}
 }
 
@@ -889,7 +889,7 @@ static void __set_pmd_pte(pte_t *kpte, unsigned long address, pte_t pte)
 	/* change init_mm */
 	set_pte_atomic(kpte, pte);
 #ifdef CONFIG_X86_32
-	if (!SHARED_KERNEL_PMD) {
+	{
 		struct page *page;
 
 		list_for_each_entry(page, &pgd_list, lru) {
@@ -1125,9 +1125,10 @@ set:
 
 static int
 __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
-		   struct page *base)
+		   struct ptdesc *ptdesc)
 {
 	unsigned long lpaddr, lpinc, ref_pfn, pfn, pfninc = 1;
+	struct page *base = ptdesc_page(ptdesc);
 	pte_t *pbase = (pte_t *)page_address(base);
 	unsigned int i, level;
 	pgprot_t ref_prot;
@@ -1232,18 +1233,18 @@ __split_large_page(struct cpa_data *cpa, pte_t *kpte, unsigned long address,
 static int split_large_page(struct cpa_data *cpa, pte_t *kpte,
 			    unsigned long address)
 {
-	struct page *base;
+	struct ptdesc *ptdesc;
 
 	if (!debug_pagealloc_enabled())
 		spin_unlock(&cpa_lock);
-	base = alloc_pages(GFP_KERNEL, 0);
+	ptdesc = pagetable_alloc(GFP_KERNEL, 0);
 	if (!debug_pagealloc_enabled())
 		spin_lock(&cpa_lock);
-	if (!base)
+	if (!ptdesc)
 		return -ENOMEM;
 
-	if (__split_large_page(cpa, kpte, address, base))
-		__free_page(base);
+	if (__split_large_page(cpa, kpte, address, ptdesc))
+		pagetable_free(ptdesc);
 
 	return 0;
 }
@@ -1256,6 +1257,9 @@ static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 	unsigned long pfn;
 	pgprot_t pgprot;
 	int i = 0;
+
+	if (!cpu_feature_enabled(X86_FEATURE_PSE))
+		return 0;
 
 	addr &= PMD_MASK;
 	pte = pte_offset_kernel(pmd, addr);
@@ -1293,7 +1297,7 @@ static int collapse_pmd_page(pmd_t *pmd, unsigned long addr,
 	/* Queue the page table to be freed after TLB flush */
 	list_add(&page_ptdesc(pmd_page(old_pmd))->pt_list, pgtables);
 
-	if (IS_ENABLED(CONFIG_X86_32) && !SHARED_KERNEL_PMD) {
+	if (IS_ENABLED(CONFIG_X86_32)) {
 		struct page *page;
 
 		/* Update all PGD tables to use the same large page */
@@ -1411,7 +1415,7 @@ static bool try_to_free_pte_page(pte_t *pte)
 		if (!pte_none(pte[i]))
 			return false;
 
-	free_page((unsigned long)pte);
+	pte_free_kernel(&init_mm, pte);
 	return true;
 }
 
@@ -1423,7 +1427,7 @@ static bool try_to_free_pmd_page(pmd_t *pmd)
 		if (!pmd_none(pmd[i]))
 			return false;
 
-	free_page((unsigned long)pmd);
+	pmd_free(&init_mm, pmd);
 	return true;
 }
 
@@ -1542,7 +1546,7 @@ static void unmap_pud_range(p4d_t *p4d, unsigned long start, unsigned long end)
 
 static int alloc_pte_page(pmd_t *pmd)
 {
-	pte_t *pte = (pte_t *)get_zeroed_page(GFP_KERNEL);
+	pte_t *pte = pte_alloc_one_kernel(&init_mm);
 	if (!pte)
 		return -1;
 
@@ -1552,7 +1556,11 @@ static int alloc_pte_page(pmd_t *pmd)
 
 static int alloc_pmd_page(pud_t *pud)
 {
-	pmd_t *pmd = (pmd_t *)get_zeroed_page(GFP_KERNEL);
+	/*
+	 * Pass 0 as a placeholder for the second argument, since the
+	 * generic implementation of pmd_alloc_one() does not use it.
+	 */
+	pmd_t *pmd = pmd_alloc_one(&init_mm, 0);
 	if (!pmd)
 		return -1;
 
@@ -1746,7 +1754,11 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 	pgd_entry = cpa->pgd + pgd_index(addr);
 
 	if (pgd_none(*pgd_entry)) {
-		p4d = (p4d_t *)get_zeroed_page(GFP_KERNEL);
+		/*
+		 * Pass 0 as a placeholder for the second argument, since the
+		 * generic implementation of p4d_alloc_one() does not use it.
+		 */
+		p4d = p4d_alloc_one(&init_mm, 0);
 		if (!p4d)
 			return -1;
 
@@ -1758,7 +1770,11 @@ static int populate_pgd(struct cpa_data *cpa, unsigned long addr)
 	 */
 	p4d = p4d_offset(pgd_entry, addr);
 	if (p4d_none(*p4d)) {
-		pud = (pud_t *)get_zeroed_page(GFP_KERNEL);
+		/*
+		 * Pass 0 as a placeholder for the second argument, since the
+		 * generic implementation of pud_alloc_one() does not use it.
+		 */
+		pud = pud_alloc_one(&init_mm, 0);
 		if (!pud)
 			return -1;
 

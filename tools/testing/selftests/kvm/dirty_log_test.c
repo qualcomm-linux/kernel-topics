@@ -585,6 +585,7 @@ static struct kvm_vm *create_vm(enum vm_guest_mode mode, struct kvm_vcpu **vcpu,
 
 	log_mode_create_vm_done(vm);
 	*vcpu = vm_vcpu_add(vm, 0, guest_code);
+	kvm_arch_vm_finalize_vcpus(vm);
 	return vm;
 }
 
@@ -640,9 +641,6 @@ static void run_test(enum vm_guest_mode mode, void *arg)
 	}
 
 #ifdef __s390x__
-	/* Align to 1M (segment size) */
-	guest_test_phys_mem = align_down(guest_test_phys_mem, 1 << 20);
-
 	/*
 	 * The workaround in guest_code() to write all pages prior to the first
 	 * iteration isn't compatible with the dirty ring, as the dirty ring

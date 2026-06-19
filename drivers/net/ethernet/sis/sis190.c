@@ -1023,7 +1023,7 @@ out_unlock:
 
 static void sis190_phy_timer(struct timer_list *t)
 {
-	struct sis190_private *tp = from_timer(tp, t, timer);
+	struct sis190_private *tp = timer_container_of(tp, t, timer);
 	struct net_device *dev = tp->dev;
 
 	if (likely(netif_running(dev)))
@@ -1407,7 +1407,7 @@ static int sis190_mii_probe(struct net_device *dev)
 		if (status == 0xffff || status == 0x0000)
 			continue;
 
-		phy = kmalloc(sizeof(*phy), GFP_KERNEL);
+		phy = kmalloc_obj(*phy);
 		if (!phy) {
 			sis190_free_phy(&tp->first_phy);
 			rc = -ENOMEM;

@@ -83,10 +83,8 @@ static ssize_t cachefiles_ondemand_fd_write_iter(struct kiocb *kiocb,
 
 	trace_cachefiles_ondemand_fd_write(object, file_inode(file), pos, len);
 	ret = __cachefiles_write(object, file, pos, iter, NULL, NULL);
-	if (!ret) {
-		ret = len;
+	if (ret > 0)
 		kiocb->ki_pos += ret;
-	}
 
 out:
 	fput(file);
@@ -736,8 +734,7 @@ int cachefiles_ondemand_init_obj_info(struct cachefiles_object *object,
 	if (!cachefiles_in_ondemand_mode(volume->cache))
 		return 0;
 
-	object->ondemand = kzalloc(sizeof(struct cachefiles_ondemand_info),
-					GFP_KERNEL);
+	object->ondemand = kzalloc_obj(struct cachefiles_ondemand_info);
 	if (!object->ondemand)
 		return -ENOMEM;
 

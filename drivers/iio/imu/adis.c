@@ -39,34 +39,29 @@ int __adis_write_reg(struct adis *adis, unsigned int reg, unsigned int value,
 	struct spi_transfer xfers[] = {
 		{
 			.tx_buf = adis->tx,
-			.bits_per_word = 8,
 			.len = 2,
 			.cs_change = 1,
 			.delay.value = adis->data->write_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
 		}, {
 			.tx_buf = adis->tx + 2,
-			.bits_per_word = 8,
 			.len = 2,
 			.cs_change = 1,
 			.delay.value = adis->data->write_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
 		}, {
 			.tx_buf = adis->tx + 4,
-			.bits_per_word = 8,
 			.len = 2,
 			.cs_change = 1,
 			.delay.value = adis->data->write_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
 		}, {
 			.tx_buf = adis->tx + 6,
-			.bits_per_word = 8,
 			.len = 2,
 			.delay.value = adis->data->write_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
 		}, {
 			.tx_buf = adis->tx + 8,
-			.bits_per_word = 8,
 			.len = 2,
 			.delay.value = adis->data->write_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
@@ -133,14 +128,12 @@ int __adis_read_reg(struct adis *adis, unsigned int reg, unsigned int *val,
 	struct spi_transfer xfers[] = {
 		{
 			.tx_buf = adis->tx,
-			.bits_per_word = 8,
 			.len = 2,
 			.cs_change = 1,
 			.delay.value = adis->data->write_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
 		}, {
 			.tx_buf = adis->tx + 2,
-			.bits_per_word = 8,
 			.len = 2,
 			.cs_change = 1,
 			.delay.value = adis->data->read_delay,
@@ -148,14 +141,12 @@ int __adis_read_reg(struct adis *adis, unsigned int reg, unsigned int *val,
 		}, {
 			.tx_buf = adis->tx + 4,
 			.rx_buf = adis->rx,
-			.bits_per_word = 8,
 			.len = 2,
 			.cs_change = 1,
 			.delay.value = adis->data->read_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
 		}, {
 			.rx_buf = adis->rx + 2,
-			.bits_per_word = 8,
 			.len = 2,
 			.delay.value = adis->data->read_delay,
 			.delay.unit = SPI_DELAY_UNIT_USECS,
@@ -535,7 +526,7 @@ int adis_init(struct adis *adis, struct iio_dev *indio_dev,
 
 	adis->spi = spi;
 	adis->data = data;
-	if (!adis->ops->write && !adis->ops->read && !adis->ops->reset)
+	if (!adis->ops)
 		adis->ops = &adis_default_ops;
 	else if (!adis->ops->write || !adis->ops->read || !adis->ops->reset)
 		return -EINVAL;

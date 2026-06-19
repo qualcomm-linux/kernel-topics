@@ -3,19 +3,22 @@
  * Copyright 2019 Advanced Micro Devices, Inc.
  */
 
+ #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/errno.h>
+#include <linux/device.h>
+#include <linux/firmware.h>
 #include <linux/io.h>
+#include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/psp-tee.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/device.h>
 #include <linux/tee_core.h>
 #include <linux/types.h>
-#include <linux/mm.h>
 #include <linux/uaccess.h>
-#include <linux/firmware.h>
+
 #include "amdtee_private.h"
-#include <linux/psp-tee.h>
 
 static struct amdtee_driver_data *drv_data;
 static DEFINE_MUTEX(session_list_mutex);
@@ -35,7 +38,7 @@ static int amdtee_open(struct tee_context *ctx)
 {
 	struct amdtee_context_data *ctxdata;
 
-	ctxdata = kzalloc(sizeof(*ctxdata), GFP_KERNEL);
+	ctxdata = kzalloc_obj(*ctxdata);
 	if (!ctxdata)
 		return -ENOMEM;
 
@@ -119,7 +122,7 @@ static struct amdtee_session *alloc_session(struct amdtee_context_data *ctxdata,
 		}
 
 	/* Allocate a new session and add to list */
-	sess = kzalloc(sizeof(*sess), GFP_KERNEL);
+	sess = kzalloc_obj(*sess);
 	if (sess) {
 		sess->ta_handle = ta_handle;
 		kref_init(&sess->refcount);
@@ -348,7 +351,7 @@ int amdtee_map_shmem(struct tee_shm *shm)
 	if (!shm)
 		return -EINVAL;
 
-	shmnode = kmalloc(sizeof(*shmnode), GFP_KERNEL);
+	shmnode = kmalloc_obj(*shmnode);
 	if (!shmnode)
 		return -ENOMEM;
 
@@ -458,15 +461,15 @@ static int __init amdtee_driver_init(void)
 
 	rc = psp_check_tee_status();
 	if (rc) {
-		pr_err("amd-tee driver: tee not present\n");
+		pr_err("tee not present\n");
 		return rc;
 	}
 
-	drv_data = kzalloc(sizeof(*drv_data), GFP_KERNEL);
+	drv_data = kzalloc_obj(*drv_data);
 	if (!drv_data)
 		return -ENOMEM;
 
-	amdtee = kzalloc(sizeof(*amdtee), GFP_KERNEL);
+	amdtee = kzalloc_obj(*amdtee);
 	if (!amdtee) {
 		rc = -ENOMEM;
 		goto err_kfree_drv_data;
@@ -494,7 +497,6 @@ static int __init amdtee_driver_init(void)
 
 	drv_data->amdtee = amdtee;
 
-	pr_info("amd-tee driver initialization successful\n");
 	return 0;
 
 err_device_unregister:
@@ -510,7 +512,7 @@ err_kfree_drv_data:
 	kfree(drv_data);
 	drv_data = NULL;
 
-	pr_err("amd-tee driver initialization failed\n");
+	pr_err("initialization failed\n");
 	return rc;
 }
 module_init(amdtee_driver_init);

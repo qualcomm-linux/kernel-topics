@@ -9,18 +9,17 @@
 
 #include "display/intel_display_reset.h"
 #include "display/intel_overlay.h"
-
 #include "gem/i915_gem_context.h"
-
 #include "gt/intel_gt_regs.h"
-
 #include "gt/uc/intel_gsc_fw.h"
+#include "uc/intel_guc.h"
 
 #include "i915_drv.h"
 #include "i915_file_private.h"
 #include "i915_gpu_error.h"
 #include "i915_irq.h"
 #include "i915_reg.h"
+#include "i915_wait_util.h"
 #include "intel_breadcrumbs.h"
 #include "intel_engine_pm.h"
 #include "intel_engine_regs.h"
@@ -31,8 +30,6 @@
 #include "intel_mchbar_regs.h"
 #include "intel_pci_config.h"
 #include "intel_reset.h"
-
-#include "uc/intel_guc.h"
 
 #define RESET_MAX_RETRIES 3
 
@@ -589,7 +586,7 @@ static int gen8_engine_reset_prepare(struct intel_engine_cs *engine)
 		return 0;
 	}
 
-	intel_uncore_write_fw(uncore, reg, _MASKED_BIT_ENABLE(request));
+	intel_uncore_write_fw(uncore, reg, REG_MASKED_FIELD_ENABLE(request));
 	ret = __intel_wait_for_register_fw(uncore, reg, mask, ack,
 					   700, 0, NULL);
 	if (ret)
@@ -605,7 +602,7 @@ static void gen8_engine_reset_cancel(struct intel_engine_cs *engine)
 {
 	intel_uncore_write_fw(engine->uncore,
 			      RING_RESET_CTL(engine->mmio_base),
-			      _MASKED_BIT_DISABLE(RESET_CTL_REQUEST_RESET));
+			      REG_MASKED_FIELD_DISABLE(RESET_CTL_REQUEST_RESET));
 }
 
 static int gen8_reset_engines(struct intel_gt *gt,
@@ -1205,7 +1202,7 @@ void intel_gt_reset(struct intel_gt *gt,
 		    intel_engine_mask_t stalled_mask,
 		    const char *reason)
 {
-	struct intel_display *display = &gt->i915->display;
+	struct intel_display *display = gt->i915->display;
 	intel_engine_mask_t awake;
 	int ret;
 
@@ -1423,7 +1420,7 @@ static void intel_gt_reset_global(struct intel_gt *gt,
 	/* Use a watchdog to ensure that our reset completes */
 	intel_wedge_on_timeout(&w, gt, 60 * HZ) {
 		struct drm_i915_private *i915 = gt->i915;
-		struct intel_display *display = &i915->display;
+		struct intel_display *display = i915->display;
 		bool need_display_reset;
 		bool reset_display;
 
@@ -1448,7 +1445,8 @@ static void intel_gt_reset_global(struct intel_gt *gt,
 		kobject_uevent_env(kobj, KOBJ_CHANGE, reset_done_event);
 	else
 		drm_dev_wedged_event(&gt->i915->drm,
-				     DRM_WEDGE_RECOVERY_REBIND | DRM_WEDGE_RECOVERY_BUS_RESET);
+				     DRM_WEDGE_RECOVERY_REBIND | DRM_WEDGE_RECOVERY_BUS_RESET,
+				     NULL);
 }
 
 /**

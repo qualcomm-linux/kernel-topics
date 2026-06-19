@@ -11,6 +11,7 @@
 
 #include "protocols.h"
 #include "notify.h"
+#include "quirks.h"
 
 /* Updated only after ALL the mandatory features for that version are merged */
 #define SCMI_PROTOCOL_SUPPORTED_VERSION		0x30000
@@ -156,7 +157,6 @@ struct scmi_clock_rate_notify_payld {
 };
 
 struct clock_info {
-	u32 version;
 	int num_clocks;
 	int max_async_req;
 	bool notify_rate_changed_cmd;
@@ -345,8 +345,7 @@ scmi_clock_get_permissions(const struct scmi_protocol_handle *ph, u32 clk_id,
 }
 
 static int scmi_clock_attributes_get(const struct scmi_protocol_handle *ph,
-				     u32 clk_id, struct clock_info *cinfo,
-				     u32 version)
+				     u32 clk_id, struct clock_info *cinfo)
 {
 	int ret;
 	u32 attributes;
@@ -369,7 +368,7 @@ static int scmi_clock_attributes_get(const struct scmi_protocol_handle *ph,
 		attributes = le32_to_cpu(attr->attributes);
 		strscpy(clk->name, attr->name, SCMI_SHORT_NAME_MAX_SIZE);
 		/* clock_enable_latency field is present only since SCMI v3.1 */
-		if (PROTOCOL_REV_MAJOR(version) >= 0x2)
+		if (PROTOCOL_REV_MAJOR(ph->version) >= 0x2)
 			latency = le32_to_cpu(attr->clock_enable_latency);
 		clk->enable_latency = latency ? : U32_MAX;
 	}
@@ -380,7 +379,7 @@ static int scmi_clock_attributes_get(const struct scmi_protocol_handle *ph,
 	 * If supported overwrite short name with the extended one;
 	 * on error just carry on and use already provided short name.
 	 */
-	if (!ret && PROTOCOL_REV_MAJOR(version) >= 0x2) {
+	if (!ret && PROTOCOL_REV_MAJOR(ph->version) >= 0x2) {
 		if (SUPPORTS_EXTENDED_NAMES(attributes))
 			ph->hops->extended_name_get(ph, CLOCK_NAME_GET, clk_id,
 						    NULL, clk->name,
@@ -392,7 +391,7 @@ static int scmi_clock_attributes_get(const struct scmi_protocol_handle *ph,
 		if (cinfo->notify_rate_change_requested_cmd &&
 		    SUPPORTS_RATE_CHANGE_REQUESTED_NOTIF(attributes))
 			clk->rate_change_requested_notifications = true;
-		if (PROTOCOL_REV_MAJOR(version) >= 0x3) {
+		if (PROTOCOL_REV_MAJOR(ph->version) >= 0x3) {
 			if (SUPPORTS_PARENT_CLOCK(attributes))
 				scmi_clock_possible_parents(ph, clk_id, clk);
 			if (SUPPORTS_GET_PERMISSIONS(attributes))
@@ -429,6 +428,23 @@ static void iter_clk_describe_prepare_message(void *message,
 	msg->rate_index = cpu_to_le32(desc_index);
 }
 
+#define QUIRK_OUT_OF_SPEC_TRIPLET					       \
+	({								       \
+		/*							       \
+		 * A known quirk: a triplet is returned but num_returned != 3  \
+		 * Check for a safe payload size and fix.		       \
+		 */							       \
+		if (st->num_returned != 3 && st->num_remaining == 0 &&	       \
+		    st->rx_len == sizeof(*r) + sizeof(__le32) * 2 * 3) {       \
+			st->num_returned = 3;				       \
+			st->num_remaining = 0;				       \
+		} else {						       \
+			dev_err(p->dev,					       \
+				"Cannot fix out-of-spec reply !\n");	       \
+			return -EPROTO;					       \
+		}							       \
+	})
+
 static int
 iter_clk_describe_update_state(struct scmi_iterator_state *st,
 			       const void *response, void *priv)
@@ -450,19 +466,8 @@ iter_clk_describe_update_state(struct scmi_iterator_state *st,
 			 p->clk->name, st->num_returned, st->num_remaining,
 			 st->rx_len);
 
-		/*
-		 * A known quirk: a triplet is returned but num_returned != 3
-		 * Check for a safe payload size and fix.
-		 */
-		if (st->num_returned != 3 && st->num_remaining == 0 &&
-		    st->rx_len == sizeof(*r) + sizeof(__le32) * 2 * 3) {
-			st->num_returned = 3;
-			st->num_remaining = 0;
-		} else {
-			dev_err(p->dev,
-				"Cannot fix out-of-spec reply !\n");
-			return -EPROTO;
-		}
+		SCMI_QUIRK(clock_rates_triplet_out_of_spec,
+			   QUIRK_OUT_OF_SPEC_TRIPLET);
 	}
 
 	return 0;
@@ -1061,16 +1066,11 @@ static const struct scmi_protocol_events clk_protocol_events = {
 
 static int scmi_clock_protocol_init(const struct scmi_protocol_handle *ph)
 {
-	u32 version;
 	int clkid, ret;
 	struct clock_info *cinfo;
 
-	ret = ph->xops->version_get(ph, &version);
-	if (ret)
-		return ret;
-
 	dev_dbg(ph->dev, "Clock Version %d.%d\n",
-		PROTOCOL_REV_MAJOR(version), PROTOCOL_REV_MINOR(version));
+		PROTOCOL_REV_MAJOR(ph->version), PROTOCOL_REV_MINOR(ph->version));
 
 	cinfo = devm_kzalloc(ph->dev, sizeof(*cinfo), GFP_KERNEL);
 	if (!cinfo)
@@ -1088,12 +1088,12 @@ static int scmi_clock_protocol_init(const struct scmi_protocol_handle *ph)
 	for (clkid = 0; clkid < cinfo->num_clocks; clkid++) {
 		struct scmi_clock_info *clk = cinfo->clk + clkid;
 
-		ret = scmi_clock_attributes_get(ph, clkid, cinfo, version);
+		ret = scmi_clock_attributes_get(ph, clkid, cinfo);
 		if (!ret)
 			scmi_clock_describe_rates_get(ph, clkid, clk);
 	}
 
-	if (PROTOCOL_REV_MAJOR(version) >= 0x3) {
+	if (PROTOCOL_REV_MAJOR(ph->version) >= 0x3) {
 		cinfo->clock_config_set = scmi_clock_config_set_v2;
 		cinfo->clock_config_get = scmi_clock_config_get_v2;
 	} else {
@@ -1101,8 +1101,7 @@ static int scmi_clock_protocol_init(const struct scmi_protocol_handle *ph)
 		cinfo->clock_config_get = scmi_clock_config_get;
 	}
 
-	cinfo->version = version;
-	return ph->set_priv(ph, cinfo, version);
+	return ph->set_priv(ph, cinfo);
 }
 
 static const struct scmi_protocol scmi_clock = {

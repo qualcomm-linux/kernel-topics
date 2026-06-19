@@ -24,7 +24,6 @@
 #include <net/ipv6.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
-#include <linux/dccp.h>
 #include <linux/sctp.h>
 #include <linux/lsm_audit.h>
 #include <linux/security.h>
@@ -66,13 +65,6 @@ int ipv4_skb_to_auditdata(struct sk_buff *skb,
 
 		ad->u.net->sport = uh->source;
 		ad->u.net->dport = uh->dest;
-		break;
-	}
-	case IPPROTO_DCCP: {
-		struct dccp_hdr *dh = dccp_hdr(skb);
-
-		ad->u.net->sport = dh->dccph_sport;
-		ad->u.net->dport = dh->dccph_dport;
 		break;
 	}
 	case IPPROTO_SCTP: {
@@ -138,17 +130,6 @@ int ipv6_skb_to_auditdata(struct sk_buff *skb,
 
 		ad->u.net->sport = uh->source;
 		ad->u.net->dport = uh->dest;
-		break;
-	}
-	case IPPROTO_DCCP: {
-		struct dccp_hdr _dccph, *dh;
-
-		dh = skb_header_pointer(skb, offset, sizeof(_dccph), &_dccph);
-		if (dh == NULL)
-			break;
-
-		ad->u.net->sport = dh->dccph_sport;
-		ad->u.net->dport = dh->dccph_dport;
 		break;
 	}
 	case IPPROTO_SCTP: {
@@ -221,7 +202,7 @@ void audit_log_lsm_data(struct audit_buffer *ab,
 		if (inode) {
 			audit_log_format(ab, " dev=");
 			audit_log_untrustedstring(ab, inode->i_sb->s_id);
-			audit_log_format(ab, " ino=%lu", inode->i_ino);
+			audit_log_format(ab, " ino=%llu", inode->i_ino);
 		}
 		break;
 	}
@@ -234,7 +215,7 @@ void audit_log_lsm_data(struct audit_buffer *ab,
 		if (inode) {
 			audit_log_format(ab, " dev=");
 			audit_log_untrustedstring(ab, inode->i_sb->s_id);
-			audit_log_format(ab, " ino=%lu", inode->i_ino);
+			audit_log_format(ab, " ino=%llu", inode->i_ino);
 		}
 		break;
 	}
@@ -247,7 +228,7 @@ void audit_log_lsm_data(struct audit_buffer *ab,
 		if (inode) {
 			audit_log_format(ab, " dev=");
 			audit_log_untrustedstring(ab, inode->i_sb->s_id);
-			audit_log_format(ab, " ino=%lu", inode->i_ino);
+			audit_log_format(ab, " ino=%llu", inode->i_ino);
 		}
 
 		audit_log_format(ab, " ioctlcmd=0x%hx", a->u.op->cmd);
@@ -265,7 +246,7 @@ void audit_log_lsm_data(struct audit_buffer *ab,
 		if (inode) {
 			audit_log_format(ab, " dev=");
 			audit_log_untrustedstring(ab, inode->i_sb->s_id);
-			audit_log_format(ab, " ino=%lu", inode->i_ino);
+			audit_log_format(ab, " ino=%llu", inode->i_ino);
 		}
 		break;
 	}
@@ -284,7 +265,7 @@ void audit_log_lsm_data(struct audit_buffer *ab,
 		}
 		audit_log_format(ab, " dev=");
 		audit_log_untrustedstring(ab, inode->i_sb->s_id);
-		audit_log_format(ab, " ino=%lu", inode->i_ino);
+		audit_log_format(ab, " ino=%llu", inode->i_ino);
 		rcu_read_unlock();
 		break;
 	}

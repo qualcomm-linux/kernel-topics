@@ -4,6 +4,8 @@
  */
 
 #include <drm/ttm/ttm_backup.h>
+
+#include <linux/export.h>
 #include <linux/page-flags.h>
 #include <linux/swap.h>
 
@@ -42,18 +44,20 @@ void ttm_backup_drop(struct file *backup, pgoff_t handle)
  * @dst: The struct page to copy into.
  * @handle: The handle returned when the page was backed up.
  * @intr: Try to perform waits interruptible or at least killable.
+ * @additional_gfp: GFP mask to add to the default GFP mask if any.
  *
  * Return: 0 on success, Negative error code on failure, notably
  * -EINTR if @intr was set to true and a signal is pending.
  */
 int ttm_backup_copy_page(struct file *backup, struct page *dst,
-			 pgoff_t handle, bool intr)
+			 pgoff_t handle, bool intr, gfp_t additional_gfp)
 {
 	struct address_space *mapping = backup->f_mapping;
 	struct folio *from_folio;
 	pgoff_t idx = ttm_backup_handle_to_shmem_idx(handle);
 
-	from_folio = shmem_read_folio(mapping, idx);
+	from_folio = shmem_read_folio_gfp(mapping, idx, mapping_gfp_mask(mapping)
+					  | additional_gfp);
 	if (IS_ERR(from_folio))
 		return PTR_ERR(from_folio);
 
@@ -112,21 +116,14 @@ ttm_backup_backup_page(struct file *backup, struct page *page,
 
 	if (writeback && !folio_mapped(to_folio) &&
 	    folio_clear_dirty_for_io(to_folio)) {
-		struct writeback_control wbc = {
-			.sync_mode = WB_SYNC_NONE,
-			.nr_to_write = SWAP_CLUSTER_MAX,
-			.range_start = 0,
-			.range_end = LLONG_MAX,
-			.for_reclaim = 1,
-		};
 		folio_set_reclaim(to_folio);
-		ret = mapping->a_ops->writepage(folio_file_page(to_folio, idx), &wbc);
+		ret = shmem_writeout(to_folio, NULL, NULL);
 		if (!folio_test_writeback(to_folio))
 			folio_clear_reclaim(to_folio);
 		/*
-		 * If writepage succeeds, it unlocks the folio.
-		 * writepage() errors are otherwise dropped, since writepage()
-		 * is only best effort here.
+		 * If writeout succeeds, it unlocks the folio.	errors
+		 * are otherwise dropped, since writeout is only best
+		 * effort here.
 		 */
 		if (ret)
 			folio_unlock(to_folio);
@@ -183,5 +180,6 @@ EXPORT_SYMBOL_GPL(ttm_backup_bytes_avail);
  */
 struct file *ttm_backup_shmem_create(loff_t size)
 {
-	return shmem_file_setup("ttm shmem backup", size, 0);
+	return shmem_file_setup("ttm shmem backup", size,
+				EMPTY_VMA_FLAGS);
 }

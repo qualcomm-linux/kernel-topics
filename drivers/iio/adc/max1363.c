@@ -121,7 +121,7 @@ enum max1363_modes {
 };
 
 /**
- * struct max1363_chip_info - chip specifc information
+ * struct max1363_chip_info - chip specific information
  * @info:		iio core function callbacks structure
  * @channels:		channel specification
  * @num_channels:       number of channels
@@ -149,7 +149,6 @@ struct max1363_chip_info {
  * @configbyte:		cache of current device config byte
  * @chip_info:		chip model specific constants, available modes, etc.
  * @current_mode:	the scan mode of this chip
- * @requestedmask:	a valid requested set of channels
  * @lock:		lock to ensure state is consistent
  * @monitor_on:		whether monitor mode is enabled
  * @monitor_speed:	parameter corresponding to device monitor speed setting
@@ -169,7 +168,6 @@ struct max1363_state {
 	u8				configbyte;
 	const struct max1363_chip_info	*chip_info;
 	const struct max1363_mode	*current_mode;
-	u32				requestedmask;
 	struct mutex			lock;
 
 	/* Using monitor modes and buffer at the same time is
@@ -511,10 +509,10 @@ static const struct iio_event_spec max1363_events[] = {
 	MAX1363_CHAN_U(1, _s1, 1, bits, ev_spec, num_ev_spec),		\
 	MAX1363_CHAN_U(2, _s2, 2, bits, ev_spec, num_ev_spec),		\
 	MAX1363_CHAN_U(3, _s3, 3, bits, ev_spec, num_ev_spec),		\
-	MAX1363_CHAN_B(0, 1, d0m1, 4, bits, ev_spec, num_ev_spec),	\
-	MAX1363_CHAN_B(2, 3, d2m3, 5, bits, ev_spec, num_ev_spec),	\
-	MAX1363_CHAN_B(1, 0, d1m0, 6, bits, ev_spec, num_ev_spec),	\
-	MAX1363_CHAN_B(3, 2, d3m2, 7, bits, ev_spec, num_ev_spec),	\
+	MAX1363_CHAN_B(0, 1, d0m1, 12, bits, ev_spec, num_ev_spec),	\
+	MAX1363_CHAN_B(2, 3, d2m3, 13, bits, ev_spec, num_ev_spec),	\
+	MAX1363_CHAN_B(1, 0, d1m0, 18, bits, ev_spec, num_ev_spec),	\
+	MAX1363_CHAN_B(3, 2, d3m2, 19, bits, ev_spec, num_ev_spec),	\
 	IIO_CHAN_SOFT_TIMESTAMP(8)					\
 	}
 
@@ -532,23 +530,23 @@ static const struct iio_chan_spec max1363_channels[] =
 /* Applies to max1236, max1237 */
 static const enum max1363_modes max1236_mode_list[] = {
 	_s0, _s1, _s2, _s3,
-	s0to1, s0to2, s0to3,
+	s0to1, s0to2, s2to3, s0to3,
 	d0m1, d2m3, d1m0, d3m2,
 	d0m1to2m3, d1m0to3m2,
-	s2to3,
 };
 
 /* Applies to max1238, max1239 */
 static const enum max1363_modes max1238_mode_list[] = {
 	_s0, _s1, _s2, _s3, _s4, _s5, _s6, _s7, _s8, _s9, _s10, _s11,
 	s0to1, s0to2, s0to3, s0to4, s0to5, s0to6,
+	s6to7, s6to8, s6to9, s6to10, s6to11,
 	s0to7, s0to8, s0to9, s0to10, s0to11,
 	d0m1, d2m3, d4m5, d6m7, d8m9, d10m11,
 	d1m0, d3m2, d5m4, d7m6, d9m8, d11m10,
-	d0m1to2m3, d0m1to4m5, d0m1to6m7, d0m1to8m9, d0m1to10m11,
-	d1m0to3m2, d1m0to5m4, d1m0to7m6, d1m0to9m8, d1m0to11m10,
-	s6to7, s6to8, s6to9, s6to10, s6to11,
-	d6m7to8m9, d6m7to10m11, d7m6to9m8, d7m6to11m10,
+	d0m1to2m3, d0m1to4m5, d0m1to6m7, d6m7to8m9,
+	d0m1to8m9, d6m7to10m11, d0m1to10m11, d1m0to3m2,
+	d1m0to5m4, d1m0to7m6, d7m6to9m8, d1m0to9m8,
+	d7m6to11m10, d1m0to11m10,
 };
 
 #define MAX1363_12X_CHANS(bits) {				\
@@ -584,16 +582,15 @@ static const struct iio_chan_spec max1238_channels[] = MAX1363_12X_CHANS(12);
 
 static const enum max1363_modes max11607_mode_list[] = {
 	_s0, _s1, _s2, _s3,
-	s0to1, s0to2, s0to3,
-	s2to3,
+	s0to1, s0to2, s2to3,
+	s0to3,
 	d0m1, d2m3, d1m0, d3m2,
 	d0m1to2m3, d1m0to3m2,
 };
 
 static const enum max1363_modes max11608_mode_list[] = {
 	_s0, _s1, _s2, _s3, _s4, _s5, _s6, _s7,
-	s0to1, s0to2, s0to3, s0to4, s0to5, s0to6, s0to7,
-	s6to7,
+	s0to1, s0to2, s0to3, s0to4, s0to5, s0to6, s6to7, s0to7,
 	d0m1, d2m3, d4m5, d6m7,
 	d1m0, d3m2, d5m4, d7m6,
 	d0m1to2m3, d0m1to4m5, d0m1to6m7,
@@ -609,14 +606,14 @@ static const enum max1363_modes max11608_mode_list[] = {
 	MAX1363_CHAN_U(5, _s5, 5, bits, NULL, 0),	\
 	MAX1363_CHAN_U(6, _s6, 6, bits, NULL, 0),	\
 	MAX1363_CHAN_U(7, _s7, 7, bits, NULL, 0),	\
-	MAX1363_CHAN_B(0, 1, d0m1, 8, bits, NULL, 0),	\
-	MAX1363_CHAN_B(2, 3, d2m3, 9, bits, NULL, 0),	\
-	MAX1363_CHAN_B(4, 5, d4m5, 10, bits, NULL, 0),	\
-	MAX1363_CHAN_B(6, 7, d6m7, 11, bits, NULL, 0),	\
-	MAX1363_CHAN_B(1, 0, d1m0, 12, bits, NULL, 0),	\
-	MAX1363_CHAN_B(3, 2, d3m2, 13, bits, NULL, 0),	\
-	MAX1363_CHAN_B(5, 4, d5m4, 14, bits, NULL, 0),	\
-	MAX1363_CHAN_B(7, 6, d7m6, 15, bits, NULL, 0),	\
+	MAX1363_CHAN_B(0, 1, d0m1, 12, bits, NULL, 0),	\
+	MAX1363_CHAN_B(2, 3, d2m3, 13, bits, NULL, 0),	\
+	MAX1363_CHAN_B(4, 5, d4m5, 14, bits, NULL, 0),	\
+	MAX1363_CHAN_B(6, 7, d6m7, 15, bits, NULL, 0),	\
+	MAX1363_CHAN_B(1, 0, d1m0, 18, bits, NULL, 0),	\
+	MAX1363_CHAN_B(3, 2, d3m2, 19, bits, NULL, 0),	\
+	MAX1363_CHAN_B(5, 4, d5m4, 20, bits, NULL, 0),	\
+	MAX1363_CHAN_B(7, 6, d7m6, 21, bits, NULL, 0),	\
 	IIO_CHAN_SOFT_TIMESTAMP(16)			\
 }
 static const struct iio_chan_spec max11602_channels[] = MAX1363_8X_CHANS(8);
@@ -638,48 +635,51 @@ static const enum max1363_modes max11644_mode_list[] = {
 static const struct iio_chan_spec max11646_channels[] = MAX1363_2X_CHANS(10);
 static const struct iio_chan_spec max11644_channels[] = MAX1363_2X_CHANS(12);
 
-enum { max1361,
-       max1362,
-       max1363,
-       max1364,
-       max1036,
-       max1037,
-       max1038,
-       max1039,
-       max1136,
-       max1137,
-       max1138,
-       max1139,
-       max1236,
-       max1237,
-       max1238,
-       max1239,
-       max11600,
-       max11601,
-       max11602,
-       max11603,
-       max11604,
-       max11605,
-       max11606,
-       max11607,
-       max11608,
-       max11609,
-       max11610,
-       max11611,
-       max11612,
-       max11613,
-       max11614,
-       max11615,
-       max11616,
-       max11617,
-       max11644,
-       max11645,
-       max11646,
-       max11647
+enum {
+	max1361,
+	max1362,
+	max1363,
+	max1364,
+	max1036,
+	max1037,
+	max1038,
+	max1039,
+	max1136,
+	max1137,
+	max1138,
+	max1139,
+	max1236,
+	max1237,
+	max1238,
+	max1239,
+	max11600,
+	max11601,
+	max11602,
+	max11603,
+	max11604,
+	max11605,
+	max11606,
+	max11607,
+	max11608,
+	max11609,
+	max11610,
+	max11611,
+	max11612,
+	max11613,
+	max11614,
+	max11615,
+	max11616,
+	max11617,
+	max11644,
+	max11645,
+	max11646,
+	max11647,
 };
 
-static const int max1363_monitor_speeds[] = { 133000, 665000, 33300, 16600,
-					      8300, 4200, 2000, 1000 };
+static const int max1363_monitor_speeds[] = {
+	133000, 665000, 33300, 16600,
+	8300, 4200, 2000, 1000,
+};
 
 static ssize_t max1363_monitor_show_freq(struct device *dev,
 					struct device_attribute *attr,
@@ -1498,8 +1498,8 @@ static irqreturn_t max1363_trigger_handler(int irq, void *p)
 	if (b_sent < 0)
 		goto done;
 
-	iio_push_to_buffers_with_timestamp(indio_dev, &st->data,
-					   iio_get_time_ns(indio_dev));
+	iio_push_to_buffers_with_ts(indio_dev, &st->data, sizeof(st->data),
+				    iio_get_time_ns(indio_dev));
 
 done:
 	iio_trigger_notify_done(indio_dev->trig);
@@ -1551,7 +1551,7 @@ static const struct of_device_id max1363_of_match[] = {
 	MAX1363_COMPATIBLE("maxim,max11645", max11645),
 	MAX1363_COMPATIBLE("maxim,max11646", max11646),
 	MAX1363_COMPATIBLE("maxim,max11647", max11647),
-	{ /* sentinel */ }
+	{ }
 };
 MODULE_DEVICE_TABLE(of, max1363_of_match);
 
@@ -1672,7 +1672,7 @@ static const struct i2c_device_id max1363_id[] = {
 	MAX1363_ID_TABLE("max11645", max11645),
 	MAX1363_ID_TABLE("max11646", max11646),
 	MAX1363_ID_TABLE("max11647", max11647),
-	{ /* sentinel */ }
+	{ }
 };
 
 MODULE_DEVICE_TABLE(i2c, max1363_id);

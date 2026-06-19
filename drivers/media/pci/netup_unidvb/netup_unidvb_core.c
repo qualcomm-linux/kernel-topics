@@ -637,7 +637,7 @@ static void netup_unidvb_queue_cleanup(struct netup_dma *dma)
 
 static void netup_unidvb_dma_timeout(struct timer_list *t)
 {
-	struct netup_dma *dma = from_timer(dma, t, timeout);
+	struct netup_dma *dma = timer_container_of(dma, t, timeout);
 	struct netup_unidvb_dev *ndev = dma->ndev;
 
 	dev_dbg(&ndev->pci_dev->dev, "%s()\n", __func__);
@@ -799,7 +799,7 @@ static int netup_unidvb_initdev(struct pci_dev *pci_dev,
 	}
 
 	/* allocate device context */
-	ndev = kzalloc(sizeof(*ndev), GFP_KERNEL);
+	ndev = kzalloc_obj(*ndev);
 	if (!ndev)
 		goto dev_alloc_err;
 

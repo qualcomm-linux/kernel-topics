@@ -24,7 +24,7 @@
 
 #define LEGACY_COMMAND_LINE_SIZE	896
 
-#ifndef __ASSEMBLY__
+#ifndef __ASSEMBLER__
 
 #include <asm/lowcore.h>
 #include <asm/types.h>
@@ -41,6 +41,8 @@ struct parmarea {
 	char command_line[COMMAND_LINE_SIZE];		/* 0x10480 */
 };
 
+extern char arch_hw_string[128];
+
 extern struct parmarea parmarea;
 
 extern unsigned int zlib_dfltcc_support;
@@ -50,7 +52,6 @@ extern unsigned int zlib_dfltcc_support;
 #define ZLIB_DFLTCC_INFLATE_ONLY	3
 #define ZLIB_DFLTCC_FULL_DEBUG		4
 
-extern unsigned long ident_map_size;
 extern unsigned long max_mappable;
 
 /* The Write Back bit position in the physaddr is given by the SLPC PCI */
@@ -100,5 +101,5 @@ static __always_inline u32 gen_lpswe(unsigned long addr)
 	BUILD_BUG_ON(addr > 0xfff);
 	return 0xb2b20000 | addr;
 }
-#endif /* __ASSEMBLY__ */
+#endif /* __ASSEMBLER__ */
 #endif /* _ASM_S390_SETUP_H */

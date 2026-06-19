@@ -848,7 +848,6 @@ static int probe_point_lazy_walker(const char *fname, int lineno,
 /* Find probe points from lazy pattern  */
 static int find_probe_point_lazy(Dwarf_Die *sp_die, struct probe_finder *pf)
 {
-	struct build_id bid;
 	char sbuild_id[SBUILD_ID_SIZE] = "";
 	int ret = 0;
 	char *fpath;
@@ -858,8 +857,10 @@ static int find_probe_point_lazy(Dwarf_Die *sp_die, struct probe_finder *pf)
 
 		comp_dir = cu_get_comp_dir(&pf->cu_die);
 		if (pf->dbg->build_id) {
+			struct build_id bid;
+
 			build_id__init(&bid, pf->dbg->build_id, BUILD_ID_SIZE);
-			build_id__sprintf(&bid, sbuild_id);
+			build_id__snprintf(&bid, sbuild_id, sizeof(sbuild_id));
 		}
 		ret = find_source_path(pf->fname, sbuild_id, comp_dir, &fpath);
 		if (ret < 0) {
@@ -1304,7 +1305,7 @@ static int add_probe_trace_event(Dwarf_Die *sc_die, struct probe_finder *pf)
 		 tev->point.offset);
 
 	/* Expand special probe argument if exist */
-	args = zalloc(sizeof(struct perf_probe_arg) * MAX_PROBE_ARGS);
+	args = calloc(MAX_PROBE_ARGS, sizeof(struct perf_probe_arg));
 	if (args == NULL) {
 		ret = -ENOMEM;
 		goto end;
@@ -1315,7 +1316,7 @@ static int add_probe_trace_event(Dwarf_Die *sc_die, struct probe_finder *pf)
 		goto end;
 
 	tev->nargs = ret;
-	tev->args = zalloc(sizeof(struct probe_trace_arg) * tev->nargs);
+	tev->args = calloc(tev->nargs, sizeof(struct probe_trace_arg));
 	if (tev->args == NULL) {
 		ret = -ENOMEM;
 		goto end;
@@ -1392,7 +1393,7 @@ int debuginfo__find_trace_events(struct debuginfo *dbg,
 	int ret, i;
 
 	/* Allocate result tevs array */
-	*tevs = zalloc(sizeof(struct probe_trace_event) * tf.max_tevs);
+	*tevs = calloc(tf.max_tevs, sizeof(struct probe_trace_event));
 	if (*tevs == NULL)
 		return -ENOMEM;
 
@@ -1565,7 +1566,7 @@ int debuginfo__find_available_vars_at(struct debuginfo *dbg,
 	int ret;
 
 	/* Allocate result vls array */
-	*vls = zalloc(sizeof(struct variable_list) * af.max_vls);
+	*vls = calloc(af.max_vls, sizeof(struct variable_list));
 	if (*vls == NULL)
 		return -ENOMEM;
 

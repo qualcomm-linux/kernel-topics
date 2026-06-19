@@ -208,6 +208,14 @@ static u16 nvmet_install_queue(struct nvmet_ctrl *ctrl, struct nvmet_req *req)
 		return NVME_SC_CONNECT_CTRL_BUSY | NVME_STATUS_DNR;
 	}
 
+	kref_get(&ctrl->ref);
+	old = cmpxchg(&req->cq->ctrl, NULL, ctrl);
+	if (old) {
+		pr_warn("queue already connected!\n");
+		req->error_loc = offsetof(struct nvmf_connect_command, opcode);
+		return NVME_SC_CONNECT_CTRL_BUSY | NVME_STATUS_DNR;
+	}
+
 	/* note: convert queue size from 0's-based value to 1's-based value */
 	nvmet_cq_setup(ctrl, req->cq, qid, sqsize + 1);
 	nvmet_sq_setup(ctrl, req->sq, qid, sqsize + 1);
@@ -239,8 +247,8 @@ static u32 nvmet_connect_result(struct nvmet_ctrl *ctrl, struct nvmet_sq *sq)
 	bool needs_auth = nvmet_has_auth(ctrl, sq);
 	key_serial_t keyid = nvmet_queue_tls_keyid(sq);
 
-	/* Do not authenticate I/O queues for secure concatenation */
-	if (ctrl->concat && sq->qid)
+	/* Do not authenticate I/O queues */
+	if (sq->qid)
 		needs_auth = false;
 
 	if (keyid)
@@ -272,7 +280,7 @@ static void nvmet_execute_admin_connect(struct nvmet_req *req)
 	if (!nvmet_check_transfer_len(req, sizeof(struct nvmf_connect_data)))
 		return;
 
-	d = kmalloc(sizeof(*d), GFP_KERNEL);
+	d = kmalloc_obj(*d);
 	if (!d) {
 		args.status = NVME_SC_INTERNAL;
 		goto complete;
@@ -336,7 +344,7 @@ static void nvmet_execute_io_connect(struct nvmet_req *req)
 	if (!nvmet_check_transfer_len(req, sizeof(struct nvmf_connect_data)))
 		return;
 
-	d = kmalloc(sizeof(*d), GFP_KERNEL);
+	d = kmalloc_obj(*d);
 	if (!d) {
 		status = NVME_SC_INTERNAL;
 		goto complete;

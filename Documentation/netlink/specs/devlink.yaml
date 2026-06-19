@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: ((GPL-2.0 WITH Linux-syscall-note) OR BSD-3-Clause)
-
+---
 name: devlink
 
 protocol: genetlink-legacy
@@ -38,15 +38,15 @@ definitions:
       -
         name: dsa
       -
-        name: pci_pf
+        name: pci-pf
       -
-        name: pci_vf
+        name: pci-vf
       -
         name: virtual
       -
         name: unused
       -
-        name: pci_sf
+        name: pci-sf
   -
     type: enum
     name: port-fn-state
@@ -99,6 +99,8 @@ definitions:
         name: legacy
       -
         name: switchdev
+      -
+        name: switchdev-inactive
   -
     type: enum
     name: eswitch-inline-mode
@@ -157,6 +159,14 @@ definitions:
         name: entry
   -
     type: enum
+    name: resource-scope
+    entries:
+      -
+        name: dev
+      -
+        name: port
+  -
+    type: enum
     name: reload-action
     entries:
       -
@@ -202,6 +212,32 @@ definitions:
         name: exception
       -
         name: control
+  -
+    type: enum
+    name: var-attr-type
+    entries:
+      -
+        name: u8
+        value: 1
+      -
+        name: u16
+      -
+        name: u32
+      -
+        name: u64
+      -
+        name: string
+      -
+        name: flag
+      -
+        name: nul-string
+        value: 10
+      -
+        name: binary
+  -
+    name: rate-tc-index-max
+    type: const
+    value: 7
 
 attribute-sets:
   -
@@ -498,6 +534,7 @@ attribute-sets:
       -
         name: param-type
         type: u8
+        enum: var-attr-type
 
       # TODO: fill in the attributes in between
 
@@ -592,6 +629,7 @@ attribute-sets:
       -
         name: fmsg-obj-value-type
         type: u8
+        enum: var-attr-type
 
       # TODO: fill in the attributes in between
 
@@ -720,7 +758,7 @@ attribute-sets:
         name: flash-update-overwrite-mask
         type: bitfield32
         enum: flash-overwrite
-        enum-as-flags: True
+        enum-as-flags: true
       -
         name: reload-action
         type: u8
@@ -729,12 +767,12 @@ attribute-sets:
         name: reload-actions-performed
         type: bitfield32
         enum: reload-action
-        enum-as-flags: True
+        enum-as-flags: true
       -
         name: reload-limits
         type: bitfield32
         enum: reload-action
-        enum-as-flags: True
+        enum-as-flags: true
       -
         name: dev-stats
         type: nest
@@ -788,14 +826,14 @@ attribute-sets:
         name: rate-parent-node-name
         type: string
       -
-         name: region-max-snapshots
-         type: u32
+        name: region-max-snapshots
+        type: u32
       -
         name: linecard-index
         type: u32
       -
-         name: linecard-state
-         type: u8
+        name: linecard-state
+        type: u8
       -
         name: linecard-type
         type: string
@@ -820,7 +858,39 @@ attribute-sets:
       -
         name: region-direct
         type: flag
+      -
+        name: rate-tc-bws
+        type: nest
+        multi-attr: true
+        nested-attributes: dl-rate-tc-bws
+      -
+        name: health-reporter-burst-period
+        type: u64
+        doc: Time (in msec) for recoveries before starting the grace period.
 
+      # TODO: fill in the attributes in between
+
+      -
+        name: param-reset-default
+        type: flag
+        doc: Request restoring parameter to its default value.
+        value: 183
+      -
+        name: index
+        type: uint
+        doc: Unique devlink instance index.
+        checks:
+          max: u32-max
+      -
+        name: resource-scope-mask
+        type: u32
+        enum: resource-scope
+        enum-as-flags: true
+        doc: |
+          Bitmask selecting which resource classes to include in a
+          resource-dump response. Bit 0 (dev) selects device-level
+          resources; bit 1 (port) selects port-level resources.
+          When absent all classes are returned.
   -
     name: dl-dev-stats
     subset-of: devlink
@@ -893,7 +963,7 @@ attribute-sets:
         name: caps
         type: bitfield32
         enum: port-fn-attr-cap
-        enum-as-flags: True
+        enum-as-flags: true
 
   -
     name: dl-dpipe-tables
@@ -1115,7 +1185,7 @@ attribute-sets:
       -
         name: param-type
 
-      # TODO: fill in the attribute param-value-list
+        # TODO: fill in the attribute param-value-list
 
   -
     name: dl-region-snapshots
@@ -1184,6 +1254,8 @@ attribute-sets:
         name: health-reporter-dump-ts-ns
       -
         name: health-reporter-auto-dump
+      -
+        name: health-reporter-burst-period
 
   -
     name: dl-attr-stats
@@ -1225,6 +1297,22 @@ attribute-sets:
       -
         name: flash
         type: flag
+  -
+    name: dl-rate-tc-bws
+    name-prefix: devlink-rate-tc-attr-
+    attributes:
+      -
+        name: index
+        type: u8
+        checks:
+          max: rate-tc-index-max
+      -
+        name: bw
+        type: u32
+        doc: |
+             Specifies the bandwidth share assigned to the Traffic Class.
+             The bandwidth for the traffic class is determined
+             in proportion to the sum of the shares of all configured classes.
 
 operations:
   enum-model: directional
@@ -1233,7 +1321,7 @@ operations:
       name: get
       doc: Get devlink instances.
       attribute-set: devlink
-      dont-validate: [ strict, dump ]
+      dont-validate: [strict, dump]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1242,11 +1330,13 @@ operations:
           attributes: &dev-id-attrs
             - bus-name
             - dev-name
-        reply:  &get-reply
+            - index
+        reply: &get-reply
           value: 3
           attributes:
             - bus-name
             - dev-name
+            - index
             - reload-failed
             - dev-stats
       dump:
@@ -1256,7 +1346,7 @@ operations:
       name: port-get
       doc: Get devlink port instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1265,6 +1355,7 @@ operations:
           attributes: &port-id-attrs
             - bus-name
             - dev-name
+            - index
             - port-index
         reply:
           value: 7
@@ -1280,8 +1371,8 @@ operations:
       name: port-set
       doc: Set devlink port instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1289,6 +1380,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - port-type
             - port-function
@@ -1297,8 +1389,8 @@ operations:
       name: port-new
       doc: Create devlink port instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1306,6 +1398,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - port-flavour
             - port-pci-pf-number
@@ -1319,8 +1412,8 @@ operations:
       name: port-del
       doc: Delete devlink port instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1331,8 +1424,8 @@ operations:
       name: port-split
       doc: Split devlink port instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1340,6 +1433,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - port-split-count
 
@@ -1347,8 +1441,8 @@ operations:
       name: port-unsplit
       doc: Unplit devlink port instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1359,7 +1453,7 @@ operations:
       name: sb-get
       doc: Get shared buffer instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1368,6 +1462,7 @@ operations:
           attributes: &sb-id-attrs
             - bus-name
             - dev-name
+            - index
             - sb-index
         reply: &sb-get-reply
           value: 13
@@ -1381,7 +1476,7 @@ operations:
       name: sb-pool-get
       doc: Get shared buffer pool instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1390,6 +1485,7 @@ operations:
           attributes: &sb-pool-id-attrs
             - bus-name
             - dev-name
+            - index
             - sb-index
             - sb-pool-index
         reply: &sb-pool-get-reply
@@ -1404,8 +1500,8 @@ operations:
       name: sb-pool-set
       doc: Set shared buffer pool instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1413,6 +1509,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - sb-index
             - sb-pool-index
             - sb-pool-threshold-type
@@ -1422,7 +1519,7 @@ operations:
       name: sb-port-pool-get
       doc: Get shared buffer port-pool combinations and threshold.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1431,6 +1528,7 @@ operations:
           attributes: &sb-port-pool-id-attrs
             - bus-name
             - dev-name
+            - index
             - port-index
             - sb-index
             - sb-pool-index
@@ -1446,8 +1544,8 @@ operations:
       name: sb-port-pool-set
       doc: Set shared buffer port-pool combinations and threshold.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1455,6 +1553,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - sb-index
             - sb-pool-index
@@ -1464,7 +1563,7 @@ operations:
       name: sb-tc-pool-bind-get
       doc: Get shared buffer port-TC to pool bindings and threshold.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1473,6 +1572,7 @@ operations:
           attributes: &sb-tc-pool-bind-id-attrs
             - bus-name
             - dev-name
+            - index
             - port-index
             - sb-index
             - sb-pool-type
@@ -1489,8 +1589,8 @@ operations:
       name: sb-tc-pool-bind-set
       doc: Set shared buffer port-TC to pool bindings and threshold.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1498,6 +1598,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - sb-index
             - sb-pool-index
@@ -1509,8 +1610,8 @@ operations:
       name: sb-occ-snapshot
       doc: Take occupancy snapshot of shared buffer.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1519,14 +1620,15 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - sb-index
 
     -
       name: sb-occ-max-clear
       doc: Clear occupancy watermarks of shared buffer.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1534,14 +1636,15 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - sb-index
 
     -
       name: eswitch-get
       doc: Get eswitch attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1552,6 +1655,7 @@ operations:
           attributes: &eswitch-attrs
             - bus-name
             - dev-name
+            - index
             - eswitch-mode
             - eswitch-inline-mode
             - eswitch-encap-mode
@@ -1560,8 +1664,8 @@ operations:
       name: eswitch-set
       doc: Set eswitch attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1572,7 +1676,7 @@ operations:
       name: dpipe-table-get
       doc: Get dpipe table attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1580,19 +1684,21 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - dpipe-table-name
         reply:
           value: 31
           attributes:
             - bus-name
             - dev-name
+            - index
             - dpipe-tables
 
     -
       name: dpipe-entries-get
       doc: Get dpipe entries attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1600,18 +1706,20 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - dpipe-table-name
         reply:
           attributes:
             - bus-name
             - dev-name
+            - index
             - dpipe-entries
 
     -
       name: dpipe-headers-get
       doc: Get dpipe headers attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1619,18 +1727,20 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
         reply:
           attributes:
             - bus-name
             - dev-name
+            - index
             - dpipe-headers
 
     -
       name: dpipe-table-counters-set
       doc: Set dpipe counter attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1638,6 +1748,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - dpipe-table-name
             - dpipe-table-counters-enabled
 
@@ -1645,8 +1756,8 @@ operations:
       name: resource-set
       doc: Set resource attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1654,6 +1765,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - resource-id
             - resource-size
 
@@ -1661,27 +1773,39 @@ operations:
       name: resource-dump
       doc: Get resource attributes.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
-        pre: devlink-nl-pre-doit
+        pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
         request:
           attributes:
             - bus-name
             - dev-name
-        reply:
+            - index
+            - port-index
+        reply: &resource-dump-reply
           value: 36
           attributes:
             - bus-name
             - dev-name
+            - index
+            - port-index
             - resource-list
+      dump:
+        request:
+          attributes:
+            - bus-name
+            - dev-name
+            - index
+            - resource-scope-mask
+        reply: *resource-dump-reply
 
     -
       name: reload
       doc: Reload devlink.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-dev-lock
         post: devlink-nl-post-doit-dev-lock
@@ -1689,6 +1813,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - reload-action
             - reload-limits
             - netns-pid
@@ -1698,13 +1823,14 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - reload-actions-performed
 
     -
       name: param-get
       doc: Get param instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1712,6 +1838,7 @@ operations:
           attributes: &param-id-attrs
             - bus-name
             - dev-name
+            - index
             - param-name
         reply: &param-get-reply
           attributes: *param-id-attrs
@@ -1724,8 +1851,8 @@ operations:
       name: param-set
       doc: Set param instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1733,16 +1860,18 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - param-name
             - param-type
             # param-value-data is missing here as the type is variable
             - param-value-cmode
+            - param-reset-default
 
     -
       name: region-get
       doc: Get region instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1751,6 +1880,7 @@ operations:
           attributes: &region-id-attrs
             - bus-name
             - dev-name
+            - index
             - port-index
             - region-name
         reply: &region-get-reply
@@ -1765,8 +1895,8 @@ operations:
       name: region-new
       doc: Create region snapshot.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1775,6 +1905,7 @@ operations:
           attributes: &region-snapshot-id-attrs
             - bus-name
             - dev-name
+            - index
             - port-index
             - region-name
             - region-snapshot-id
@@ -1786,8 +1917,8 @@ operations:
       name: region-del
       doc: Delete region snapshot.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1798,13 +1929,14 @@ operations:
       name: region-read
       doc: Read region data.
       attribute-set: devlink
-      dont-validate: [ dump-strict ]
-      flags: [ admin-perm ]
+      dont-validate: [dump-strict]
+      flags: [admin-perm]
       dump:
         request:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - region-name
             - region-snapshot-id
@@ -1816,6 +1948,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - region-name
 
@@ -1823,7 +1956,7 @@ operations:
       name: port-param-get
       doc: Get port param instances.
       attribute-set: devlink
-      dont-validate: [ strict, dump-strict ]
+      dont-validate: [strict, dump-strict]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1839,8 +1972,8 @@ operations:
       name: port-param-set
       doc: Set port param instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port
         post: devlink-nl-post-doit
@@ -1849,9 +1982,11 @@ operations:
 
     -
       name: info-get
-      doc: Get device information, like driver name, hardware and firmware versions etc.
+      doc: |
+        Get device information, like driver name, hardware and firmware versions
+        etc.
       attribute-set: devlink
-      dont-validate: [ strict, dump ]
+      dont-validate: [strict, dump]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1863,6 +1998,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - info-driver-name
             - info-serial-number
             - info-version-fixed
@@ -1876,7 +2012,7 @@ operations:
       name: health-reporter-get
       doc: Get health reporter instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1884,6 +2020,7 @@ operations:
           attributes: &health-reporter-id-attrs
             - bus-name
             - dev-name
+            - index
             - port-index
             - health-reporter-name
         reply: &health-reporter-get-reply
@@ -1897,8 +2034,8 @@ operations:
       name: health-reporter-set
       doc: Set health reporter instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1906,18 +2043,20 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index
             - health-reporter-name
             - health-reporter-graceful-period
             - health-reporter-auto-recover
             - health-reporter-auto-dump
+            - health-reporter-burst-period
 
     -
       name: health-reporter-recover
       doc: Recover health reporter instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1928,8 +2067,8 @@ operations:
       name: health-reporter-diagnose
       doc: Diagnose health reporter instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1940,8 +2079,8 @@ operations:
       name: health-reporter-dump-get
       doc: Dump health reporter instances.
       attribute-set: devlink
-      dont-validate: [ dump-strict ]
-      flags: [ admin-perm ]
+      dont-validate: [dump-strict]
+      flags: [admin-perm]
       dump:
         request:
           attributes: *health-reporter-id-attrs
@@ -1954,8 +2093,8 @@ operations:
       name: health-reporter-dump-clear
       doc: Clear dump of health reporter instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -1966,8 +2105,8 @@ operations:
       name: flash-update
       doc: Flash update devlink instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1975,6 +2114,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - flash-update-file-name
             - flash-update-component
             - flash-update-overwrite-mask
@@ -1983,7 +2123,7 @@ operations:
       name: trap-get
       doc: Get trap instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -1992,6 +2132,7 @@ operations:
           attributes: &trap-id-attrs
             - bus-name
             - dev-name
+            - index
             - trap-name
         reply: &trap-get-reply
           value: 63
@@ -2005,8 +2146,8 @@ operations:
       name: trap-set
       doc: Set trap instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2014,6 +2155,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - trap-name
             - trap-action
 
@@ -2021,7 +2163,7 @@ operations:
       name: trap-group-get
       doc: Get trap group instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2030,6 +2172,7 @@ operations:
           attributes: &trap-group-id-attrs
             - bus-name
             - dev-name
+            - index
             - trap-group-name
         reply: &trap-group-get-reply
           value: 67
@@ -2043,8 +2186,8 @@ operations:
       name: trap-group-set
       doc: Set trap group instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2052,6 +2195,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - trap-group-name
             - trap-action
             - trap-policer-id
@@ -2060,7 +2204,7 @@ operations:
       name: trap-policer-get
       doc: Get trap policer instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2069,6 +2213,7 @@ operations:
           attributes: &trap-policer-id-attrs
             - bus-name
             - dev-name
+            - index
             - trap-policer-id
         reply: &trap-policer-get-reply
           value: 71
@@ -2082,8 +2227,8 @@ operations:
       name: trap-policer-set
       doc: Get trap policer instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2091,6 +2236,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - trap-policer-id
             - trap-policer-rate
             - trap-policer-burst
@@ -2099,8 +2245,8 @@ operations:
       name: health-reporter-test
       doc: Test health reporter instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit-port-optional
         post: devlink-nl-post-doit
@@ -2112,7 +2258,7 @@ operations:
       name: rate-get
       doc: Get rate instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2121,6 +2267,7 @@ operations:
           attributes: &rate-id-attrs
             - bus-name
             - dev-name
+            - index
             - port-index
             - rate-node-name
         reply: &rate-get-reply
@@ -2135,8 +2282,8 @@ operations:
       name: rate-set
       doc: Set rate instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2144,19 +2291,21 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - rate-node-name
             - rate-tx-share
             - rate-tx-max
             - rate-tx-priority
             - rate-tx-weight
             - rate-parent-node-name
+            - rate-tc-bws
 
     -
       name: rate-new
       doc: Create rate instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2164,19 +2313,21 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - rate-node-name
             - rate-tx-share
             - rate-tx-max
             - rate-tx-priority
             - rate-tx-weight
             - rate-parent-node-name
+            - rate-tc-bws
 
     -
       name: rate-del
       doc: Delete rate instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2184,13 +2335,14 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - rate-node-name
 
     -
       name: linecard-get
       doc: Get line card instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
+      dont-validate: [strict]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2199,6 +2351,7 @@ operations:
           attributes: &linecard-id-attrs
             - bus-name
             - dev-name
+            - index
             - linecard-index
         reply: &linecard-get-reply
           value: 80
@@ -2212,8 +2365,8 @@ operations:
       name: linecard-set
       doc: Set line card instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2221,6 +2374,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - linecard-index
             - linecard-type
 
@@ -2228,7 +2382,7 @@ operations:
       name: selftests-get
       doc: Get device selftest instances.
       attribute-set: devlink
-      dont-validate: [ strict, dump ]
+      dont-validate: [strict, dump]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2245,8 +2399,8 @@ operations:
       name: selftests-run
       doc: Run device selftest instances.
       attribute-set: devlink
-      dont-validate: [ strict ]
-      flags: [ admin-perm ]
+      dont-validate: [strict]
+      flags: [admin-perm]
       do:
         pre: devlink-nl-pre-doit
         post: devlink-nl-post-doit
@@ -2254,6 +2408,7 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - selftests
 
     -
@@ -2265,4 +2420,5 @@ operations:
           attributes:
             - bus-name
             - dev-name
+            - index
             - port-index

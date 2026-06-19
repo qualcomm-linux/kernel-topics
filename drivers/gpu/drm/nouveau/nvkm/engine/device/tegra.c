@@ -186,21 +186,31 @@ nvkm_device_tegra(struct nvkm_device *device)
 }
 
 static struct resource *
-nvkm_device_tegra_resource(struct nvkm_device *device, unsigned bar)
+nvkm_device_tegra_resource(struct nvkm_device *device, enum nvkm_bar_id bar)
 {
 	struct nvkm_device_tegra *tdev = nvkm_device_tegra(device);
-	return platform_get_resource(tdev->pdev, IORESOURCE_MEM, bar);
+	int idx;
+
+	switch (bar) {
+	case NVKM_BAR0_PRI: idx = 0; break;
+	case NVKM_BAR1_FB : idx = 1; break;
+	default:
+		WARN_ON(1);
+		return NULL;
+	}
+
+	return platform_get_resource(tdev->pdev, IORESOURCE_MEM, idx);
 }
 
 static resource_size_t
-nvkm_device_tegra_resource_addr(struct nvkm_device *device, unsigned bar)
+nvkm_device_tegra_resource_addr(struct nvkm_device *device, enum nvkm_bar_id bar)
 {
 	struct resource *res = nvkm_device_tegra_resource(device, bar);
 	return res ? res->start : 0;
 }
 
 static resource_size_t
-nvkm_device_tegra_resource_size(struct nvkm_device *device, unsigned bar)
+nvkm_device_tegra_resource_size(struct nvkm_device *device, enum nvkm_bar_id bar)
 {
 	struct resource *res = nvkm_device_tegra_resource(device, bar);
 	return res ? resource_size(res) : 0;
@@ -243,11 +253,15 @@ nvkm_device_tegra_new(const struct nvkm_device_tegra_func *func,
 	unsigned long rate;
 	int ret;
 
-	if (!(tdev = kzalloc(sizeof(*tdev), GFP_KERNEL)))
+	if (!(tdev = kzalloc_obj(*tdev)))
 		return -ENOMEM;
 
 	tdev->func = func;
 	tdev->pdev = pdev;
+
+	tdev->regs = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(tdev->regs))
+		return PTR_ERR(tdev->regs);
 
 	if (func->require_vdd) {
 		tdev->vdd = devm_regulator_get(&pdev->dev, "vdd");

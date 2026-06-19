@@ -372,7 +372,7 @@ static const struct drm_plane_funcs vmw_ldu_plane_funcs = {
 static const struct drm_plane_funcs vmw_ldu_cursor_funcs = {
 	.update_plane = drm_atomic_helper_update_plane,
 	.disable_plane = drm_atomic_helper_disable_plane,
-	.destroy = vmw_du_cursor_plane_destroy,
+	.destroy = vmw_cursor_plane_destroy,
 	.reset = vmw_du_plane_reset,
 	.atomic_duplicate_state = vmw_du_plane_duplicate_state,
 	.atomic_destroy_state = vmw_du_plane_destroy_state,
@@ -383,10 +383,10 @@ static const struct drm_plane_funcs vmw_ldu_cursor_funcs = {
  */
 static const struct
 drm_plane_helper_funcs vmw_ldu_cursor_plane_helper_funcs = {
-	.atomic_check = vmw_du_cursor_plane_atomic_check,
-	.atomic_update = vmw_du_cursor_plane_atomic_update,
-	.prepare_fb = vmw_du_cursor_plane_prepare_fb,
-	.cleanup_fb = vmw_du_cursor_plane_cleanup_fb,
+	.atomic_check = vmw_cursor_plane_atomic_check,
+	.atomic_update = vmw_cursor_plane_atomic_update,
+	.prepare_fb = vmw_cursor_plane_prepare_fb,
+	.cleanup_fb = vmw_cursor_plane_cleanup_fb,
 };
 
 static const struct
@@ -416,7 +416,7 @@ static int vmw_ldu_init(struct vmw_private *dev_priv, unsigned unit)
 	struct drm_crtc *crtc;
 	int ret;
 
-	ldu = kzalloc(sizeof(*ldu), GFP_KERNEL);
+	ldu = kzalloc_obj(*ldu);
 	if (!ldu)
 		return -ENOMEM;
 
@@ -547,7 +547,7 @@ int vmw_kms_ldu_init_display(struct vmw_private *dev_priv)
 		return -EINVAL;
 	}
 
-	dev_priv->ldu_priv = kmalloc(sizeof(*dev_priv->ldu_priv), GFP_KERNEL);
+	dev_priv->ldu_priv = kmalloc_obj(*dev_priv->ldu_priv);
 	if (!dev_priv->ldu_priv)
 		return -ENOMEM;
 

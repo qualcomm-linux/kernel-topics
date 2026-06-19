@@ -292,7 +292,7 @@ void tipc_disc_remove_dest(struct tipc_discoverer *d)
  */
 static void tipc_disc_timeout(struct timer_list *t)
 {
-	struct tipc_discoverer *d = from_timer(d, t, timer);
+	struct tipc_discoverer *d = timer_container_of(d, t, timer);
 	struct tipc_net *tn = tipc_net(d->net);
 	struct tipc_media_addr maddr;
 	struct sk_buff *skb = NULL;
@@ -353,7 +353,7 @@ int tipc_disc_create(struct net *net, struct tipc_bearer *b,
 	struct tipc_net *tn = tipc_net(net);
 	struct tipc_discoverer *d;
 
-	d = kmalloc(sizeof(*d), GFP_ATOMIC);
+	d = kmalloc_obj(*d, GFP_ATOMIC);
 	if (!d)
 		return -ENOMEM;
 	d->skb = tipc_buf_acquire(MAX_H_SIZE + NODE_ID_LEN, GFP_ATOMIC);

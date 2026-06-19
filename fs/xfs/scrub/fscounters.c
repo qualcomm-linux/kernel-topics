@@ -3,7 +3,7 @@
  * Copyright (C) 2019-2023 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -123,7 +123,7 @@ xchk_fsfreeze(
 {
 	int			error;
 
-	error = freeze_super(sc->mp->m_super, FREEZE_HOLDER_KERNEL);
+	error = freeze_super(sc->mp->m_super, FREEZE_HOLDER_KERNEL, NULL);
 	trace_xchk_fsfreeze(sc, error);
 	return error;
 }
@@ -135,7 +135,7 @@ xchk_fsthaw(
 	int			error;
 
 	/* This should always succeed, we have a kernel freeze */
-	error = thaw_super(sc->mp->m_super, FREEZE_HOLDER_KERNEL);
+	error = thaw_super(sc->mp->m_super, FREEZE_HOLDER_KERNEL, NULL);
 	trace_xchk_fsthaw(sc, error);
 	return error;
 }
@@ -207,7 +207,7 @@ xchk_setup_fscounters(
 	if (!xfs_has_lazysbcount(sc->mp))
 		xchk_fsgates_enable(sc, XCHK_FSGATES_DRAIN);
 
-	sc->buf = kzalloc(sizeof(struct xchk_fscounters), XCHK_GFP_FLAGS);
+	sc->buf = kzalloc_obj(struct xchk_fscounters, XCHK_GFP_FLAGS);
 	if (!sc->buf)
 		return -ENOMEM;
 	sc->buf_cleanup = xchk_fscounters_cleanup;
@@ -237,7 +237,8 @@ xchk_setup_fscounters(
 			return error;
 	}
 
-	return xchk_trans_alloc_empty(sc);
+	xchk_trans_alloc_empty(sc);
+	return 0;
 }
 
 /*

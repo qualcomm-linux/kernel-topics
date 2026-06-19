@@ -14,14 +14,13 @@
 #include <drm/drm_print.h>
 
 #include "regs/xe_bars.h"
-#include "regs/xe_regs.h"
 #include "xe_device.h"
-#include "xe_gt.h"
-#include "xe_gt_printk.h"
 #include "xe_gt_sriov_vf.h"
-#include "xe_macros.h"
 #include "xe_sriov.h"
 #include "xe_trace.h"
+#include "xe_wa.h"
+
+#include "generated/xe_device_wa_oob.h"
 
 static void tiles_fini(void *arg)
 {
@@ -64,35 +63,6 @@ static void mmio_multi_tile_setup(struct xe_device *xe, size_t tile_mmio_size)
 	if (xe->info.tile_count == 1)
 		return;
 
-	/* Possibly override number of tile based on configuration register */
-	if (!xe->info.skip_mtcfg) {
-		struct xe_mmio *mmio = xe_root_tile_mmio(xe);
-		u8 tile_count;
-		u32 mtcfg;
-
-		/*
-		 * Although the per-tile mmio regs are not yet initialized, this
-		 * is fine as it's going to the root tile's mmio, that's
-		 * guaranteed to be initialized earlier in xe_mmio_probe_early()
-		 */
-		mtcfg = xe_mmio_read64_2x32(mmio, XEHP_MTCFG_ADDR);
-		tile_count = REG_FIELD_GET(TILE_COUNT, mtcfg) + 1;
-
-		if (tile_count < xe->info.tile_count) {
-			drm_info(&xe->drm, "tile_count: %d, reduced_tile_count %d\n",
-					xe->info.tile_count, tile_count);
-			xe->info.tile_count = tile_count;
-
-			/*
-			 * FIXME: Needs some work for standalone media, but
-			 * should be impossible with multi-tile for now:
-			 * multi-tile platform with standalone media doesn't
-			 * exist
-			 */
-			xe->info.gt_count = xe->info.tile_count;
-		}
-	}
-
 	for_each_remote_tile(tile, xe, id)
 		xe_mmio_init(&tile->mmio, tile, xe->mmio.regs + id * tile_mmio_size, SZ_4M);
 }
@@ -128,7 +98,7 @@ int xe_mmio_probe_early(struct xe_device *xe)
 	 */
 	xe->mmio.size = pci_resource_len(pdev, GTTMMADR_BAR);
 	xe->mmio.regs = pci_iomap(pdev, GTTMMADR_BAR, 0);
-	if (xe->mmio.regs == NULL) {
+	if (!xe->mmio.regs) {
 		drm_err(&xe->drm, "failed to map registers\n");
 		return -EIO;
 	}
@@ -138,6 +108,7 @@ int xe_mmio_probe_early(struct xe_device *xe)
 
 	return devm_add_action_or_reset(xe->drm.dev, mmio_fini, xe);
 }
+ALLOW_ERROR_INJECTION(xe_mmio_probe_early, ERRNO); /* See xe_pci_probe() */
 
 /**
  * xe_mmio_init() - Initialize an MMIO instance
@@ -162,7 +133,7 @@ static void mmio_flush_pending_writes(struct xe_mmio *mmio)
 #define DUMMY_REG_OFFSET	0x130030
 	int i;
 
-	if (mmio->tile->xe->info.platform != XE_LUNARLAKE)
+	if (!XE_DEVICE_WA(mmio->tile->xe, 15015404425))
 		return;
 
 	/* 4 dummy writes */
@@ -175,7 +146,6 @@ u8 xe_mmio_read8(struct xe_mmio *mmio, struct xe_reg reg)
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
 	u8 val;
 
-	/* Wa_15015404425 */
 	mmio_flush_pending_writes(mmio);
 
 	val = readb(mmio->regs + addr);
@@ -184,12 +154,20 @@ u8 xe_mmio_read8(struct xe_mmio *mmio, struct xe_reg reg)
 	return val;
 }
 
+void xe_mmio_write8(struct xe_mmio *mmio, struct xe_reg reg, u8 val)
+{
+	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
+
+	trace_xe_reg_rw(mmio, true, addr, val, sizeof(val));
+
+	writeb(val, mmio->regs + addr);
+}
+
 u16 xe_mmio_read16(struct xe_mmio *mmio, struct xe_reg reg)
 {
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
 	u16 val;
 
-	/* Wa_15015404425 */
 	mmio_flush_pending_writes(mmio);
 
 	val = readw(mmio->regs + addr);
@@ -204,8 +182,9 @@ void xe_mmio_write32(struct xe_mmio *mmio, struct xe_reg reg, u32 val)
 
 	trace_xe_reg_rw(mmio, true, addr, val, sizeof(val));
 
-	if (!reg.vf && mmio->sriov_vf_gt)
-		xe_gt_sriov_vf_write32(mmio->sriov_vf_gt, reg, val);
+	if (!reg.vf && IS_SRIOV_VF(mmio->tile->xe))
+		xe_gt_sriov_vf_write32(mmio->sriov_vf_gt ?:
+				       mmio->tile->primary_gt, reg, val);
 	else
 		writel(val, mmio->regs + addr);
 }
@@ -215,11 +194,11 @@ u32 xe_mmio_read32(struct xe_mmio *mmio, struct xe_reg reg)
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
 	u32 val;
 
-	/* Wa_15015404425 */
 	mmio_flush_pending_writes(mmio);
 
-	if (!reg.vf && mmio->sriov_vf_gt)
-		val = xe_gt_sriov_vf_read32(mmio->sriov_vf_gt, reg);
+	if (!reg.vf && IS_SRIOV_VF(mmio->tile->xe))
+		val = xe_gt_sriov_vf_read32(mmio->sriov_vf_gt ?:
+					    mmio->tile->primary_gt, reg);
 	else
 		val = readl(mmio->regs + addr);
 
@@ -286,11 +265,11 @@ u64 xe_mmio_read64_2x32(struct xe_mmio *mmio, struct xe_reg reg)
 	struct xe_reg reg_udw = { .addr = reg.addr + 0x4 };
 	u32 ldw, udw, oldudw, retries;
 
-	reg.addr = xe_mmio_adjusted_addr(mmio, reg.addr);
-	reg_udw.addr = xe_mmio_adjusted_addr(mmio, reg_udw.addr);
-
-	/* we shouldn't adjust just one register address */
-	xe_tile_assert(mmio->tile, reg_udw.addr == reg.addr + 0x4);
+	/*
+	 * The two dwords of a 64-bit register can never straddle the offset
+	 * adjustment cutoff.
+	 */
+	xe_tile_assert(mmio->tile, !in_range(mmio->adj_limit, reg.addr + 1, 7));
 
 	oldudw = xe_mmio_read32(mmio, reg_udw);
 	for (retries = 5; retries; --retries) {
@@ -309,8 +288,8 @@ u64 xe_mmio_read64_2x32(struct xe_mmio *mmio, struct xe_reg reg)
 	return (u64)udw << 32 | ldw;
 }
 
-static int __xe_mmio_wait32(struct xe_mmio *mmio, struct xe_reg reg, u32 mask, u32 val, u32 timeout_us,
-			    u32 *out_val, bool atomic, bool expect_match)
+static int __xe_mmio_wait32(struct xe_mmio *mmio, struct xe_reg reg, u32 mask, u32 val,
+			    u32 timeout_us, u32 *out_val, bool atomic, bool expect_match)
 {
 	ktime_t cur = ktime_get_raw();
 	const ktime_t end = ktime_add_us(cur, timeout_us);
@@ -405,3 +384,32 @@ int xe_mmio_wait32_not(struct xe_mmio *mmio, struct xe_reg reg, u32 mask, u32 va
 {
 	return __xe_mmio_wait32(mmio, reg, mask, val, timeout_us, out_val, atomic, false);
 }
+
+#ifdef CONFIG_PCI_IOV
+static size_t vf_regs_stride(struct xe_device *xe)
+{
+	return GRAPHICS_VERx100(xe) > 1200 ? 0x400 : 0x1000;
+}
+
+/**
+ * xe_mmio_init_vf_view() - Initialize an MMIO instance for accesses like the VF
+ * @mmio: the target &xe_mmio to initialize as VF's view
+ * @base: the source &xe_mmio to initialize from
+ * @vfid: the VF identifier
+ */
+void xe_mmio_init_vf_view(struct xe_mmio *mmio, const struct xe_mmio *base, unsigned int vfid)
+{
+	struct xe_tile *tile = base->tile;
+	struct xe_device *xe = tile->xe;
+	size_t offset = vf_regs_stride(xe) * vfid;
+
+	xe_assert(xe, IS_SRIOV_PF(xe));
+	xe_assert(xe, vfid);
+	xe_assert(xe, !base->sriov_vf_gt);
+	xe_assert(xe, base->regs_size > offset);
+
+	*mmio = *base;
+	mmio->regs += offset;
+	mmio->regs_size -= offset;
+}
+#endif

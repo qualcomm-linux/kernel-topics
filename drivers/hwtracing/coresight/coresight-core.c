@@ -3,6 +3,8 @@
  * Copyright (c) 2012, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/acpi.h>
+#include <linux/bitfield.h>
 #include <linux/build_bug.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -50,6 +52,9 @@ struct coresight_node {
  */
 const u32 coresight_barrier_pkt[4] = {0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff};
 EXPORT_SYMBOL_GPL(coresight_barrier_pkt);
+
+/* List maintains the device index */
+static LIST_HEAD(coresight_dev_idx_list);
 
 static const struct cti_assoc_op *cti_assoc_ops;
 
@@ -129,34 +134,36 @@ coresight_find_out_connection(struct coresight_device *csdev,
 	return ERR_PTR(-ENODEV);
 }
 
-static inline u32 coresight_read_claim_tags(struct coresight_device *csdev)
+static u32 coresight_read_claim_tags_unlocked(struct coresight_device *csdev)
 {
-	return csdev_access_relaxed_read32(&csdev->access, CORESIGHT_CLAIMCLR);
+	return FIELD_GET(CORESIGHT_CLAIM_MASK,
+			 csdev_access_relaxed_read32(&csdev->access, CORESIGHT_CLAIMCLR));
 }
 
-static inline bool coresight_is_claimed_self_hosted(struct coresight_device *csdev)
-{
-	return coresight_read_claim_tags(csdev) == CORESIGHT_CLAIM_SELF_HOSTED;
-}
-
-static inline bool coresight_is_claimed_any(struct coresight_device *csdev)
-{
-	return coresight_read_claim_tags(csdev) != 0;
-}
-
-static inline void coresight_set_claim_tags(struct coresight_device *csdev)
+static void coresight_set_self_claim_tag_unlocked(struct coresight_device *csdev)
 {
 	csdev_access_relaxed_write32(&csdev->access, CORESIGHT_CLAIM_SELF_HOSTED,
 				     CORESIGHT_CLAIMSET);
 	isb();
 }
 
-static inline void coresight_clear_claim_tags(struct coresight_device *csdev)
+void coresight_clear_self_claim_tag(struct csdev_access *csa)
 {
-	csdev_access_relaxed_write32(&csdev->access, CORESIGHT_CLAIM_SELF_HOSTED,
+	if (csa->io_mem)
+		CS_UNLOCK(csa->base);
+	coresight_clear_self_claim_tag_unlocked(csa);
+	if (csa->io_mem)
+		CS_LOCK(csa->base);
+}
+EXPORT_SYMBOL_GPL(coresight_clear_self_claim_tag);
+
+void coresight_clear_self_claim_tag_unlocked(struct csdev_access *csa)
+{
+	csdev_access_relaxed_write32(csa, CORESIGHT_CLAIM_SELF_HOSTED,
 				     CORESIGHT_CLAIMCLR);
 	isb();
 }
+EXPORT_SYMBOL_GPL(coresight_clear_self_claim_tag_unlocked);
 
 /*
  * coresight_claim_device_unlocked : Claim the device for self-hosted usage
@@ -170,18 +177,41 @@ static inline void coresight_clear_claim_tags(struct coresight_device *csdev)
  */
 int coresight_claim_device_unlocked(struct coresight_device *csdev)
 {
+	int tag;
+	struct csdev_access *csa;
+
 	if (WARN_ON(!csdev))
 		return -EINVAL;
 
-	if (coresight_is_claimed_any(csdev))
+	csa = &csdev->access;
+	tag = coresight_read_claim_tags_unlocked(csdev);
+
+	switch (tag) {
+	case CORESIGHT_CLAIM_FREE:
+		coresight_set_self_claim_tag_unlocked(csdev);
+		if (coresight_read_claim_tags_unlocked(csdev) == CORESIGHT_CLAIM_SELF_HOSTED)
+			return 0;
+
+		/* There was a race setting the tag, clean up and fail */
+		coresight_clear_self_claim_tag_unlocked(csa);
+		dev_dbg(&csdev->dev, "Busy: Couldn't set self claim tag");
 		return -EBUSY;
 
-	coresight_set_claim_tags(csdev);
-	if (coresight_is_claimed_self_hosted(csdev))
-		return 0;
-	/* There was a race setting the tags, clean up and fail */
-	coresight_clear_claim_tags(csdev);
-	return -EBUSY;
+	case CORESIGHT_CLAIM_EXTERNAL:
+		/* External debug is an expected state, so log and report BUSY */
+		dev_dbg(&csdev->dev, "Busy: Claimed by external debugger");
+		return -EBUSY;
+
+	default:
+	case CORESIGHT_CLAIM_SELF_HOSTED:
+	case CORESIGHT_CLAIM_INVALID:
+		/*
+		 * Warn here because we clear a lingering self hosted tag
+		 * on probe, so other tag combinations are impossible.
+		 */
+		dev_err_once(&csdev->dev, "Invalid claim tag state: %x", tag);
+		return -EBUSY;
+	}
 }
 EXPORT_SYMBOL_GPL(coresight_claim_device_unlocked);
 
@@ -201,7 +231,7 @@ int coresight_claim_device(struct coresight_device *csdev)
 EXPORT_SYMBOL_GPL(coresight_claim_device);
 
 /*
- * coresight_disclaim_device_unlocked : Clear the claim tags for the device.
+ * coresight_disclaim_device_unlocked : Clear the claim tag for the device.
  * Called with CS_UNLOCKed for the component.
  */
 void coresight_disclaim_device_unlocked(struct coresight_device *csdev)
@@ -210,15 +240,15 @@ void coresight_disclaim_device_unlocked(struct coresight_device *csdev)
 	if (WARN_ON(!csdev))
 		return;
 
-	if (coresight_is_claimed_self_hosted(csdev))
-		coresight_clear_claim_tags(csdev);
+	if (coresight_read_claim_tags_unlocked(csdev) == CORESIGHT_CLAIM_SELF_HOSTED)
+		coresight_clear_self_claim_tag_unlocked(&csdev->access);
 	else
 		/*
 		 * The external agent may have not honoured our claim
 		 * and has manipulated it. Or something else has seriously
 		 * gone wrong in our driver.
 		 */
-		WARN_ON_ONCE(1);
+		dev_WARN_ONCE(&csdev->dev, 1, "External agent took claim tag");
 }
 EXPORT_SYMBOL_GPL(coresight_disclaim_device_unlocked);
 
@@ -273,9 +303,10 @@ unlock:
 EXPORT_SYMBOL_GPL(coresight_add_helper);
 
 static int coresight_enable_sink(struct coresight_device *csdev,
-				 enum cs_mode mode, void *data)
+				 enum cs_mode mode,
+				 struct coresight_path *path)
 {
-	return sink_ops(csdev)->enable(csdev, mode, data);
+	return sink_ops(csdev)->enable(csdev, mode, path);
 }
 
 static void coresight_disable_sink(struct coresight_device *csdev)
@@ -328,17 +359,20 @@ static bool coresight_is_helper(struct coresight_device *csdev)
 }
 
 static int coresight_enable_helper(struct coresight_device *csdev,
-				   enum cs_mode mode, void *data)
+				   enum cs_mode mode,
+				   struct coresight_path *path)
 {
-	return helper_ops(csdev)->enable(csdev, mode, data);
+	return helper_ops(csdev)->enable(csdev, mode, path);
 }
 
-static void coresight_disable_helper(struct coresight_device *csdev, void *data)
+static void coresight_disable_helper(struct coresight_device *csdev,
+				     struct coresight_path *path)
 {
-	helper_ops(csdev)->disable(csdev, data);
+	helper_ops(csdev)->disable(csdev, path);
 }
 
-static void coresight_disable_helpers(struct coresight_device *csdev, void *data)
+static void coresight_disable_helpers(struct coresight_device *csdev,
+				      struct coresight_path *path)
 {
 	int i;
 	struct coresight_device *helper;
@@ -346,7 +380,7 @@ static void coresight_disable_helpers(struct coresight_device *csdev, void *data
 	for (i = 0; i < csdev->pdata->nr_outconns; ++i) {
 		helper = csdev->pdata->out_conns[i]->dest_dev;
 		if (helper && coresight_is_helper(helper))
-			coresight_disable_helper(helper, data);
+			coresight_disable_helper(helper, path);
 	}
 }
 
@@ -366,6 +400,28 @@ void coresight_disable_source(struct coresight_device *csdev, void *data)
 	coresight_disable_helpers(csdev, NULL);
 }
 EXPORT_SYMBOL_GPL(coresight_disable_source);
+
+void coresight_pause_source(struct coresight_device *csdev)
+{
+	if (!coresight_is_percpu_source(csdev))
+		return;
+
+	if (source_ops(csdev)->pause_perf)
+		source_ops(csdev)->pause_perf(csdev);
+}
+EXPORT_SYMBOL_GPL(coresight_pause_source);
+
+int coresight_resume_source(struct coresight_device *csdev)
+{
+	if (!coresight_is_percpu_source(csdev))
+		return -EOPNOTSUPP;
+
+	if (!source_ops(csdev)->resume_perf)
+		return -EOPNOTSUPP;
+
+	return source_ops(csdev)->resume_perf(csdev);
+}
+EXPORT_SYMBOL_GPL(coresight_resume_source);
 
 /*
  * coresight_disable_path_from : Disable components in the given path beyond
@@ -430,7 +486,8 @@ void coresight_disable_path(struct coresight_path *path)
 EXPORT_SYMBOL_GPL(coresight_disable_path);
 
 static int coresight_enable_helpers(struct coresight_device *csdev,
-				    enum cs_mode mode, void *data)
+				    enum cs_mode mode,
+				    struct coresight_path *path)
 {
 	int i, ret = 0;
 	struct coresight_device *helper;
@@ -440,7 +497,7 @@ static int coresight_enable_helpers(struct coresight_device *csdev,
 		if (!helper || !coresight_is_helper(helper))
 			continue;
 
-		ret = coresight_enable_helper(helper, mode, data);
+		ret = coresight_enable_helper(helper, mode, path);
 		if (ret)
 			return ret;
 	}
@@ -448,8 +505,7 @@ static int coresight_enable_helpers(struct coresight_device *csdev,
 	return 0;
 }
 
-int coresight_enable_path(struct coresight_path *path, enum cs_mode mode,
-			  void *sink_data)
+int coresight_enable_path(struct coresight_path *path, enum cs_mode mode)
 {
 	int ret = 0;
 	u32 type;
@@ -465,7 +521,7 @@ int coresight_enable_path(struct coresight_path *path, enum cs_mode mode,
 		/* Enable all helpers adjacent to the path first */
 		ret = coresight_enable_helpers(csdev, mode, path);
 		if (ret)
-			goto err;
+			goto err_disable_path;
 		/*
 		 * ETF devices are tricky... They can be a link or a sink,
 		 * depending on how they are configured.  If an ETF has been
@@ -479,15 +535,17 @@ int coresight_enable_path(struct coresight_path *path, enum cs_mode mode,
 
 		switch (type) {
 		case CORESIGHT_DEV_TYPE_SINK:
-			ret = coresight_enable_sink(csdev, mode, sink_data);
+			ret = coresight_enable_sink(csdev, mode, path);
 			/*
 			 * Sink is the first component turned on. If we
 			 * failed to enable the sink, there are no components
 			 * that need disabling. Disabling the path here
 			 * would mean we could disrupt an existing session.
 			 */
-			if (ret)
+			if (ret) {
+				coresight_disable_helpers(csdev, path);
 				goto out;
+			}
 			break;
 		case CORESIGHT_DEV_TYPE_SOURCE:
 			/* sources are enabled from either sysFS or Perf */
@@ -497,16 +555,19 @@ int coresight_enable_path(struct coresight_path *path, enum cs_mode mode,
 			child = list_next_entry(nd, link)->csdev;
 			ret = coresight_enable_link(csdev, parent, child, source);
 			if (ret)
-				goto err;
+				goto err_disable_helpers;
 			break;
 		default:
-			goto err;
+			ret = -EINVAL;
+			goto err_disable_helpers;
 		}
 	}
 
 out:
 	return ret;
-err:
+err_disable_helpers:
+	coresight_disable_helpers(csdev, path);
+err_disable_path:
 	coresight_disable_path_from(path, nd);
 	goto out;
 }
@@ -579,7 +640,7 @@ struct coresight_device *coresight_get_sink_by_id(u32 id)
  * Return true in successful case and power up the device.
  * Return false when failed to get reference of module.
  */
-static inline bool coresight_get_ref(struct coresight_device *csdev)
+static bool coresight_get_ref(struct coresight_device *csdev)
 {
 	struct device *dev = csdev->dev.parent;
 
@@ -598,7 +659,7 @@ static inline bool coresight_get_ref(struct coresight_device *csdev)
  *
  * @csdev: The coresight device to decrement a reference from.
  */
-static inline void coresight_put_ref(struct coresight_device *csdev)
+static void coresight_put_ref(struct coresight_device *csdev)
 {
 	struct device *dev = csdev->dev.parent;
 
@@ -763,7 +824,7 @@ out:
 	if (ret)
 		return ret;
 
-	node = kzalloc(sizeof(struct coresight_node), GFP_KERNEL);
+	node = kzalloc_obj(struct coresight_node);
 	if (!node)
 		return -ENOMEM;
 
@@ -782,7 +843,7 @@ struct coresight_path *coresight_build_path(struct coresight_device *source,
 	if (!sink)
 		return ERR_PTR(-EINVAL);
 
-	path = kzalloc(sizeof(struct coresight_path), GFP_KERNEL);
+	path = kzalloc_obj(struct coresight_path);
 	if (!path)
 		return ERR_PTR(-ENOMEM);
 
@@ -821,7 +882,7 @@ void coresight_release_path(struct coresight_path *path)
 }
 
 /* return true if the device is a suitable type for a default sink */
-static inline bool coresight_is_def_sink_type(struct coresight_device *csdev)
+static bool coresight_is_def_sink_type(struct coresight_device *csdev)
 {
 	/* sink & correct subtype */
 	if (((csdev->type == CORESIGHT_DEV_TYPE_SINK) ||
@@ -959,6 +1020,7 @@ coresight_find_default_sink(struct coresight_device *csdev)
 	}
 	return csdev->def_sink;
 }
+EXPORT_SYMBOL_GPL(coresight_find_default_sink);
 
 static int coresight_remove_sink_ref(struct device *dev, void *data)
 {
@@ -1090,7 +1152,6 @@ static int coresight_clear_filter_source(struct device *dev, void *data)
 	return 0;
 }
 
-/* coresight_remove_conns - Remove other device's references to this device */
 static void coresight_remove_conns(struct coresight_device *csdev)
 {
 	int i, j;
@@ -1100,10 +1161,6 @@ static void coresight_remove_conns(struct coresight_device *csdev)
 		bus_for_each_dev(&coresight_bustype, NULL, csdev,
 				 coresight_clear_filter_source);
 
-	/*
-	 * Remove the input connection references from the destination device
-	 * for each output connection.
-	 */
 	for (i = 0; i < csdev->pdata->nr_outconns; i++) {
 		conn = csdev->pdata->out_conns[i];
 		if (conn->filter_src_fwnode) {
@@ -1114,6 +1171,13 @@ static void coresight_remove_conns(struct coresight_device *csdev)
 		if (!conn->dest_dev)
 			continue;
 
+		/* Remove sysfs links for the output connection */
+		coresight_remove_links(csdev, conn);
+
+		/*
+		 * Remove the input connection references from the destination
+		 * device for each output connection.
+		 */
 		for (j = 0; j < conn->dest_dev->pdata->nr_inconns; ++j)
 			if (conn->dest_dev->pdata->in_conns[j] == conn) {
 				conn->dest_dev->pdata->in_conns[j] = NULL;
@@ -1136,6 +1200,8 @@ static void coresight_remove_conns(struct coresight_device *csdev)
 		coresight_remove_links(conn->src_dev, conn);
 		conn->dest_dev = NULL;
 	}
+
+	coresight_remove_conns_sysfs_group(csdev);
 }
 
 /**
@@ -1236,17 +1302,13 @@ void coresight_write64(struct coresight_device *csdev, u64 val, u32 offset)
  * coresight_release_platform_data: Release references to the devices connected
  * to the output port of this device.
  */
-void coresight_release_platform_data(struct coresight_device *csdev,
-				     struct device *dev,
+void coresight_release_platform_data(struct device *dev,
 				     struct coresight_platform_data *pdata)
 {
 	int i;
 	struct coresight_connection **conns = pdata->out_conns;
 
 	for (i = 0; i < pdata->nr_outconns; i++) {
-		/* If we have made the links, remove them now */
-		if (csdev && conns[i]->dest_dev)
-			coresight_remove_links(csdev, conns[i]);
 		/*
 		 * Drop the refcount and clear the handle as this device
 		 * is going away
@@ -1258,8 +1320,6 @@ void coresight_release_platform_data(struct coresight_device *csdev,
 	devm_kfree(dev, pdata->out_conns);
 	devm_kfree(dev, pdata->in_conns);
 	devm_kfree(dev, pdata);
-	if (csdev)
-		coresight_remove_conns_sysfs_group(csdev);
 }
 
 struct coresight_device *coresight_register(struct coresight_desc *desc)
@@ -1268,7 +1328,7 @@ struct coresight_device *coresight_register(struct coresight_desc *desc)
 	struct coresight_device *csdev;
 	bool registered = false;
 
-	csdev = kzalloc(sizeof(*csdev), GFP_KERNEL);
+	csdev = kzalloc_obj(*csdev);
 	if (!csdev) {
 		ret = -ENOMEM;
 		goto err_out;
@@ -1287,12 +1347,6 @@ struct coresight_device *coresight_register(struct coresight_desc *desc)
 	csdev->dev.parent = desc->dev;
 	csdev->dev.release = coresight_device_release;
 	csdev->dev.bus = &coresight_bustype;
-	/*
-	 * Hold the reference to our parent device. This will be
-	 * dropped only in coresight_device_release().
-	 */
-	csdev->dev.fwnode = fwnode_handle_get(dev_fwnode(desc->dev));
-	dev_set_name(&csdev->dev, "%s", desc->name);
 
 	if (csdev->type == CORESIGHT_DEV_TYPE_SINK ||
 	    csdev->type == CORESIGHT_DEV_TYPE_LINKSINK) {
@@ -1304,6 +1358,14 @@ struct coresight_device *coresight_register(struct coresight_desc *desc)
 			goto err_out;
 		}
 	}
+
+	/*
+	 * Hold the reference to our parent device. This will be
+	 * dropped only in coresight_device_release().
+	 */
+	csdev->dev.fwnode = fwnode_handle_get(dev_fwnode(desc->dev));
+	dev_set_name(&csdev->dev, "%s", desc->name);
+
 	/*
 	 * Make sure the device registration and the connection fixup
 	 * are synchronised, so that we don't see uninitialised devices
@@ -1321,36 +1383,30 @@ struct coresight_device *coresight_register(struct coresight_desc *desc)
 		goto out_unlock;
 	}
 
-	if (csdev->type == CORESIGHT_DEV_TYPE_SINK ||
-	    csdev->type == CORESIGHT_DEV_TYPE_LINKSINK) {
-		ret = etm_perf_add_symlink_sink(csdev);
-
-		if (ret) {
-			device_unregister(&csdev->dev);
-			/*
-			 * As with the above, all resources are free'd
-			 * explicitly via coresight_device_release() triggered
-			 * from put_device(), which is in turn called from
-			 * function device_unregister().
-			 */
-			goto out_unlock;
-		}
-	}
 	/* Device is now registered */
 	registered = true;
 
+	ret = etm_perf_add_symlink_sink(csdev);
+	if (ret && ret != -EOPNOTSUPP)
+		goto out_unlock;
+
 	ret = coresight_create_conns_sysfs_group(csdev);
-	if (!ret)
-		ret = coresight_fixup_orphan_conns(csdev);
+	if (ret)
+		goto out_unlock;
+
+	ret = coresight_fixup_orphan_conns(csdev);
+	if (ret)
+		goto out_unlock;
+
+	mutex_unlock(&coresight_mutex);
+
+	if (cti_assoc_ops && cti_assoc_ops->add)
+		cti_assoc_ops->add(csdev);
+
+	return csdev;
 
 out_unlock:
 	mutex_unlock(&coresight_mutex);
-	/* Success */
-	if (!ret) {
-		if (cti_assoc_ops && cti_assoc_ops->add)
-			cti_assoc_ops->add(csdev);
-		return csdev;
-	}
 
 	/* Unregister the device if needed */
 	if (registered) {
@@ -1359,41 +1415,76 @@ out_unlock:
 	}
 
 err_out:
-	/* Cleanup the connection information */
-	coresight_release_platform_data(NULL, desc->dev, desc->pdata);
+	coresight_release_platform_data(desc->dev, desc->pdata);
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(coresight_register);
 
 void coresight_unregister(struct coresight_device *csdev)
 {
-	etm_perf_del_symlink_sink(csdev);
 	/* Remove references of that device in the topology */
 	if (cti_assoc_ops && cti_assoc_ops->remove)
 		cti_assoc_ops->remove(csdev);
+
+	mutex_lock(&coresight_mutex);
+	etm_perf_del_symlink_sink(csdev);
 	coresight_remove_conns(csdev);
 	coresight_clear_default_sink(csdev);
-	coresight_release_platform_data(csdev, csdev->dev.parent, csdev->pdata);
+	coresight_release_platform_data(csdev->dev.parent, csdev->pdata);
 	device_unregister(&csdev->dev);
+	mutex_unlock(&coresight_mutex);
 }
 EXPORT_SYMBOL_GPL(coresight_unregister);
 
-
-/*
- * coresight_search_device_idx - Search the fwnode handle of a device
- * in the given dev_idx list. Must be called with the coresight_mutex held.
- *
- * Returns the index of the entry, when found. Otherwise, -ENOENT.
- */
-static inline int coresight_search_device_idx(struct coresight_dev_list *dict,
-					      struct fwnode_handle *fwnode)
+static struct coresight_dev_list *
+coresight_allocate_device_list(const char *prefix)
 {
-	int i;
+	struct coresight_dev_list *list;
 
-	for (i = 0; i < dict->nr_idx; i++)
-		if (dict->fwnode_list[i] == fwnode)
-			return i;
-	return -ENOENT;
+	/* Check if have already allocated */
+	list_for_each_entry(list, &coresight_dev_idx_list, node) {
+		if (!strcmp(list->pfx, prefix))
+			return list;
+	}
+
+	list = kzalloc(sizeof(*list), GFP_KERNEL);
+	if (!list)
+		return NULL;
+
+	list->pfx = kstrdup(prefix, GFP_KERNEL);
+	if (!list->pfx) {
+		kfree(list);
+		return NULL;
+	}
+
+	list_add(&list->node, &coresight_dev_idx_list);
+	return list;
+}
+
+static int coresight_allocate_device_idx(struct coresight_dev_list *list,
+					 struct device *dev)
+{
+	struct fwnode_handle **fwnode_list;
+	struct fwnode_handle *fwnode = dev_fwnode(dev);
+	int idx;
+
+	for (idx = 0; idx < list->nr_idx; idx++)
+		if (list->fwnode_list[idx] == fwnode)
+			return idx;
+
+	/* Make space for the new entry */
+	idx = list->nr_idx;
+	fwnode_list = krealloc_array(list->fwnode_list,
+				     idx + 1, sizeof(*list->fwnode_list),
+				     GFP_KERNEL);
+	if (!fwnode_list)
+		return -ENOMEM;
+
+	fwnode_list[idx] = fwnode;
+	list->fwnode_list = fwnode_list;
+	list->nr_idx = idx + 1;
+
+	return idx;
 }
 
 static bool coresight_compare_type(enum coresight_dev_type type_a,
@@ -1467,44 +1558,62 @@ bool coresight_loses_context_with_cpu(struct device *dev)
 EXPORT_SYMBOL_GPL(coresight_loses_context_with_cpu);
 
 /*
- * coresight_alloc_device_name - Get an index for a given device in the
- * device index list specific to a driver. An index is allocated for a
- * device and is tracked with the fwnode_handle to prevent allocating
+ * coresight_alloc_device_name - Get an index for a given device in the list
+ * specific to a driver (presented by the prefix string). An index is allocated
+ * for a device and is tracked with the fwnode_handle to prevent allocating
  * duplicate indices for the same device (e.g, if we defer probing of
  * a device due to dependencies), in case the index is requested again.
  */
-char *coresight_alloc_device_name(struct coresight_dev_list *dict,
-				  struct device *dev)
+char *coresight_alloc_device_name(const char *prefix, struct device *dev)
 {
-	int idx;
+	struct coresight_dev_list *list;
 	char *name = NULL;
-	struct fwnode_handle **list;
+	int idx;
 
 	mutex_lock(&coresight_mutex);
 
-	idx = coresight_search_device_idx(dict, dev_fwnode(dev));
-	if (idx < 0) {
-		/* Make space for the new entry */
-		idx = dict->nr_idx;
-		list = krealloc_array(dict->fwnode_list,
-				      idx + 1, sizeof(*dict->fwnode_list),
-				      GFP_KERNEL);
-		if (ZERO_OR_NULL_PTR(list)) {
-			idx = -ENOMEM;
-			goto done;
-		}
+	list = coresight_allocate_device_list(prefix);
+	if (!list)
+		goto done;
 
-		list[idx] = dev_fwnode(dev);
-		dict->fwnode_list = list;
-		dict->nr_idx = idx + 1;
-	}
+	idx = coresight_allocate_device_idx(list, dev);
 
-	name = devm_kasprintf(dev, GFP_KERNEL, "%s%d", dict->pfx, idx);
+	/*
+	 * If index allocation fails, the device list is not released here;
+	 * it is instead freed later by coresight_release_device_list() when
+	 * the coresight_core module is unloaded.
+	 */
+	if (idx < 0)
+		goto done;
+
+	name = devm_kasprintf(dev, GFP_KERNEL, "%s%d", list->pfx, idx);
 done:
 	mutex_unlock(&coresight_mutex);
 	return name;
 }
 EXPORT_SYMBOL_GPL(coresight_alloc_device_name);
+
+static void coresight_release_device_list(void)
+{
+	struct coresight_dev_list *list, *next;
+	int i;
+
+	/*
+	 * Here is no need to take coresight_mutex; this is during core module
+	 * unloading, no race condition with other modules.
+	 */
+
+	list_for_each_entry_safe(list, next, &coresight_dev_idx_list, node) {
+		for (i = 0; i < list->nr_idx; i++)
+			list->fwnode_list[i] = NULL;
+		list->nr_idx = 0;
+		list_del(&list->node);
+
+		kfree(list->pfx);
+		kfree(list->fwnode_list);
+		kfree(list);
+	}
+}
 
 const struct bus_type coresight_bustype = {
 	.name	= "coresight",
@@ -1579,23 +1688,24 @@ static void __exit coresight_exit(void)
 					     &coresight_notifier);
 	etm_perf_exit();
 	bus_unregister(&coresight_bustype);
+	coresight_release_device_list();
 }
 
 module_init(coresight_init);
 module_exit(coresight_exit);
 
 int coresight_init_driver(const char *drv, struct amba_driver *amba_drv,
-			  struct platform_driver *pdev_drv)
+			  struct platform_driver *pdev_drv, struct module *owner)
 {
 	int ret;
 
-	ret = amba_driver_register(amba_drv);
+	ret = __amba_driver_register(amba_drv, owner);
 	if (ret) {
 		pr_err("%s: error registering AMBA driver\n", drv);
 		return ret;
 	}
 
-	ret = platform_driver_register(pdev_drv);
+	ret = __platform_driver_register(pdev_drv, owner);
 	if (!ret)
 		return 0;
 
@@ -1644,6 +1754,53 @@ int coresight_etm_get_trace_id(struct coresight_device *csdev, enum cs_mode mode
 	return trace_id;
 }
 EXPORT_SYMBOL_GPL(coresight_etm_get_trace_id);
+
+/*
+ * Attempt to find and enable programming clock (pclk) and trace clock (atclk)
+ * for the given device.
+ *
+ * For ACPI devices, clocks are controlled by firmware, so bail out early in
+ * this case. Also, skip enabling pclk if the clock is managed by the AMBA
+ * bus driver instead.
+ *
+ * atclk is an optional clock, it will be only enabled when it is existed.
+ * Otherwise, a NULL pointer will be returned to caller.
+ *
+ * Returns: '0' on Success; Error code otherwise.
+ */
+int coresight_get_enable_clocks(struct device *dev, struct clk **pclk,
+				struct clk **atclk)
+{
+	WARN_ON(!pclk);
+
+	if (has_acpi_companion(dev))
+		return 0;
+
+	if (!dev_is_amba(dev)) {
+		/*
+		 * "apb_pclk" is the default clock name for an Arm Primecell
+		 * peripheral, while "apb" is used only by the CTCU driver.
+		 *
+		 * For easier maintenance, CoreSight drivers should use
+		 * "apb_pclk" as the programming clock name.
+		 */
+		*pclk = devm_clk_get_optional_enabled(dev, "apb_pclk");
+		if (!*pclk)
+			*pclk = devm_clk_get_optional_enabled(dev, "apb");
+		if (IS_ERR(*pclk))
+			return PTR_ERR(*pclk);
+	}
+
+	/* Initialization of atclk is skipped if it is a NULL pointer. */
+	if (atclk) {
+		*atclk = devm_clk_get_optional_enabled(dev, "atclk");
+		if (IS_ERR(*atclk))
+			return PTR_ERR(*atclk);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(coresight_get_enable_clocks);
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Pratik Patel <pratikp@codeaurora.org>");

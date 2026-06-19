@@ -166,13 +166,14 @@ static int appletb_tb_key_to_slot(unsigned int code)
 
 static void appletb_inactivity_timer(struct timer_list *t)
 {
-	struct appletb_kbd *kbd = from_timer(kbd, t, inactivity_timer);
+	struct appletb_kbd *kbd = timer_container_of(kbd, t, inactivity_timer);
 
 	if (kbd->backlight_dev && appletb_tb_autodim) {
 		if (!kbd->has_dimmed) {
 			backlight_device_set_brightness(kbd->backlight_dev, 1);
 			kbd->has_dimmed = true;
-			mod_timer(&kbd->inactivity_timer, jiffies + msecs_to_jiffies(appletb_tb_idle_timeout * 1000));
+			mod_timer(&kbd->inactivity_timer,
+				jiffies + secs_to_jiffies(appletb_tb_idle_timeout));
 		} else if (!kbd->has_turned_off) {
 			backlight_device_set_brightness(kbd->backlight_dev, 0);
 			kbd->has_turned_off = true;
@@ -188,7 +189,8 @@ static void reset_inactivity_timer(struct appletb_kbd *kbd)
 			kbd->has_dimmed = false;
 			kbd->has_turned_off = false;
 		}
-		mod_timer(&kbd->inactivity_timer, jiffies + msecs_to_jiffies(appletb_tb_dim_timeout * 1000));
+		mod_timer(&kbd->inactivity_timer,
+			jiffies + secs_to_jiffies(appletb_tb_dim_timeout));
 	}
 }
 
@@ -407,7 +409,8 @@ static int appletb_kbd_probe(struct hid_device *hdev, const struct hid_device_id
 	} else {
 		backlight_device_set_brightness(kbd->backlight_dev, 2);
 		timer_setup(&kbd->inactivity_timer, appletb_inactivity_timer, 0);
-		mod_timer(&kbd->inactivity_timer, jiffies + msecs_to_jiffies(appletb_tb_dim_timeout * 1000));
+		mod_timer(&kbd->inactivity_timer,
+			jiffies + secs_to_jiffies(appletb_tb_dim_timeout));
 	}
 
 	kbd->inp_handler.event = appletb_kbd_inp_event;
@@ -427,14 +430,20 @@ static int appletb_kbd_probe(struct hid_device *hdev, const struct hid_device_id
 	ret = appletb_kbd_set_mode(kbd, appletb_tb_def_mode);
 	if (ret) {
 		dev_err_probe(dev, ret, "Failed to set touchbar mode\n");
-		goto close_hw;
+		goto unregister_handler;
 	}
 
 	hid_set_drvdata(hdev, kbd);
 
 	return 0;
 
+unregister_handler:
+	input_unregister_handler(&kbd->inp_handler);
 close_hw:
+	if (kbd->backlight_dev) {
+		put_device(&kbd->backlight_dev->dev);
+		timer_delete_sync(&kbd->inactivity_timer);
+	}
 	hid_hw_close(hdev);
 stop_hw:
 	hid_hw_stop(hdev);
@@ -448,13 +457,15 @@ static void appletb_kbd_remove(struct hid_device *hdev)
 	appletb_kbd_set_mode(kbd, APPLETB_KBD_MODE_OFF);
 
 	input_unregister_handler(&kbd->inp_handler);
-	timer_delete_sync(&kbd->inactivity_timer);
+	if (kbd->backlight_dev) {
+		put_device(&kbd->backlight_dev->dev);
+		timer_delete_sync(&kbd->inactivity_timer);
+	}
 
 	hid_hw_close(hdev);
 	hid_hw_stop(hdev);
 }
 
-#ifdef CONFIG_PM
 static int appletb_kbd_suspend(struct hid_device *hdev, pm_message_t msg)
 {
 	struct appletb_kbd *kbd = hid_get_drvdata(hdev);
@@ -465,7 +476,7 @@ static int appletb_kbd_suspend(struct hid_device *hdev, pm_message_t msg)
 	return 0;
 }
 
-static int appletb_kbd_reset_resume(struct hid_device *hdev)
+static int appletb_kbd_resume(struct hid_device *hdev)
 {
 	struct appletb_kbd *kbd = hid_get_drvdata(hdev);
 
@@ -473,7 +484,6 @@ static int appletb_kbd_reset_resume(struct hid_device *hdev)
 
 	return 0;
 }
-#endif
 
 static const struct hid_device_id appletb_kbd_hid_ids[] = {
 	/* MacBook Pro's 2018, 2019, with T2 chip: iBridge Display */
@@ -489,10 +499,9 @@ static struct hid_driver appletb_kbd_hid_driver = {
 	.remove = appletb_kbd_remove,
 	.event = appletb_kbd_hid_event,
 	.input_configured = appletb_kbd_input_configured,
-#ifdef CONFIG_PM
-	.suspend = appletb_kbd_suspend,
-	.reset_resume = appletb_kbd_reset_resume,
-#endif
+	.suspend = pm_ptr(appletb_kbd_suspend),
+	.resume = pm_ptr(appletb_kbd_resume),
+	.reset_resume = pm_ptr(appletb_kbd_resume),
 	.driver.dev_groups = appletb_kbd_groups,
 };
 module_hid_driver(appletb_kbd_hid_driver);

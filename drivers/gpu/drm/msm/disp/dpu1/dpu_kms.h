@@ -60,10 +60,10 @@ struct dpu_kms {
 	struct msm_kms base;
 	struct drm_device *dev;
 	const struct dpu_mdss_cfg *catalog;
-	const struct msm_mdss_data *mdss;
+	const struct qcom_ubwc_cfg_data *mdss;
 
 	/* io/register spaces: */
-	void __iomem *mmio, *vbif[VBIF_MAX];
+	void __iomem *mmio, *vbif;
 
 	struct regulator *vdd;
 	struct regulator *mmagic;
@@ -81,7 +81,7 @@ struct dpu_kms {
 
 	struct dpu_rm rm;
 
-	struct dpu_hw_vbif *hw_vbif[VBIF_MAX];
+	struct dpu_hw_vbif *hw_vbif;
 	struct dpu_hw_mdp *hw_mdp;
 
 	bool has_danger_ctrl;

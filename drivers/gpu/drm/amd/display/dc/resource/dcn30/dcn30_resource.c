@@ -55,12 +55,13 @@
 #include "dce/dce_audio.h"
 #include "dce/dce_hwseq.h"
 #include "clk_mgr.h"
-#include "virtual/virtual_stream_encoder.h"
+#include "dio/virtual/virtual_stream_encoder.h"
 #include "dce110/dce110_resource.h"
 #include "dml/display_mode_vba.h"
 #include "dcn30/dcn30_dccg.h"
 #include "dcn10/dcn10_resource.h"
-#include "link.h"
+#include "dio/dcn10/dcn10_dio.h"
+#include "link_service.h"
 #include "dce/dce_panel_cntl.h"
 
 #include "dcn30/dcn30_dwb.h"
@@ -727,8 +728,11 @@ static const struct dc_debug_options debug_defaults_drv = {
 	.dmub_command_table = true,
 	.use_max_lb = true,
 	.exit_idle_opt_for_cursor_updates = true,
-	.enable_legacy_fast_update = false,
 	.using_dml2 = false,
+};
+
+static const struct dc_check_config config_defaults = {
+	.enable_legacy_fast_update = false,
 };
 
 static const struct dc_panel_config panel_config_defaults = {
@@ -750,7 +754,7 @@ static struct dpp *dcn30_dpp_create(
 	uint32_t inst)
 {
 	struct dcn3_dpp *dpp =
-		kzalloc(sizeof(struct dcn3_dpp), GFP_KERNEL);
+		kzalloc_obj(struct dcn3_dpp);
 
 	if (!dpp)
 		return NULL;
@@ -768,7 +772,7 @@ static struct output_pixel_processor *dcn30_opp_create(
 	struct dc_context *ctx, uint32_t inst)
 {
 	struct dcn20_opp *opp =
-		kzalloc(sizeof(struct dcn20_opp), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_opp);
 
 	if (!opp) {
 		BREAK_TO_DEBUGGER();
@@ -785,7 +789,7 @@ static struct dce_aux *dcn30_aux_engine_create(
 	uint32_t inst)
 {
 	struct aux_engine_dce110 *aux_engine =
-		kzalloc(sizeof(struct aux_engine_dce110), GFP_KERNEL);
+		kzalloc_obj(struct aux_engine_dce110);
 
 	if (!aux_engine)
 		return NULL;
@@ -824,7 +828,7 @@ static struct dce_i2c_hw *dcn30_i2c_hw_create(
 	uint32_t inst)
 {
 	struct dce_i2c_hw *dce_i2c_hw =
-		kzalloc(sizeof(struct dce_i2c_hw), GFP_KERNEL);
+		kzalloc_obj(struct dce_i2c_hw);
 
 	if (!dce_i2c_hw)
 		return NULL;
@@ -840,8 +844,7 @@ static struct mpc *dcn30_mpc_create(
 		int num_mpcc,
 		int num_rmu)
 {
-	struct dcn30_mpc *mpc30 = kzalloc(sizeof(struct dcn30_mpc),
-					  GFP_KERNEL);
+	struct dcn30_mpc *mpc30 = kzalloc_obj(struct dcn30_mpc);
 
 	if (!mpc30)
 		return NULL;
@@ -860,8 +863,7 @@ static struct hubbub *dcn30_hubbub_create(struct dc_context *ctx)
 {
 	int i;
 
-	struct dcn20_hubbub *hubbub3 = kzalloc(sizeof(struct dcn20_hubbub),
-					  GFP_KERNEL);
+	struct dcn20_hubbub *hubbub3 = kzalloc_obj(struct dcn20_hubbub);
 
 	if (!hubbub3)
 		return NULL;
@@ -885,12 +887,39 @@ static struct hubbub *dcn30_hubbub_create(struct dc_context *ctx)
 	return &hubbub3->base;
 }
 
+static const struct dcn_dio_registers dio_regs = {
+		DIO_REG_LIST_DCN10()
+};
+
+#define DIO_MASK_SH_LIST(mask_sh)\
+		HWS_SF(, DIO_MEM_PWR_CTRL, I2C_LIGHT_SLEEP_FORCE, mask_sh)
+
+static const struct dcn_dio_shift dio_shift = {
+		DIO_MASK_SH_LIST(__SHIFT)
+};
+
+static const struct dcn_dio_mask dio_mask = {
+		DIO_MASK_SH_LIST(_MASK)
+};
+
+static struct dio *dcn30_dio_create(struct dc_context *ctx)
+{
+	struct dcn10_dio *dio10 = kzalloc_obj(struct dcn10_dio);
+
+	if (!dio10)
+		return NULL;
+
+	dcn10_dio_construct(dio10, ctx, &dio_regs, &dio_shift, &dio_mask);
+
+	return &dio10->base;
+}
+
 static struct timing_generator *dcn30_timing_generator_create(
 		struct dc_context *ctx,
 		uint32_t instance)
 {
 	struct optc *tgn10 =
-		kzalloc(sizeof(struct optc), GFP_KERNEL);
+		kzalloc_obj(struct optc);
 
 	if (!tgn10)
 		return NULL;
@@ -923,8 +952,9 @@ static struct link_encoder *dcn30_link_encoder_create(
 	struct dc_context *ctx,
 	const struct encoder_init_data *enc_init_data)
 {
+	(void)ctx;
 	struct dcn20_link_encoder *enc20 =
-		kzalloc(sizeof(struct dcn20_link_encoder), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_link_encoder);
 
 	if (!enc20 || enc_init_data->hpd_source >= ARRAY_SIZE(link_enc_hpd_regs))
 		return NULL;
@@ -944,7 +974,7 @@ static struct link_encoder *dcn30_link_encoder_create(
 static struct panel_cntl *dcn30_panel_cntl_create(const struct panel_cntl_init_data *init_data)
 {
 	struct dce_panel_cntl *panel_cntl =
-		kzalloc(sizeof(struct dce_panel_cntl), GFP_KERNEL);
+		kzalloc_obj(struct dce_panel_cntl);
 
 	if (!panel_cntl)
 		return NULL;
@@ -978,7 +1008,7 @@ static struct vpg *dcn30_vpg_create(
 	struct dc_context *ctx,
 	uint32_t inst)
 {
-	struct dcn30_vpg *vpg3 = kzalloc(sizeof(struct dcn30_vpg), GFP_KERNEL);
+	struct dcn30_vpg *vpg3 = kzalloc_obj(struct dcn30_vpg);
 
 	if (!vpg3)
 		return NULL;
@@ -995,7 +1025,7 @@ static struct afmt *dcn30_afmt_create(
 	struct dc_context *ctx,
 	uint32_t inst)
 {
-	struct dcn30_afmt *afmt3 = kzalloc(sizeof(struct dcn30_afmt), GFP_KERNEL);
+	struct dcn30_afmt *afmt3 = kzalloc_obj(struct dcn30_afmt);
 
 	if (!afmt3)
 		return NULL;
@@ -1024,7 +1054,7 @@ static struct stream_encoder *dcn30_stream_encoder_create(enum engine_id eng_id,
 	} else
 		return NULL;
 
-	enc1 = kzalloc(sizeof(struct dcn10_stream_encoder), GFP_KERNEL);
+	enc1 = kzalloc_obj(struct dcn10_stream_encoder);
 	vpg = dcn30_vpg_create(ctx, vpg_inst);
 	afmt = dcn30_afmt_create(ctx, afmt_inst);
 
@@ -1045,7 +1075,7 @@ static struct stream_encoder *dcn30_stream_encoder_create(enum engine_id eng_id,
 
 static struct dce_hwseq *dcn30_hwseq_create(struct dc_context *ctx)
 {
-	struct dce_hwseq *hws = kzalloc(sizeof(struct dce_hwseq), GFP_KERNEL);
+	struct dce_hwseq *hws = kzalloc_obj(struct dce_hwseq);
 
 	if (hws) {
 		hws->ctx = ctx;
@@ -1094,6 +1124,12 @@ static void dcn30_resource_destruct(struct dcn30_resource_pool *pool)
 		kfree(pool->base.hubbub);
 		pool->base.hubbub = NULL;
 	}
+
+	if (pool->base.dio != NULL) {
+		kfree(TO_DCN10_DIO(pool->base.dio));
+		pool->base.dio = NULL;
+	}
+
 	for (i = 0; i < pool->base.pipe_count; i++) {
 		if (pool->base.dpps[i] != NULL)
 			dcn30_dpp_destroy(&pool->base.dpps[i]);
@@ -1198,7 +1234,7 @@ static struct hubp *dcn30_hubp_create(
 	uint32_t inst)
 {
 	struct dcn20_hubp *hubp2 =
-		kzalloc(sizeof(struct dcn20_hubp), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_hubp);
 
 	if (!hubp2)
 		return NULL;
@@ -1218,8 +1254,7 @@ static bool dcn30_dwbc_create(struct dc_context *ctx, struct resource_pool *pool
 	uint32_t pipe_count = pool->res_cap->num_dwb;
 
 	for (i = 0; i < pipe_count; i++) {
-		struct dcn30_dwbc *dwbc30 = kzalloc(sizeof(struct dcn30_dwbc),
-						    GFP_KERNEL);
+		struct dcn30_dwbc *dwbc30 = kzalloc_obj(struct dcn30_dwbc);
 
 		if (!dwbc30) {
 			dm_error("DC: failed to create dwbc30!\n");
@@ -1243,8 +1278,7 @@ static bool dcn30_mmhubbub_create(struct dc_context *ctx, struct resource_pool *
 	uint32_t pipe_count = pool->res_cap->num_dwb;
 
 	for (i = 0; i < pipe_count; i++) {
-		struct dcn30_mmhubbub *mcif_wb30 = kzalloc(sizeof(struct dcn30_mmhubbub),
-						    GFP_KERNEL);
+		struct dcn30_mmhubbub *mcif_wb30 = kzalloc_obj(struct dcn30_mmhubbub);
 
 		if (!mcif_wb30) {
 			dm_error("DC: failed to create mcif_wb30!\n");
@@ -1266,7 +1300,7 @@ static struct display_stream_compressor *dcn30_dsc_create(
 	struct dc_context *ctx, uint32_t inst)
 {
 	struct dcn20_dsc *dsc =
-		kzalloc(sizeof(struct dcn20_dsc), GFP_KERNEL);
+		kzalloc_obj(struct dcn20_dsc);
 
 	if (!dsc) {
 		BREAK_TO_DEBUGGER();
@@ -1300,7 +1334,7 @@ static struct clock_source *dcn30_clock_source_create(
 		bool dp_clk_src)
 {
 	struct dce110_clk_src *clk_src =
-		kzalloc(sizeof(struct dce110_clk_src), GFP_KERNEL);
+		kzalloc_obj(struct dce110_clk_src);
 
 	if (!clk_src)
 		return NULL;
@@ -1319,13 +1353,13 @@ static struct clock_source *dcn30_clock_source_create(
 int dcn30_populate_dml_pipes_from_context(
 	struct dc *dc, struct dc_state *context,
 	display_e2e_pipe_params_st *pipes,
-	bool fast_validate)
+	enum dc_validate_mode validate_mode)
 {
 	int i, pipe_cnt;
 	struct resource_context *res_ctx = &context->res_ctx;
 
 	DC_FP_START();
-	dcn20_populate_dml_pipes_from_context(dc, context, pipes, fast_validate);
+	dcn20_populate_dml_pipes_from_context(dc, context, pipes, validate_mode);
 	DC_FP_END();
 
 	for (i = 0, pipe_cnt = 0; i < dc->res_pool->pipe_count; i++) {
@@ -1627,7 +1661,7 @@ noinline bool dcn30_internal_validate_bw(
 		display_e2e_pipe_params_st *pipes,
 		int *pipe_cnt_out,
 		int *vlevel_out,
-		bool fast_validate,
+		enum dc_validate_mode validate_mode,
 		bool allow_self_refresh_only)
 {
 	bool out = false;
@@ -1642,11 +1676,13 @@ noinline bool dcn30_internal_validate_bw(
 	if (!pipes)
 		return false;
 
+	dcn20_merge_pipes_for_validate(dc, context);
+
 	context->bw_ctx.dml.vba.maxMpcComb = 0;
 	context->bw_ctx.dml.vba.VoltageLevel = 0;
 	context->bw_ctx.dml.vba.DRAMClockChangeSupport[0][0] = dm_dram_clock_change_vactive;
 	dc->res_pool->funcs->update_soc_for_wm_a(dc, context);
-	pipe_cnt = dc->res_pool->funcs->populate_dml_pipes(dc, context, pipes, fast_validate);
+	pipe_cnt = dc->res_pool->funcs->populate_dml_pipes(dc, context, pipes, validate_mode);
 
 	if (!pipe_cnt) {
 		out = true;
@@ -1655,7 +1691,7 @@ noinline bool dcn30_internal_validate_bw(
 
 	dml_log_pipe_params(&context->bw_ctx.dml, pipes, pipe_cnt);
 
-	if (!fast_validate || !allow_self_refresh_only) {
+	if (validate_mode == DC_VALIDATE_MODE_AND_PROGRAMMING || !allow_self_refresh_only) {
 		/*
 		 * DML favors voltage over p-state, but we're more interested in
 		 * supporting p-state over voltage. We can't support p-state in
@@ -1669,7 +1705,7 @@ noinline bool dcn30_internal_validate_bw(
 			vlevel = dcn20_validate_apply_pipe_split_flags(dc, context, vlevel, split, merge);
 	}
 	if (allow_self_refresh_only &&
-	    (fast_validate || vlevel == context->bw_ctx.dml.soc.num_states ||
+	    (validate_mode != DC_VALIDATE_MODE_AND_PROGRAMMING || vlevel == context->bw_ctx.dml.soc.num_states ||
 			vba->DRAMClockChangeSupport[vlevel][vba->maxMpcComb] == dm_dram_clock_change_unsupported)) {
 		/*
 		 * If mode is unsupported or there's still no p-state support
@@ -1678,7 +1714,7 @@ noinline bool dcn30_internal_validate_bw(
 		 * We don't actually support prefetch mode 2, so require that we
 		 * at least support prefetch mode 1.
 		 */
-		context->bw_ctx.dml.validate_max_state = fast_validate;
+		context->bw_ctx.dml.validate_max_state = (validate_mode != DC_VALIDATE_MODE_AND_PROGRAMMING);
 		context->bw_ctx.dml.soc.allow_dram_self_refresh_or_dram_clock_change_in_vblank =
 			dm_allow_self_refresh;
 
@@ -1865,7 +1901,7 @@ noinline bool dcn30_internal_validate_bw(
 	}
 
 	if (repopulate_pipes)
-		pipe_cnt = dc->res_pool->funcs->populate_dml_pipes(dc, context, pipes, fast_validate);
+		pipe_cnt = dc->res_pool->funcs->populate_dml_pipes(dc, context, pipes, validate_mode);
 	context->bw_ctx.dml.vba.VoltageLevel = vlevel;
 	*vlevel_out = vlevel;
 	*pipe_cnt_out = pipe_cnt;
@@ -1891,8 +1927,6 @@ static int get_refresh_rate(struct dc_state *context)
 
 	/* check if refresh rate at least 120hz */
 	timing = &context->streams[0]->timing;
-	if (timing == NULL)
-		return 0;
 
 	h_v_total = timing->h_total * timing->v_total;
 	if (h_v_total == 0)
@@ -2037,9 +2071,9 @@ void dcn30_calculate_wm_and_dlg(
 	DC_FP_END();
 }
 
-bool dcn30_validate_bandwidth(struct dc *dc,
+enum dc_status dcn30_validate_bandwidth(struct dc *dc,
 		struct dc_state *context,
-		bool fast_validate)
+		enum dc_validate_mode validate_mode)
 {
 	bool out = false;
 
@@ -2047,8 +2081,8 @@ bool dcn30_validate_bandwidth(struct dc *dc,
 
 	int vlevel = 0;
 	int pipe_cnt = 0;
-	display_e2e_pipe_params_st *pipes = kcalloc(dc->res_pool->pipe_count,
-			sizeof(display_e2e_pipe_params_st), GFP_KERNEL);
+	display_e2e_pipe_params_st *pipes = kzalloc_objs(display_e2e_pipe_params_st,
+							 dc->res_pool->pipe_count);
 	DC_LOGGER_INIT(dc->ctx->logger);
 
 	BW_VAL_TRACE_COUNT();
@@ -2057,7 +2091,7 @@ bool dcn30_validate_bandwidth(struct dc *dc,
 		goto validate_fail;
 
 	DC_FP_START();
-	out = dcn30_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel, fast_validate, true);
+	out = dcn30_internal_validate_bw(dc, context, pipes, &pipe_cnt, &vlevel, validate_mode, true);
 	DC_FP_END();
 
 	if (pipe_cnt == 0)
@@ -2068,7 +2102,7 @@ bool dcn30_validate_bandwidth(struct dc *dc,
 
 	BW_VAL_TRACE_END_VOLTAGE_LEVEL();
 
-	if (fast_validate) {
+	if (validate_mode != DC_VALIDATE_MODE_AND_PROGRAMMING) {
 		BW_VAL_TRACE_SKIP(fast);
 		goto validate_out;
 	}
@@ -2094,7 +2128,7 @@ validate_out:
 
 	BW_VAL_TRACE_FINISH();
 
-	return out;
+	return out ? DC_OK : DC_FAIL_BANDWIDTH_VALIDATE;
 }
 
 void dcn30_update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_params)
@@ -2194,7 +2228,7 @@ void dcn30_update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_params
 		j = 0;
 		// create the final dcfclk and uclk table
 		while (i < num_dcfclk_sta_targets && j < num_uclk_states && num_states < DC__VOLTAGE_STATES) {
-			if (dcfclk_sta_targets[i] < optimal_dcfclk_for_uclk[j] && i < num_dcfclk_sta_targets) {
+			if (dcfclk_sta_targets[i] < optimal_dcfclk_for_uclk[j]) {
 				dcfclk_mhz[num_states] = dcfclk_sta_targets[i];
 				dram_speed_mts[num_states++] = optimal_uclk_for_dcfclk_sta_targets[i++];
 			} else {
@@ -2251,7 +2285,8 @@ static const struct resource_funcs dcn30_res_pool_funcs = {
 	.update_bw_bounding_box = dcn30_update_bw_bounding_box,
 	.patch_unknown_plane_state = dcn20_patch_unknown_plane_state,
 	.get_panel_config_defaults = dcn30_get_panel_config_defaults,
-	.get_vstartup_for_pipe = dcn10_get_vstartup_for_pipe
+	.get_vstartup_for_pipe = dcn10_get_vstartup_for_pipe,
+	.get_default_tiling_info = dcn10_get_default_tiling_info
 };
 
 #define CTX ctx
@@ -2297,7 +2332,7 @@ static bool dcn30_resource_construct(
 	/*************************************************
 	 *  Resource + asic cap harcoding                *
 	 *************************************************/
-	pool->base.underlay_pipe_index = NO_UNDERLAY_PIPE;
+	pool->base.underlay_pipe_index = (unsigned int)NO_UNDERLAY_PIPE;
 	pool->base.pipe_count = pool->base.res_cap->num_timing_generator;
 	pool->base.mpcc_count = pool->base.res_cap->num_timing_generator;
 	dc->caps.max_downscale_ratio = 600;
@@ -2376,6 +2411,7 @@ static bool dcn30_resource_construct(
 			dc->caps.vbios_lttpr_aware = (bp_query_result == BP_RESULT_OK) && !!is_vbios_interop_enabled;
 		}
 	}
+	dc->check_config = config_defaults;
 
 	if (dc->ctx->dce_environment == DCE_ENV_PRODUCTION_DRV)
 		dc->debug = debug_defaults_drv;
@@ -2463,6 +2499,14 @@ static bool dcn30_resource_construct(
 	if (pool->base.hubbub == NULL) {
 		BREAK_TO_DEBUGGER();
 		dm_error("DC: failed to create hubbub!\n");
+		goto create_fail;
+	}
+
+	/* DIO */
+	pool->base.dio = dcn30_dio_create(ctx);
+	if (pool->base.dio == NULL) {
+		BREAK_TO_DEBUGGER();
+		dm_error("DC: failed to create dio!\n");
 		goto create_fail;
 	}
 
@@ -2588,6 +2632,8 @@ static bool dcn30_resource_construct(
 	for (i = 0; i < dc->caps.max_planes; ++i)
 		dc->caps.planes[i] = plane_cap;
 
+	dc->caps.max_odm_combine_factor = 4;
+
 	dc->cap_funcs = cap_funcs;
 
 	if (dc->ctx->dc_bios->fw_info.oem_i2c_present) {
@@ -2618,7 +2664,7 @@ struct resource_pool *dcn30_create_resource_pool(
 		struct dc *dc)
 {
 	struct dcn30_resource_pool *pool =
-		kzalloc(sizeof(struct dcn30_resource_pool), GFP_KERNEL);
+		kzalloc_obj(struct dcn30_resource_pool);
 
 	if (!pool)
 		return NULL;

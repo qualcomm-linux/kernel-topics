@@ -2,7 +2,7 @@
 /*
  * Copyright (C) 2024
  *
- * Christian Marangi <ansuelsmth@gmail.com
+ * Christian Marangi <ansuelsmth@gmail.com>
  */
 
 #include <crypto/sha1.h>
@@ -97,12 +97,20 @@ void eip93_hash_handle_result(struct crypto_async_request *async, int err)
 
 static void eip93_hash_init_sa_state_digest(u32 hash, u8 *digest)
 {
-	u32 sha256_init[] = { SHA256_H0, SHA256_H1, SHA256_H2, SHA256_H3,
-			      SHA256_H4, SHA256_H5, SHA256_H6, SHA256_H7 };
-	u32 sha224_init[] = { SHA224_H0, SHA224_H1, SHA224_H2, SHA224_H3,
-			      SHA224_H4, SHA224_H5, SHA224_H6, SHA224_H7 };
-	u32 sha1_init[] = { SHA1_H0, SHA1_H1, SHA1_H2, SHA1_H3, SHA1_H4 };
-	u32 md5_init[] = { MD5_H0, MD5_H1, MD5_H2, MD5_H3 };
+	static const u32 sha256_init[] = {
+		SHA256_H0, SHA256_H1, SHA256_H2, SHA256_H3,
+		SHA256_H4, SHA256_H5, SHA256_H6, SHA256_H7
+	};
+	static const u32 sha224_init[] = {
+		SHA224_H0, SHA224_H1, SHA224_H2, SHA224_H3,
+		SHA224_H4, SHA224_H5, SHA224_H6, SHA224_H7
+	};
+	static const u32 sha1_init[] = {
+		SHA1_H0, SHA1_H1, SHA1_H2, SHA1_H3, SHA1_H4
+	};
+	static const u32 md5_init[] = {
+		MD5_H0, MD5_H1, MD5_H2, MD5_H3
+	};
 
 	/* Init HASH constant */
 	switch (hash) {
@@ -324,7 +332,7 @@ static int __eip93_hash_update(struct ahash_request *req, bool complete_req)
 	 * and then reset to SHA256_BLOCK_SIZE.
 	 */
 	while (to_consume > max_read) {
-		block = kzalloc(sizeof(*block), GFP_ATOMIC);
+		block = kzalloc_obj(*block, GFP_ATOMIC);
 		if (!block) {
 			ret = -ENOMEM;
 			goto free_blocks;

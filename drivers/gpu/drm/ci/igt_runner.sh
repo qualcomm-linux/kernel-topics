@@ -1,5 +1,7 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
+
+. "${SCRIPTS_DIR}/setup-test-env.sh"
 
 set -ex
 
@@ -19,8 +21,9 @@ set +e
 cat /sys/kernel/debug/dri/*/state
 set -e
 
+mkdir -p /lib/modules
 case "$DRIVER_NAME" in
-    amdgpu|vkms)
+    amdgpu|vkms|panthor)
         # Cannot use HWCI_KERNEL_MODULES as at that point we don't have the module in /lib
         mv /install/modules/lib/modules/* /lib/modules/. || true
         modprobe --first-time $DRIVER_NAME
@@ -84,6 +87,17 @@ deqp-runner junit \
    --output $RESULTS_DIR/junit.xml \
    --limit 50 \
    --template "See $ARTIFACTS_BASE_URL/results/{{testcase}}.xml"
+
+# Check if /proc/lockdep_stats exists
+if [ -f /proc/lockdep_stats ]; then
+    # If debug_locks is 0, it indicates lockdep is detected and it turns itself off.
+    debug_locks=$(grep 'debug_locks:' /proc/lockdep_stats | awk '{print $2}')
+    if [ "$debug_locks" -eq 0 ] && [ "$ret" -eq 0 ]; then
+        echo "Warning: LOCKDEP issue detected. Please check dmesg logs for more information."
+        cat /proc/lockdep_stats
+        ret=101
+    fi
+fi
 
 cd $oldpath
 exit $ret

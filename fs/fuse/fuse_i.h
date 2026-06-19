@@ -54,6 +54,13 @@
 /** Frequency (in jiffies) of request timeout checks, if opted into */
 extern const unsigned long fuse_timeout_timer_freq;
 
+/*
+ * Dentries invalidation workqueue period, in seconds.  The value of this
+ * parameter shall be >= FUSE_DENTRY_INVAL_FREQ_MIN seconds, or 0 (zero), in
+ * which case no workqueue will be created.
+ */
+extern unsigned inval_wq __read_mostly;
+
 /** Maximum of max_pages received in init_out */
 extern unsigned int fuse_max_pages_limit;
 /*
@@ -74,8 +81,8 @@ extern struct list_head fuse_conn_list;
 extern struct mutex fuse_mutex;
 
 /** Module parameters */
-extern unsigned max_user_bgreq;
-extern unsigned max_user_congthresh;
+extern unsigned int max_user_bgreq;
+extern unsigned int max_user_congthresh;
 
 /* One forget request */
 struct fuse_forget_link {
@@ -161,9 +168,6 @@ struct fuse_inode {
 
 			/* waitq for direct-io completion */
 			wait_queue_head_t direct_io_waitq;
-
-			/* List of writepage requestst (pending or sent) */
-			struct rb_root writepages;
 		};
 
 		/* readdir cache (directory only) */
@@ -213,6 +217,12 @@ struct fuse_inode {
 	/** Reference to backing file in passthrough mode */
 	struct fuse_backing *fb;
 #endif
+
+	/*
+	 * The underlying inode->i_blkbits value will not be modified,
+	 * so preserve the blocksize specified by the server.
+	 */
+	u8 cached_i_blkbits;
 };
 
 /** FUSE inode state bits */
@@ -229,6 +239,11 @@ enum {
 	FUSE_I_BTIME,
 	/* Wants or already has page cache IO */
 	FUSE_I_CACHE_IO_MODE,
+	/*
+	 * Client has exclusive access to the inode, either because fs is local
+	 * or the fuse server has an exclusive "lease" on distributed fs
+	 */
+	FUSE_I_EXCLUSIVE,
 };
 
 struct fuse_conn;
@@ -330,6 +345,7 @@ struct fuse_args {
 	bool is_ext:1;
 	bool is_pinned:1;
 	bool invalidate_vmap:1;
+	bool abort_on_kill:1;
 	struct fuse_in_arg in_args[4];
 	struct fuse_arg out_args[2];
 	void (*end)(struct fuse_mount *fm, struct fuse_args *args, int error);
@@ -561,6 +577,12 @@ struct fuse_pqueue {
  * Fuse device instance
  */
 struct fuse_dev {
+	/** Reference count of this object */
+	refcount_t ref;
+
+	/** Issue FUSE_INIT synchronously */
+	bool sync_init;
+
 	/** Fuse connection for this device */
 	struct fuse_conn *fc;
 
@@ -584,13 +606,11 @@ static inline bool fuse_is_inode_dax_mode(enum fuse_dax_mode mode)
 }
 
 struct fuse_fs_context {
-	int fd;
-	struct file *file;
+	struct fuse_dev *fud;
 	unsigned int rootmode;
 	kuid_t user_id;
 	kgid_t group_id;
 	bool is_bdev:1;
-	bool fd_present:1;
 	bool rootmode_present:1;
 	bool user_id_present:1;
 	bool group_id_present:1;
@@ -607,9 +627,6 @@ struct fuse_fs_context {
 
 	/* DAX device, may be NULL */
 	struct dax_device *dax_dev;
-
-	/* fuse_dev pointer to fill in, should contain NULL on entry */
-	void **fudptr;
 };
 
 struct fuse_sync_bucket {
@@ -633,8 +650,10 @@ struct fuse_conn {
 	/** Refcount */
 	refcount_t count;
 
-	/** Number of fuse_dev's */
-	atomic_t dev_count;
+	/** Current epoch for up-to-date dentries */
+	atomic_t epoch;
+
+	struct work_struct epoch_work;
 
 	struct rcu_head rcu;
 
@@ -850,6 +869,9 @@ struct fuse_conn {
 	/** Does the filesystem support copy_file_range? */
 	unsigned no_copy_file_range:1;
 
+	/** Does the filesystem support copy_file_range_64? */
+	unsigned no_copy_file_range_64:1;
+
 	/* Send DESTROY request */
 	unsigned int destroy:1;
 
@@ -895,6 +917,9 @@ struct fuse_conn {
 	/* Is link not implemented by fs? */
 	unsigned int no_link:1;
 
+	/* Is synchronous FUSE_INIT allowed? */
+	unsigned int sync_init:1;
+
 	/* Use io_uring for communication */
 	unsigned int io_uring;
 
@@ -912,12 +937,6 @@ struct fuse_conn {
 
 	/** Device ID from the root super block */
 	dev_t dev;
-
-	/** Dentries in the control filesystem */
-	struct dentry *ctl_dentry[FUSE_CTL_NUM_DENTRIES];
-
-	/** number of dentries used in the above array */
-	int ctl_ndents;
 
 	/** Key for lock owner ID scrambling */
 	u32 scramble_key[4];
@@ -1032,7 +1051,7 @@ static inline struct fuse_conn *get_fuse_conn(struct inode *inode)
 	return get_fuse_mount_super(inode->i_sb)->fc;
 }
 
-static inline struct fuse_inode *get_fuse_inode(struct inode *inode)
+static inline struct fuse_inode *get_fuse_inode(const struct inode *inode)
 {
 	return container_of(inode, struct fuse_inode, inode);
 }
@@ -1074,6 +1093,13 @@ static inline bool fuse_is_bad(struct inode *inode)
 	return unlikely(test_bit(FUSE_I_BAD, &get_fuse_inode(inode)->state));
 }
 
+static inline bool fuse_inode_is_exclusive(const struct inode *inode)
+{
+	const struct fuse_inode *fi = get_fuse_inode(inode);
+
+	return test_bit(FUSE_I_EXCLUSIVE, &fi->state);
+}
+
 static inline struct folio **fuse_folios_alloc(unsigned int nfolios, gfp_t flags,
 					       struct fuse_folio_desc **desc)
 {
@@ -1109,7 +1135,6 @@ static inline void fuse_sync_bucket_dec(struct fuse_sync_bucket *bucket)
 extern const struct file_operations fuse_dev_operations;
 
 extern const struct dentry_operations fuse_dentry_operations;
-extern const struct dentry_operations fuse_root_dentry_operations;
 
 /**
  * Get a filled in inode
@@ -1248,6 +1273,11 @@ int fuse_simple_background(struct fuse_mount *fm, struct fuse_args *args,
 			   gfp_t gfp_flags);
 
 /**
+ * Assign a unique id to a fuse request
+ */
+void fuse_request_assign_unique(struct fuse_iqueue *fiq, struct fuse_req *req);
+
+/**
  * End a finished request
  */
 void fuse_request_end(struct fuse_req *req);
@@ -1258,6 +1288,11 @@ void fuse_wait_aborted(struct fuse_conn *fc);
 
 /* Check if any requests timed out */
 void fuse_check_timeout(struct work_struct *work);
+
+void fuse_dentry_tree_init(void);
+void fuse_dentry_tree_cleanup(void);
+
+void fuse_epoch_work(struct work_struct *work);
 
 /**
  * Invalidate inode attributes
@@ -1307,8 +1342,8 @@ void fuse_conn_put(struct fuse_conn *fc);
 struct fuse_dev *fuse_dev_alloc_install(struct fuse_conn *fc);
 struct fuse_dev *fuse_dev_alloc(void);
 void fuse_dev_install(struct fuse_dev *fud, struct fuse_conn *fc);
-void fuse_dev_free(struct fuse_dev *fud);
-void fuse_send_init(struct fuse_mount *fm);
+void fuse_dev_put(struct fuse_dev *fud);
+int fuse_send_init(struct fuse_mount *fm);
 
 /**
  * Fill in superblock and initialize fuse connection
@@ -1400,6 +1435,12 @@ int fuse_reverse_inval_inode(struct fuse_conn *fc, u64 nodeid,
 int fuse_reverse_inval_entry(struct fuse_conn *fc, u64 parent_nodeid,
 			     u64 child_nodeid, struct qstr *name, u32 flags);
 
+/*
+ * Try to prune this inode.  If neither the inode itself nor dentries associated
+ * with this inode have any external reference, then the inode can be freed.
+ */
+void fuse_try_prune_one_inode(struct fuse_conn *fc, u64 nodeid);
+
 int fuse_do_open(struct fuse_mount *fm, u64 nodeid, struct file *file,
 		 bool isdir);
 
@@ -1486,9 +1527,9 @@ void fuse_dax_cancel_work(struct fuse_conn *fc);
 long fuse_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 long fuse_file_compat_ioctl(struct file *file, unsigned int cmd,
 			    unsigned long arg);
-int fuse_fileattr_get(struct dentry *dentry, struct fileattr *fa);
+int fuse_fileattr_get(struct dentry *dentry, struct file_kattr *fa);
 int fuse_fileattr_set(struct mnt_idmap *idmap,
-		      struct dentry *dentry, struct fileattr *fa);
+		      struct dentry *dentry, struct file_kattr *fa);
 
 /* iomode.c */
 int fuse_file_cached_io_open(struct inode *inode, struct fuse_file *ff);
@@ -1504,6 +1545,33 @@ struct fuse_file *fuse_file_open(struct fuse_mount *fm, u64 nodeid,
 				 unsigned int open_flags, bool isdir);
 void fuse_file_release(struct inode *inode, struct fuse_file *ff,
 		       unsigned int open_flags, fl_owner_t id, bool isdir);
+
+/* backing.c */
+#ifdef CONFIG_FUSE_PASSTHROUGH
+struct fuse_backing *fuse_backing_get(struct fuse_backing *fb);
+void fuse_backing_put(struct fuse_backing *fb);
+struct fuse_backing *fuse_backing_lookup(struct fuse_conn *fc, int backing_id);
+#else
+
+static inline struct fuse_backing *fuse_backing_get(struct fuse_backing *fb)
+{
+	return NULL;
+}
+
+static inline void fuse_backing_put(struct fuse_backing *fb)
+{
+}
+static inline struct fuse_backing *fuse_backing_lookup(struct fuse_conn *fc,
+						       int backing_id)
+{
+	return NULL;
+}
+#endif
+
+void fuse_backing_files_init(struct fuse_conn *fc);
+void fuse_backing_files_free(struct fuse_conn *fc);
+int fuse_backing_open(struct fuse_conn *fc, struct fuse_backing_map *map);
+int fuse_backing_close(struct fuse_conn *fc, int backing_id);
 
 /* passthrough.c */
 static inline struct fuse_backing *fuse_inode_backing(struct fuse_inode *fi)
@@ -1525,29 +1593,7 @@ static inline struct fuse_backing *fuse_inode_backing_set(struct fuse_inode *fi,
 #endif
 }
 
-#ifdef CONFIG_FUSE_PASSTHROUGH
-struct fuse_backing *fuse_backing_get(struct fuse_backing *fb);
-void fuse_backing_put(struct fuse_backing *fb);
-#else
-
-static inline struct fuse_backing *fuse_backing_get(struct fuse_backing *fb)
-{
-	return NULL;
-}
-
-static inline void fuse_backing_put(struct fuse_backing *fb)
-{
-}
-#endif
-
-void fuse_backing_files_init(struct fuse_conn *fc);
-void fuse_backing_files_free(struct fuse_conn *fc);
-int fuse_backing_open(struct fuse_conn *fc, struct fuse_backing_map *map);
-int fuse_backing_close(struct fuse_conn *fc, int backing_id);
-
-struct fuse_backing *fuse_passthrough_open(struct file *file,
-					   struct inode *inode,
-					   int backing_id);
+struct fuse_backing *fuse_passthrough_open(struct file *file, int backing_id);
 void fuse_passthrough_release(struct fuse_file *ff, struct fuse_backing *fb);
 
 static inline struct file *fuse_file_passthrough(struct fuse_file *ff)

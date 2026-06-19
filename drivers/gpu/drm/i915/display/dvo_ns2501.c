@@ -26,6 +26,8 @@
  *
  */
 
+#include <drm/drm_print.h>
+
 #include "intel_display_types.h"
 #include "intel_dvo_dev.h"
 
@@ -474,7 +476,7 @@ static bool ns2501_init(struct intel_dvo_device *dvo,
 	struct ns2501_priv *ns;
 	unsigned char ch;
 
-	ns = kzalloc(sizeof(*ns), GFP_KERNEL);
+	ns = kzalloc_obj(*ns);
 	if (ns == NULL)
 		return false;
 

@@ -28,9 +28,15 @@
 
 #define RFE_RD_FIFO_TH_3_DWORDS	0x3
 
+static bool pci11x1x_is_a0(struct lan743x_adapter *adapter)
+{
+	u32 dev_rev = adapter->csr.id_rev & ID_REV_CHIP_REV_MASK_;
+	return dev_rev == ID_REV_CHIP_REV_PCI11X1X_A0_;
+}
+
 static void pci11x1x_strap_get_status(struct lan743x_adapter *adapter)
 {
-	u32 chip_rev;
+	u32 fpga_rev;
 	u32 cfg_load;
 	u32 hw_cfg;
 	u32 strap;
@@ -47,18 +53,19 @@ static void pci11x1x_strap_get_status(struct lan743x_adapter *adapter)
 	cfg_load = lan743x_csr_read(adapter, ETH_SYS_CONFIG_LOAD_STARTED_REG);
 	lan743x_hs_syslock_release(adapter);
 	hw_cfg = lan743x_csr_read(adapter, HW_CFG);
-
-	if (cfg_load & GEN_SYS_LOAD_STARTED_REG_ETH_ ||
-	    hw_cfg & HW_CFG_RST_PROTECT_) {
-		strap = lan743x_csr_read(adapter, STRAP_READ);
+	strap = lan743x_csr_read(adapter, STRAP_READ);
+	if ((pci11x1x_is_a0(adapter) &&
+	     (cfg_load & GEN_SYS_LOAD_STARTED_REG_ETH_ ||
+	      hw_cfg & HW_CFG_RST_PROTECT_)) ||
+	    (strap & STRAP_READ_USE_SGMII_EN_)) {
 		if (strap & STRAP_READ_SGMII_EN_)
 			adapter->is_sgmii_en = true;
 		else
 			adapter->is_sgmii_en = false;
 	} else {
-		chip_rev = lan743x_csr_read(adapter, FPGA_REV);
-		if (chip_rev) {
-			if (chip_rev & FPGA_SGMII_OP)
+		fpga_rev = lan743x_csr_read(adapter, FPGA_REV);
+		if (fpga_rev) {
+			if (fpga_rev & FPGA_SGMII_OP)
 				adapter->is_sgmii_en = true;
 			else
 				adapter->is_sgmii_en = false;
@@ -1330,7 +1337,7 @@ static int lan743x_mac_set_mtu(struct lan743x_adapter *adapter, int new_mtu)
 }
 
 /* PHY */
-static int lan743x_phy_reset(struct lan743x_adapter *adapter)
+static int lan743x_hw_reset_phy(struct lan743x_adapter *adapter)
 {
 	u32 data;
 
@@ -1344,11 +1351,6 @@ static int lan743x_phy_reset(struct lan743x_adapter *adapter)
 				  (!(data & PMT_CTL_ETH_PHY_RST_) &&
 				  (data & PMT_CTL_READY_)),
 				  50000, 1000000);
-}
-
-static int lan743x_phy_init(struct lan743x_adapter *adapter)
-{
-	return lan743x_phy_reset(adapter);
 }
 
 static void lan743x_phy_interface_select(struct lan743x_adapter *adapter)
@@ -1729,6 +1731,7 @@ int lan743x_rx_set_tstamp_mode(struct lan743x_adapter *adapter,
 	default:
 			return -ERANGE;
 	}
+	adapter->rx_tstamp_filter = rx_filter;
 	return 0;
 }
 
@@ -2145,7 +2148,7 @@ static int lan743x_tx_ring_init(struct lan743x_tx *tx)
 	tx->ring_cpu_ptr = (struct lan743x_tx_descriptor *)cpu_ptr;
 	tx->ring_dma_ptr = dma_ptr;
 
-	cpu_ptr = kcalloc(tx->ring_size, sizeof(*tx->buffer_info), GFP_KERNEL);
+	cpu_ptr = kzalloc_objs(*tx->buffer_info, tx->ring_size);
 	if (!cpu_ptr) {
 		ret = -ENOMEM;
 		goto cleanup;
@@ -2499,8 +2502,7 @@ static int lan743x_rx_process_buffer(struct lan743x_rx *rx)
 
 	/* save existing skb, allocate new skb and map to dma */
 	skb = buffer_info->skb;
-	if (lan743x_rx_init_ring_element(rx, rx->last_head,
-					 GFP_ATOMIC | GFP_DMA)) {
+	if (lan743x_rx_init_ring_element(rx, rx->last_head, GFP_ATOMIC)) {
 		/* failed to allocate next skb.
 		 * Memory is very low.
 		 * Drop this packet and reuse buffer.
@@ -2691,8 +2693,7 @@ static int lan743x_rx_ring_init(struct lan743x_rx *rx)
 	rx->ring_cpu_ptr = (struct lan743x_rx_descriptor *)cpu_ptr;
 	rx->ring_dma_ptr = dma_ptr;
 
-	cpu_ptr = kcalloc(rx->ring_size, sizeof(*rx->buffer_info),
-			  GFP_KERNEL);
+	cpu_ptr = kzalloc_objs(*rx->buffer_info, rx->ring_size);
 	if (!cpu_ptr) {
 		ret = -ENOMEM;
 		goto cleanup;
@@ -3059,6 +3060,11 @@ static void lan743x_phylink_mac_link_up(struct phylink_config *config,
 	else if (speed == SPEED_100)
 		mac_cr |= MAC_CR_CFG_L_;
 
+	if (duplex == DUPLEX_FULL)
+		mac_cr |= MAC_CR_DPX_;
+	else
+		mac_cr &= ~MAC_CR_DPX_;
+
 	lan743x_csr_write(adapter, MAC_CR, mac_cr);
 
 	lan743x_ptp_update_latency(adapter, speed);
@@ -3352,8 +3358,6 @@ static int lan743x_netdev_ioctl(struct net_device *netdev,
 
 	if (!netif_running(netdev))
 		return -EINVAL;
-	if (cmd == SIOCSHWTSTAMP)
-		return lan743x_ptp_ioctl(netdev, ifr, cmd);
 
 	return phylink_mii_ioctl(adapter->phylink, ifr, cmd);
 }
@@ -3448,6 +3452,8 @@ static const struct net_device_ops lan743x_netdev_ops = {
 	.ndo_change_mtu		= lan743x_netdev_change_mtu,
 	.ndo_get_stats64	= lan743x_netdev_get_stats64,
 	.ndo_set_mac_address	= lan743x_netdev_set_mac_address,
+	.ndo_hwtstamp_get	= lan743x_ptp_hwtstamp_get,
+	.ndo_hwtstamp_set	= lan743x_ptp_hwtstamp_set,
 };
 
 static void lan743x_hardware_cleanup(struct lan743x_adapter *adapter)
@@ -3495,6 +3501,7 @@ static int lan743x_hardware_init(struct lan743x_adapter *adapter,
 				 struct pci_dev *pdev)
 {
 	struct lan743x_tx *tx;
+	u32 sgmii_ctl;
 	int index;
 	int ret;
 
@@ -3507,6 +3514,15 @@ static int lan743x_hardware_init(struct lan743x_adapter *adapter,
 		spin_lock_init(&adapter->eth_syslock_spinlock);
 		mutex_init(&adapter->sgmii_rw_lock);
 		pci11x1x_set_rfe_rd_fifo_threshold(adapter);
+		sgmii_ctl = lan743x_csr_read(adapter, SGMII_CTL);
+		if (adapter->is_sgmii_en) {
+			sgmii_ctl |= SGMII_CTL_SGMII_ENABLE_;
+			sgmii_ctl &= ~SGMII_CTL_SGMII_POWER_DN_;
+		} else {
+			sgmii_ctl &= ~SGMII_CTL_SGMII_ENABLE_;
+			sgmii_ctl |= SGMII_CTL_SGMII_POWER_DN_;
+		}
+		lan743x_csr_write(adapter, SGMII_CTL, sgmii_ctl);
 	} else {
 		adapter->max_tx_channels = LAN743X_MAX_TX_CHANNELS;
 		adapter->used_tx_channels = LAN743X_USED_TX_CHANNELS;
@@ -3521,10 +3537,6 @@ static int lan743x_hardware_init(struct lan743x_adapter *adapter,
 		return ret;
 
 	ret = lan743x_mac_init(adapter);
-	if (ret)
-		return ret;
-
-	ret = lan743x_phy_init(adapter);
 	if (ret)
 		return ret;
 
@@ -3558,7 +3570,6 @@ static int lan743x_hardware_init(struct lan743x_adapter *adapter,
 
 static int lan743x_mdiobus_init(struct lan743x_adapter *adapter)
 {
-	u32 sgmii_ctl;
 	int ret;
 
 	adapter->mdiobus = devm_mdiobus_alloc(&adapter->pdev->dev);
@@ -3570,10 +3581,6 @@ static int lan743x_mdiobus_init(struct lan743x_adapter *adapter)
 	adapter->mdiobus->priv = (void *)adapter;
 	if (adapter->is_pci11x1x) {
 		if (adapter->is_sgmii_en) {
-			sgmii_ctl = lan743x_csr_read(adapter, SGMII_CTL);
-			sgmii_ctl |= SGMII_CTL_SGMII_ENABLE_;
-			sgmii_ctl &= ~SGMII_CTL_SGMII_POWER_DN_;
-			lan743x_csr_write(adapter, SGMII_CTL, sgmii_ctl);
 			netif_dbg(adapter, drv, adapter->netdev,
 				  "SGMII operation\n");
 			adapter->mdiobus->read = lan743x_mdiobus_read_c22;
@@ -3584,10 +3591,6 @@ static int lan743x_mdiobus_init(struct lan743x_adapter *adapter)
 			netif_dbg(adapter, drv, adapter->netdev,
 				  "lan743x-mdiobus-c45\n");
 		} else {
-			sgmii_ctl = lan743x_csr_read(adapter, SGMII_CTL);
-			sgmii_ctl &= ~SGMII_CTL_SGMII_ENABLE_;
-			sgmii_ctl |= SGMII_CTL_SGMII_POWER_DN_;
-			lan743x_csr_write(adapter, SGMII_CTL, sgmii_ctl);
 			netif_dbg(adapter, drv, adapter->netdev,
 				  "RGMII operation\n");
 			// Only C22 support when RGMII I/F
@@ -3670,6 +3673,10 @@ static int lan743x_pcidev_probe(struct pci_dev *pdev,
 		goto return_error;
 
 	ret = lan743x_csr_init(adapter);
+	if (ret)
+		goto cleanup_pci;
+
+	ret = lan743x_hw_reset_phy(adapter);
 	if (ret)
 		goto cleanup_pci;
 
@@ -3919,7 +3926,6 @@ static int lan743x_pm_resume(struct device *dev)
 
 	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
-	pci_save_state(pdev);
 
 	/* Restore HW_CFG that was saved during pm suspend */
 	if (adapter->is_pci11x1x)

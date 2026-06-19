@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: MIT */
 /*
  * Copyright 2019 Advanced Micro Devices, Inc.
  *
@@ -69,7 +70,6 @@ struct crc_data {
 
 struct crc_info {
 	struct crc_data crc[MAX_CRC_WINDOW_NUM];
-	struct completion completion;
 	spinlock_t lock;
 };
 

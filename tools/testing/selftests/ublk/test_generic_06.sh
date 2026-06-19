@@ -3,7 +3,6 @@
 
 . "$(cd "$(dirname "$0")" && pwd)"/test_common.sh
 
-TID="generic_06"
 ERR_CODE=0
 
 _prep_test "fault_inject" "fast cleanup when all I/Os of one hctx are in server"
@@ -17,7 +16,7 @@ STARTTIME=${SECONDS}
 dd if=/dev/urandom of=/dev/ublkb${dev_id} oflag=direct bs=4k count=1 status=none > /dev/null 2>&1 &
 dd_pid=$!
 
-__ublk_kill_daemon ${dev_id} "DEAD"
+__ublk_kill_daemon ${dev_id} "DEAD" >/dev/null
 
 wait $dd_pid
 dd_exitcode=$?
@@ -37,5 +36,5 @@ if [ $ELAPSED -ge 5 ]; then
         ERR_CODE=255
 fi
 
-_cleanup_test "fault_inject"
+_cleanup_test
 _show_result $TID $ERR_CODE

@@ -25,6 +25,8 @@
  *
  */
 
+#include <drm/drm_print.h>
+
 #include "intel_display_types.h"
 #include "intel_dvo_dev.h"
 
@@ -205,7 +207,7 @@ static bool ch7017_init(struct intel_dvo_device *dvo,
 	const char *str;
 	u8 val;
 
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+	priv = kzalloc_obj(*priv);
 	if (priv == NULL)
 		return false;
 

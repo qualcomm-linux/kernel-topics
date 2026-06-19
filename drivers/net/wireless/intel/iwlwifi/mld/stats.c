@@ -191,11 +191,12 @@ static void iwl_mld_sta_stats_fill_txrate(struct iwl_mld_sta *mld_sta,
 		break;
 	}
 
-	if (format == RATE_MCS_CCK_MSK || format == RATE_MCS_LEGACY_OFDM_MSK) {
+	if (format == RATE_MCS_MOD_TYPE_CCK ||
+	    format == RATE_MCS_MOD_TYPE_LEGACY_OFDM) {
 		int rate = u32_get_bits(rate_n_flags, RATE_LEGACY_RATE_MSK);
 
 		/* add the offset needed to get to the legacy ofdm indices */
-		if (format == RATE_MCS_LEGACY_OFDM_MSK)
+		if (format == RATE_MCS_MOD_TYPE_LEGACY_OFDM)
 			rate += IWL_FIRST_OFDM_RATE;
 
 		switch (rate) {
@@ -240,7 +241,7 @@ static void iwl_mld_sta_stats_fill_txrate(struct iwl_mld_sta *mld_sta,
 
 	rinfo->nss = u32_get_bits(rate_n_flags, RATE_MCS_NSS_MSK) + 1;
 
-	if (format == RATE_MCS_HT_MSK)
+	if (format == RATE_MCS_MOD_TYPE_HT)
 		rinfo->mcs = RATE_HT_MCS_INDEX(rate_n_flags);
 	else
 		rinfo->mcs = u32_get_bits(rate_n_flags, RATE_MCS_CODE_MSK);
@@ -249,10 +250,10 @@ static void iwl_mld_sta_stats_fill_txrate(struct iwl_mld_sta *mld_sta,
 		rinfo->flags |= RATE_INFO_FLAGS_SHORT_GI;
 
 	switch (format) {
-	case RATE_MCS_EHT_MSK:
+	case RATE_MCS_MOD_TYPE_EHT:
 		rinfo->flags |= RATE_INFO_FLAGS_EHT_MCS;
 		break;
-	case RATE_MCS_HE_MSK:
+	case RATE_MCS_MOD_TYPE_HE:
 		gi_ltf = u32_get_bits(rate_n_flags, RATE_MCS_HE_GI_LTF_MSK);
 
 		rinfo->flags |= RATE_INFO_FLAGS_HE_MCS;
@@ -293,10 +294,10 @@ static void iwl_mld_sta_stats_fill_txrate(struct iwl_mld_sta *mld_sta,
 		if (rate_n_flags & RATE_HE_DUAL_CARRIER_MODE_MSK)
 			rinfo->he_dcm = 1;
 		break;
-	case RATE_MCS_HT_MSK:
+	case RATE_MCS_MOD_TYPE_HT:
 		rinfo->flags |= RATE_INFO_FLAGS_MCS;
 		break;
-	case RATE_MCS_VHT_MSK:
+	case RATE_MCS_MOD_TYPE_VHT:
 		rinfo->flags |= RATE_INFO_FLAGS_VHT_MCS;
 		break;
 	}
@@ -368,21 +369,48 @@ out:
 static void iwl_mld_update_link_sig(struct ieee80211_vif *vif, int sig,
 				    struct ieee80211_bss_conf *bss_conf)
 {
+	struct iwl_mld_link *link = iwl_mld_link_from_mac80211(bss_conf);
 	struct iwl_mld *mld = iwl_mld_vif_from_mac80211(vif)->mld;
 	int exit_emlsr_thresh;
+	int last_event;
 
 	if (sig == 0) {
 		IWL_DEBUG_RX(mld, "RSSI is 0 - skip signal based decision\n");
 		return;
 	}
 
-	/* TODO: task=statistics handle CQM notifications */
-
-	if (sig < IWL_MLD_LOW_RSSI_MLO_SCAN_THRESH)
-		iwl_mld_int_mlo_scan(mld, vif);
-
-	if (!iwl_mld_emlsr_active(vif))
+	if (WARN_ON(!link))
 		return;
+
+	/* CQM Notification */
+	if (vif->driver_flags & IEEE80211_VIF_SUPPORTS_CQM_RSSI) {
+		int thold = bss_conf->cqm_rssi_thold;
+		int hyst = bss_conf->cqm_rssi_hyst;
+
+		last_event = link->last_cqm_rssi_event;
+		if (thold && sig < thold &&
+		    (last_event == 0 || sig < last_event - hyst)) {
+			link->last_cqm_rssi_event = sig;
+			ieee80211_cqm_rssi_notify(vif,
+						  NL80211_CQM_RSSI_THRESHOLD_EVENT_LOW,
+						  sig, GFP_KERNEL);
+		} else if (sig > thold &&
+			   (last_event == 0 || sig > last_event + hyst)) {
+			link->last_cqm_rssi_event = sig;
+			ieee80211_cqm_rssi_notify(vif,
+						  NL80211_CQM_RSSI_THRESHOLD_EVENT_HIGH,
+						  sig, GFP_KERNEL);
+		}
+	}
+
+	if (!iwl_mld_emlsr_active(vif)) {
+		/* We're not in EMLSR and our signal is bad,
+		 * try to switch link maybe. EMLSR will be handled below.
+		 */
+		if (sig < IWL_MLD_LOW_RSSI_MLO_SCAN_THRESH)
+			iwl_mld_int_mlo_scan(mld, vif);
+		return;
+	}
 
 	/* We are in EMLSR, check if we need to exit */
 	exit_emlsr_thresh =
@@ -403,14 +431,13 @@ iwl_mld_process_per_link_stats(struct iwl_mld *mld,
 	u32 total_airtime_usec = 0;
 
 	for (u32 fw_id = 0;
-	     fw_id < ARRAY_SIZE(mld->fw_id_to_bss_conf);
+	     fw_id < mld->fw->ucode_capa.num_links;
 	     fw_id++) {
 		const struct iwl_stats_ntfy_per_link *link_stats;
 		struct ieee80211_bss_conf *bss_conf;
 		int sig;
 
-		bss_conf = wiphy_dereference(mld->wiphy,
-					     mld->fw_id_to_bss_conf[fw_id]);
+		bss_conf = iwl_mld_fw_id_to_link_conf(mld, fw_id);
 		if (!bss_conf || bss_conf->vif->type != NL80211_IFTYPE_STATION)
 			continue;
 
@@ -467,12 +494,18 @@ static void iwl_mld_fill_chanctx_stats(struct ieee80211_hw *hw,
 
 	old_load = phy->avg_channel_load_not_by_us;
 	new_load = le32_to_cpu(per_phy[phy->fw_id].channel_load_not_by_us);
-	if (IWL_FW_CHECK(phy->mld, new_load > 100, "Invalid channel load %u\n",
-			 new_load))
+
+	if (IWL_FW_CHECK(phy->mld,
+			 new_load != IWL_STATS_UNKNOWN_CHANNEL_LOAD &&
+				new_load > 100,
+			 "Invalid channel load %u\n", new_load))
 		return;
 
-	/* give a weight of 0.5 for the old value */
-	phy->avg_channel_load_not_by_us = (new_load >> 1) + (old_load >> 1);
+	if (new_load != IWL_STATS_UNKNOWN_CHANNEL_LOAD) {
+		/* update giving a weight of 0.5 for the old value */
+		phy->avg_channel_load_not_by_us = (new_load >> 1) +
+						  (old_load >> 1);
+	}
 
 	iwl_mld_emlsr_check_chan_load(hw, phy, old_load);
 }
@@ -501,8 +534,6 @@ void iwl_mld_handle_stats_oper_notif(struct iwl_mld *mld,
 	iwl_mld_process_per_link_stats(mld, stats->per_link, curr_ts_usec);
 	iwl_mld_process_per_sta_stats(mld, stats->per_sta);
 	iwl_mld_process_per_phy_stats(mld, stats->per_phy);
-
-	iwl_mld_check_omi_bw_reduction(mld);
 }
 
 void iwl_mld_handle_stats_oper_part1_notif(struct iwl_mld *mld,

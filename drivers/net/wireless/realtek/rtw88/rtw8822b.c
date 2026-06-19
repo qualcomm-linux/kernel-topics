@@ -983,6 +983,7 @@ static bool rtw8822b_check_rf_path(u8 antenna)
 }
 
 static int rtw8822b_set_antenna(struct rtw_dev *rtwdev,
+				int radio_idx,
 				u32 antenna_tx,
 				u32 antenna_rx)
 {
@@ -1004,7 +1005,8 @@ static int rtw8822b_set_antenna(struct rtw_dev *rtwdev,
 	hal->antenna_tx = antenna_tx;
 	hal->antenna_rx = antenna_rx;
 
-	rtw8822b_config_trx_mode(rtwdev, antenna_tx, antenna_rx, false);
+	if (test_bit(RTW_FLAG_POWERON, rtwdev->flags))
+		rtw8822b_config_trx_mode(rtwdev, antenna_tx, antenna_rx, false);
 
 	return 0;
 }
@@ -2153,11 +2155,13 @@ static const struct rtw_chip_ops rtw8822b_ops = {
 	.query_phy_status	= query_phy_status,
 	.set_channel		= rtw8822b_set_channel,
 	.mac_init		= rtw8822b_mac_init,
+	.mac_postinit		= NULL,
 	.read_rf		= rtw_phy_read_rf,
 	.write_rf		= rtw_phy_write_rf_reg_sipi,
 	.set_tx_power_index	= rtw8822b_set_tx_power_index,
 	.set_antenna		= rtw8822b_set_antenna,
 	.cfg_ldo25		= rtw8822b_cfg_ldo25,
+	.set_ampdu_factor	= NULL,
 	.false_alarm_statistics	= rtw8822b_false_alarm_statistics,
 	.phy_calibration	= rtw8822b_phy_calibration,
 	.pwr_track		= rtw8822b_pwr_track,
@@ -2213,6 +2217,11 @@ static const struct coex_table_para table_sant_8822b[] = {
 	{0x66556aaa, 0x6a5a6aaa}, /* case-30 */
 	{0xffffffff, 0x5aaa5aaa},
 	{0x56555555, 0x5a5a5aaa},
+	{0xdaffdaff, 0xdaffdaff},
+	{0xddffddff, 0xddffddff},
+	{0xe5555555, 0xe5555555}, /* case-35 */
+	{0xea5a5a5a, 0xea5a5a5a},
+	{0xea6a6a6a, 0xea6a6a6a},
 };
 
 /* Non-Shared-Antenna Coex Table */
@@ -2512,7 +2521,7 @@ const struct rtw_chip_info rtw8822b_hw_spec = {
 	.ops = &rtw8822b_ops,
 	.id = RTW_CHIP_TYPE_8822B,
 	.fw_name = "rtw88/rtw8822b_fw.bin",
-	.wlan_cpu = RTW_WCPU_11AC,
+	.wlan_cpu = RTW_WCPU_3081,
 	.tx_pkt_desc_sz = 48,
 	.tx_buf_desc_sz = 16,
 	.rx_pkt_desc_sz = 24,
@@ -2531,6 +2540,7 @@ const struct rtw_chip_info rtw8822b_hw_spec = {
 	.band = RTW_BAND_2G | RTW_BAND_5G,
 	.page_size = TX_PAGE_SIZE,
 	.dig_min = 0x1c,
+	.amsdu_in_ampdu = true,
 	.usb_tx_agg_desc_num = 3,
 	.hw_feature_report = true,
 	.c2h_ra_report_size = 7,

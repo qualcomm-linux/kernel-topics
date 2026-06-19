@@ -599,7 +599,7 @@ static void mrp_join_timer_arm(struct mrp_applicant *app)
 
 static void mrp_join_timer(struct timer_list *t)
 {
-	struct mrp_applicant *app = from_timer(app, t, join_timer);
+	struct mrp_applicant *app = timer_container_of(app, t, join_timer);
 
 	spin_lock(&app->lock);
 	mrp_mad_event(app, MRP_EVENT_TX);
@@ -621,7 +621,7 @@ static void mrp_periodic_timer_arm(struct mrp_applicant *app)
 
 static void mrp_periodic_timer(struct timer_list *t)
 {
-	struct mrp_applicant *app = from_timer(app, t, periodic_timer);
+	struct mrp_applicant *app = timer_container_of(app, t, periodic_timer);
 
 	spin_lock(&app->lock);
 	if (likely(app->active)) {
@@ -832,7 +832,7 @@ static int mrp_init_port(struct net_device *dev)
 {
 	struct mrp_port *port;
 
-	port = kzalloc(sizeof(*port), GFP_KERNEL);
+	port = kzalloc_obj(*port);
 	if (!port)
 		return -ENOMEM;
 	rcu_assign_pointer(dev->mrp_port, port);
@@ -866,7 +866,7 @@ int mrp_init_applicant(struct net_device *dev, struct mrp_application *appl)
 	}
 
 	err = -ENOMEM;
-	app = kzalloc(sizeof(*app), GFP_KERNEL);
+	app = kzalloc_obj(*app);
 	if (!app)
 		goto err2;
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
- * Copyright (C) 2024-2025 Intel Corporation
+ * Copyright (C) 2024-2026 Intel Corporation
  */
 #include "mld.h"
 #include "iface.h"
@@ -21,7 +21,7 @@ static bool iwl_mld_calc_low_latency(struct iwl_mld *mld,
 {
 	struct iwl_mld_low_latency *ll = &mld->low_latency;
 	bool global_low_latency = false;
-	u8 num_rx_q = mld->trans->num_rx_queues;
+	u8 num_rx_q = mld->trans->info.num_rxqs;
 
 	for (int mac_id = 0; mac_id < NUM_MAC_INDEX_DRIVER; mac_id++) {
 		u32 total_vo_vi_pkts = 0;
@@ -77,8 +77,11 @@ static void iwl_mld_low_latency_iter(void *_data, u8 *mac,
 	bool prev = mld_vif->low_latency_causes & LOW_LATENCY_TRAFFIC;
 	bool low_latency;
 
-	if (WARN_ON(mld_vif->fw_id >= ARRAY_SIZE(mld->low_latency.result)))
+	if (!iwl_mld_vif_fw_id_valid(mld_vif))
 		return;
+
+	BUILD_BUG_ON(ARRAY_SIZE(mld->fw_id_to_vif) !=
+		     ARRAY_SIZE(mld->low_latency.result));
 
 	low_latency = mld->low_latency.result[mld_vif->fw_id];
 
@@ -131,12 +134,12 @@ int iwl_mld_low_latency_init(struct iwl_mld *mld)
 	struct iwl_mld_low_latency *ll = &mld->low_latency;
 	unsigned long ts = jiffies;
 
-	ll->pkts_counters = kcalloc(mld->trans->num_rx_queues,
-				    sizeof(*ll->pkts_counters), GFP_KERNEL);
+	ll->pkts_counters = kzalloc_objs(*ll->pkts_counters,
+					 mld->trans->info.num_rxqs);
 	if (!ll->pkts_counters)
 		return -ENOMEM;
 
-	for (int q = 0; q < mld->trans->num_rx_queues; q++)
+	for (int q = 0; q < mld->trans->info.num_rxqs; q++)
 		spin_lock_init(&ll->pkts_counters[q].lock);
 
 	wiphy_delayed_work_init(&ll->work, iwl_mld_low_latency_wk);
@@ -167,7 +170,7 @@ void iwl_mld_low_latency_restart_cleanup(struct iwl_mld *mld)
 	memset(ll->window_start, 0, sizeof(ll->window_start));
 	memset(ll->result, 0, sizeof(ll->result));
 
-	for (int q = 0; q < mld->trans->num_rx_queues; q++)
+	for (int q = 0; q < mld->trans->info.num_rxqs; q++)
 		memset(ll->pkts_counters[q].vo_vi, 0,
 		       sizeof(ll->pkts_counters[q].vo_vi));
 }
@@ -224,9 +227,6 @@ void iwl_mld_vif_update_low_latency(struct iwl_mld *mld,
 		return;
 	}
 
-	if (low_latency)
-		iwl_mld_leave_omi_bw_reduction(mld);
-
 	if (ieee80211_vif_type_p2p(vif) != NL80211_IFTYPE_P2P_CLIENT)
 		return;
 
@@ -275,8 +275,10 @@ void iwl_mld_low_latency_update_counters(struct iwl_mld *mld,
 	if (WARN_ON_ONCE(!mld->low_latency.pkts_counters))
 		return;
 
-	if (WARN_ON_ONCE(fw_id >= ARRAY_SIZE(counters->vo_vi) ||
-			 queue >= mld->trans->num_rx_queues))
+	if (!iwl_mld_vif_fw_id_valid(mld_vif))
+		return;
+
+	if (WARN_ON_ONCE(queue >= mld->trans->info.num_rxqs))
 		return;
 
 	if (mld->low_latency.stopped)
@@ -324,7 +326,7 @@ void iwl_mld_low_latency_restart(struct iwl_mld *mld)
 		ll->window_start[mac] = 0;
 		low_latency |= ll->result[mac];
 
-		for (int q = 0; q < mld->trans->num_rx_queues; q++) {
+		for (int q = 0; q < mld->trans->info.num_rxqs; q++) {
 			spin_lock_bh(&ll->pkts_counters[q].lock);
 			ll->pkts_counters[q].vo_vi[mac] = 0;
 			spin_unlock_bh(&ll->pkts_counters[q].lock);

@@ -414,7 +414,7 @@ static void garp_join_timer_arm(struct garp_applicant *app)
 
 static void garp_join_timer(struct timer_list *t)
 {
-	struct garp_applicant *app = from_timer(app, t, join_timer);
+	struct garp_applicant *app = timer_container_of(app, t, join_timer);
 
 	spin_lock(&app->lock);
 	garp_gid_event(app, GARP_EVENT_TRANSMIT_PDU);
@@ -547,7 +547,7 @@ static int garp_init_port(struct net_device *dev)
 {
 	struct garp_port *port;
 
-	port = kzalloc(sizeof(*port), GFP_KERNEL);
+	port = kzalloc_obj(*port);
 	if (!port)
 		return -ENOMEM;
 	rcu_assign_pointer(dev->garp_port, port);
@@ -581,7 +581,7 @@ int garp_init_applicant(struct net_device *dev, struct garp_application *appl)
 	}
 
 	err = -ENOMEM;
-	app = kzalloc(sizeof(*app), GFP_KERNEL);
+	app = kzalloc_obj(*app);
 	if (!app)
 		goto err2;
 

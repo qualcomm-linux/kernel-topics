@@ -41,16 +41,17 @@ struct hdmi {
 
 	/* video state: */
 	bool power_on;
-	unsigned long int pixclock;
+	bool hpd_enabled;
+	struct mutex state_mutex; /* protects two booleans */
+	unsigned long pixclock;
 
 	void __iomem *mmio;
 	void __iomem *qfprom_mmio;
 	phys_addr_t mmio_phy_addr;
 
-	struct regulator_bulk_data *hpd_regs;
 	struct regulator_bulk_data *pwr_regs;
-	struct clk **hpd_clks;
-	struct clk **pwr_clks;
+	struct clk_bulk_data *pwr_clks;
+	struct clk *extp_clk;
 
 	struct gpio_desc *hpd_gpiod;
 
@@ -83,21 +84,12 @@ struct hdmi {
 
 /* platform config data (ie. from DT, or pdata) */
 struct hdmi_platform_config {
-	/* regulators that need to be on for hpd: */
-	const char **hpd_reg_names;
-	int hpd_reg_cnt;
-
 	/* regulators that need to be on for screen pwr: */
-	const char **pwr_reg_names;
+	const char * const *pwr_reg_names;
 	int pwr_reg_cnt;
 
-	/* clks that need to be on for hpd: */
-	const char **hpd_clk_names;
-	const long unsigned *hpd_freq;
-	int hpd_clk_cnt;
-
-	/* clks that need to be on for screen pwr (ie pixel clk): */
-	const char **pwr_clk_names;
+	/* clks that need to be on: */
+	const char * const *pwr_clk_names;
 	int pwr_clk_cnt;
 };
 
@@ -140,7 +132,7 @@ enum hdmi_phy_type {
 
 struct hdmi_phy_cfg {
 	enum hdmi_phy_type type;
-	void (*powerup)(struct hdmi_phy *phy, unsigned long int pixclock);
+	void (*powerup)(struct hdmi_phy *phy, unsigned long pixclock);
 	void (*powerdown)(struct hdmi_phy *phy);
 	const char * const *reg_names;
 	int num_regs;
@@ -175,7 +167,7 @@ static inline u32 hdmi_phy_read(struct hdmi_phy *phy, u32 reg)
 
 int msm_hdmi_phy_resource_enable(struct hdmi_phy *phy);
 void msm_hdmi_phy_resource_disable(struct hdmi_phy *phy);
-void msm_hdmi_phy_powerup(struct hdmi_phy *phy, unsigned long int pixclock);
+void msm_hdmi_phy_powerup(struct hdmi_phy *phy, unsigned long pixclock);
 void msm_hdmi_phy_powerdown(struct hdmi_phy *phy);
 void __init msm_hdmi_phy_driver_register(void);
 void __exit msm_hdmi_phy_driver_unregister(void);
@@ -208,12 +200,12 @@ struct hdmi_codec_daifmt;
 struct hdmi_codec_params;
 
 int msm_hdmi_audio_update(struct hdmi *hdmi);
-int msm_hdmi_bridge_audio_prepare(struct drm_connector *connector,
-				  struct drm_bridge *bridge,
+int msm_hdmi_bridge_audio_prepare(struct drm_bridge *bridge,
+				  struct drm_connector *connector,
 				  struct hdmi_codec_daifmt *daifmt,
 				  struct hdmi_codec_params *params);
-void msm_hdmi_bridge_audio_shutdown(struct drm_connector *connector,
-				    struct drm_bridge *bridge);
+void msm_hdmi_bridge_audio_shutdown(struct drm_bridge *bridge,
+				    struct drm_connector *connector);
 
 /*
  * hdmi bridge:
@@ -223,9 +215,9 @@ int msm_hdmi_bridge_init(struct hdmi *hdmi);
 
 void msm_hdmi_hpd_irq(struct drm_bridge *bridge);
 enum drm_connector_status msm_hdmi_bridge_detect(
-		struct drm_bridge *bridge);
-int msm_hdmi_hpd_enable(struct drm_bridge *bridge);
-void msm_hdmi_hpd_disable(struct hdmi *hdmi);
+		struct drm_bridge *bridge, struct drm_connector *connector);
+void msm_hdmi_hpd_enable(struct drm_bridge *bridge);
+void msm_hdmi_hpd_disable(struct drm_bridge *bridge);
 
 /*
  * i2c adapter for ddc:

@@ -2367,7 +2367,7 @@ struct pvr2_hdw *pvr2_hdw_create(struct usb_interface *intf,
 		goto fail;
 	}
 
-	hdw = kzalloc(sizeof(*hdw),GFP_KERNEL);
+	hdw = kzalloc_obj(*hdw);
 	pvr2_trace(PVR2_TRACE_INIT,"pvr2_hdw_create: hdw=%p, type \"%s\"",
 		   hdw,hdw_desc->description);
 	pvr2_trace(PVR2_TRACE_INFO, "Hardware description: %s",
@@ -2424,8 +2424,7 @@ struct pvr2_hdw *pvr2_hdw_create(struct usb_interface *intf,
 
 	hdw->control_cnt = CTRLDEF_COUNT;
 	hdw->control_cnt += MPEGDEF_COUNT;
-	hdw->controls = kcalloc(hdw->control_cnt, sizeof(struct pvr2_ctrl),
-				GFP_KERNEL);
+	hdw->controls = kzalloc_objs(struct pvr2_ctrl, hdw->control_cnt);
 	if (!hdw->controls) goto fail;
 	hdw->hdw_desc = hdw_desc;
 	hdw->ir_scheme_active = hdw->hdw_desc->ir_scheme;
@@ -2450,9 +2449,8 @@ struct pvr2_hdw *pvr2_hdw_create(struct usb_interface *intf,
 	}
 
 	/* Define and configure additional controls from cx2341x module. */
-	hdw->mpeg_ctrl_info = kcalloc(MPEGDEF_COUNT,
-				      sizeof(*(hdw->mpeg_ctrl_info)),
-				      GFP_KERNEL);
+	hdw->mpeg_ctrl_info = kzalloc_objs(*(hdw->mpeg_ctrl_info),
+					   MPEGDEF_COUNT);
 	if (!hdw->mpeg_ctrl_info) goto fail;
 	for (idx = 0; idx < MPEGDEF_COUNT; idx++) {
 		cptr = hdw->controls + idx + CTRLDEF_COUNT;
@@ -3562,7 +3560,7 @@ struct hdw_timer {
 
 static void pvr2_ctl_timeout(struct timer_list *t)
 {
-	struct hdw_timer *timer = from_timer(timer, t, timer);
+	struct hdw_timer *timer = timer_container_of(timer, t, timer);
 	struct pvr2_hdw *hdw = timer->hdw;
 
 	if (hdw->ctl_write_pend_flag || hdw->ctl_read_pend_flag) {
@@ -3622,7 +3620,7 @@ static int pvr2_send_request_ex(struct pvr2_hdw *hdw,
 		pvr2_trace(
 			PVR2_TRACE_ERROR_LEGS,
 			"Attempted to execute %d byte control-read transfer (limit=%d)",
-			write_len,PVR2_CTL_BUFFSIZE);
+			read_len, PVR2_CTL_BUFFSIZE);
 		return -EINVAL;
 	}
 	if ((!write_len) && (!read_len)) {
@@ -3709,6 +3707,11 @@ status);
 				   "Failed to submit read-control URB status=%d",
 status);
 			hdw->ctl_read_pend_flag = 0;
+			if (hdw->ctl_write_pend_flag) {
+				usb_unlink_urb(hdw->ctl_write_urb);
+				while (hdw->ctl_write_pend_flag)
+					wait_for_completion(&hdw->ctl_done);
+			}
 			goto done;
 		}
 	}
@@ -3806,7 +3809,7 @@ status);
 	if ((status < 0) && (!probe_fl)) {
 		pvr2_hdw_render_useless(hdw);
 	}
-	destroy_timer_on_stack(&timer.timer);
+	timer_destroy_on_stack(&timer.timer);
 
 	return status;
 }
@@ -4421,7 +4424,7 @@ static int state_eval_encoder_run(struct pvr2_hdw *hdw)
 /* Timeout function for quiescent timer. */
 static void pvr2_hdw_quiescent_timeout(struct timer_list *t)
 {
-	struct pvr2_hdw *hdw = from_timer(hdw, t, quiescent_timer);
+	struct pvr2_hdw *hdw = timer_container_of(hdw, t, quiescent_timer);
 	hdw->state_decoder_quiescent = !0;
 	trace_stbit("state_decoder_quiescent",hdw->state_decoder_quiescent);
 	hdw->state_stale = !0;
@@ -4432,7 +4435,8 @@ static void pvr2_hdw_quiescent_timeout(struct timer_list *t)
 /* Timeout function for decoder stabilization timer. */
 static void pvr2_hdw_decoder_stabilization_timeout(struct timer_list *t)
 {
-	struct pvr2_hdw *hdw = from_timer(hdw, t, decoder_stabilization_timer);
+	struct pvr2_hdw *hdw = timer_container_of(hdw, t,
+						  decoder_stabilization_timer);
 	hdw->state_decoder_ready = !0;
 	trace_stbit("state_decoder_ready", hdw->state_decoder_ready);
 	hdw->state_stale = !0;
@@ -4443,7 +4447,7 @@ static void pvr2_hdw_decoder_stabilization_timeout(struct timer_list *t)
 /* Timeout function for encoder wait timer. */
 static void pvr2_hdw_encoder_wait_timeout(struct timer_list *t)
 {
-	struct pvr2_hdw *hdw = from_timer(hdw, t, encoder_wait_timer);
+	struct pvr2_hdw *hdw = timer_container_of(hdw, t, encoder_wait_timer);
 	hdw->state_encoder_waitok = !0;
 	trace_stbit("state_encoder_waitok",hdw->state_encoder_waitok);
 	hdw->state_stale = !0;
@@ -4454,7 +4458,7 @@ static void pvr2_hdw_encoder_wait_timeout(struct timer_list *t)
 /* Timeout function for encoder run timer. */
 static void pvr2_hdw_encoder_run_timeout(struct timer_list *t)
 {
-	struct pvr2_hdw *hdw = from_timer(hdw, t, encoder_run_timer);
+	struct pvr2_hdw *hdw = timer_container_of(hdw, t, encoder_run_timer);
 	if (!hdw->state_encoder_runok) {
 		hdw->state_encoder_runok = !0;
 		trace_stbit("state_encoder_runok",hdw->state_encoder_runok);

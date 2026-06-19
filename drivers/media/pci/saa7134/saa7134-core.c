@@ -328,7 +328,7 @@ void saa7134_buffer_next(struct saa7134_dev *dev,
 
 void saa7134_buffer_timeout(struct timer_list *t)
 {
-	struct saa7134_dmaqueue *q = from_timer(q, t, timeout);
+	struct saa7134_dmaqueue *q = timer_container_of(q, t, timeout);
 	struct saa7134_dev *dev = q->dev;
 	unsigned long flags;
 
@@ -1010,7 +1010,7 @@ static int saa7134_initdev(struct pci_dev *pci_dev,
 	if (saa7134_devcount == SAA7134_MAXBOARDS)
 		return -ENOMEM;
 
-	dev = kzalloc(sizeof(*dev),GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (NULL == dev)
 		return -ENOMEM;
 
@@ -1018,7 +1018,7 @@ static int saa7134_initdev(struct pci_dev *pci_dev,
 	sprintf(dev->name, "saa%x[%d]", pci_dev->device, dev->nr);
 
 #ifdef CONFIG_MEDIA_CONTROLLER
-	dev->media_dev = kzalloc(sizeof(*dev->media_dev), GFP_KERNEL);
+	dev->media_dev = kzalloc_obj(*dev->media_dev);
 	if (!dev->media_dev) {
 		err = -ENOMEM;
 		goto err_free_dev;

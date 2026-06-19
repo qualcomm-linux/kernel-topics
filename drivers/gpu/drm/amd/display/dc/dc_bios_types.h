@@ -91,9 +91,18 @@ struct dc_vbios_funcs {
 		struct device_id id);
 	/* COMMANDS */
 
+	enum bp_result (*select_crtc_source)(
+		struct dc_bios *bios,
+		struct bp_crtc_source_select *bp_params);
 	enum bp_result (*encoder_control)(
 		struct dc_bios *bios,
 		struct bp_encoder_control *cntl);
+	enum bp_result (*external_encoder_control)(
+		struct dc_bios *bios,
+		struct bp_external_encoder_control *cntl);
+	enum bp_result (*dac_load_detection)(
+		struct dc_bios *bios,
+		enum engine_id engine_id);
 	enum bp_result (*transmitter_control)(
 		struct dc_bios *bios,
 		struct bp_transmitter_control *cntl);
@@ -165,6 +174,7 @@ struct dc_vbios_funcs {
 };
 
 struct bios_registers {
+	uint32_t BIOS_SCRATCH_0;
 	uint32_t BIOS_SCRATCH_3;
 	uint32_t BIOS_SCRATCH_6;
 };

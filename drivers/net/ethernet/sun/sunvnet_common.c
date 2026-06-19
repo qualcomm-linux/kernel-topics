@@ -1044,7 +1044,7 @@ static inline void vnet_free_skbs(struct sk_buff *skb)
 
 void sunvnet_clean_timer_expire_common(struct timer_list *t)
 {
-	struct vnet_port *port = from_timer(port, t, clean_timer);
+	struct vnet_port *port = timer_container_of(port, t, clean_timer);
 	struct sk_buff *freeskbs;
 	unsigned pending;
 
@@ -1571,7 +1571,7 @@ static void __update_mc_list(struct vnet *vp, struct net_device *dev)
 		}
 
 		if (!m) {
-			m = kzalloc(sizeof(*m), GFP_ATOMIC);
+			m = kzalloc_obj(*m, GFP_ATOMIC);
 			if (!m)
 				continue;
 			memcpy(m->addr, ha->addr, ETH_ALEN);

@@ -9,6 +9,7 @@
 #include <linux/interrupt.h>
 #include <linux/iosys-map.h>
 #include <linux/spinlock_types.h>
+#include <linux/stackdepot.h>
 #include <linux/wait.h>
 #include <linux/xarray.h>
 
@@ -38,6 +39,8 @@ struct guc_ctb_info {
  * struct guc_ctb - GuC command transport buffer (CTB)
  */
 struct guc_ctb {
+	/** @bo: Xe BO for CTB */
+	struct xe_bo *bo;
 	/** @desc: dma buffer map for CTB descriptor */
 	struct iosys_map desc;
 	/** @cmds: dma buffer map for CTB commands */
@@ -71,7 +74,7 @@ struct xe_guc_ct_snapshot {
 	/** @ctb_size: size of the snapshot of the CTB */
 	size_t ctb_size;
 	/** @ctb: snapshot of the entire CTB */
-	u32 *ctb;
+	void *ctb;
 };
 
 /**
@@ -104,6 +107,18 @@ struct xe_dead_ct {
 	/** snapshot_log: copy of GuC log at point of error */
 	struct xe_guc_log_snapshot *snapshot_log;
 };
+
+/** struct xe_fast_req_fence - Used to track FAST_REQ messages by fence to match error responses */
+struct xe_fast_req_fence {
+	/** @fence: sequence number sent in H2G and return in G2H error */
+	u16 fence;
+	/** @action: H2G action code */
+	u16 action;
+#if IS_ENABLED(CONFIG_DRM_XE_DEBUG_GUC)
+	/** @stack: call stack from when the H2G was sent */
+	depot_stack_handle_t stack;
+#endif
+};
 #endif
 
 /**
@@ -113,8 +128,6 @@ struct xe_dead_ct {
  * for the H2G and G2H requests sent and received through the buffers.
  */
 struct xe_guc_ct {
-	/** @bo: XE BO for CT */
-	struct xe_bo *bo;
 	/** @lock: protects everything in CT layer */
 	struct mutex lock;
 	/** @fast_lock: protects G2H channel and credits */
@@ -152,6 +165,8 @@ struct xe_guc_ct {
 #if IS_ENABLED(CONFIG_DRM_XE_DEBUG)
 	/** @dead: information for debugging dead CTs */
 	struct xe_dead_ct dead;
+	/** @fast_req: history of FAST_REQ messages for matching with G2H error responses */
+	struct xe_fast_req_fence fast_req[SZ_32];
 #endif
 };
 

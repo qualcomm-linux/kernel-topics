@@ -32,7 +32,7 @@ struct transient_trig_data {
 static void transient_timer_function(struct timer_list *t)
 {
 	struct transient_trig_data *transient_data =
-		from_timer(transient_data, t, timer);
+		timer_container_of(transient_data, t, timer);
 	struct led_classdev *led_cdev = transient_data->led_cdev;
 
 	transient_data->activate = 0;
@@ -164,7 +164,7 @@ static int transient_trig_activate(struct led_classdev *led_cdev)
 {
 	struct transient_trig_data *tdata;
 
-	tdata = kzalloc(sizeof(struct transient_trig_data), GFP_KERNEL);
+	tdata = kzalloc_obj(struct transient_trig_data);
 	if (!tdata)
 		return -ENOMEM;
 

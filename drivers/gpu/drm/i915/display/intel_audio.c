@@ -27,9 +27,9 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_eld.h>
 #include <drm/drm_fixed.h>
+#include <drm/drm_print.h>
 #include <drm/intel/i915_component.h>
 
-#include "i915_drv.h"
 #include "intel_atomic.h"
 #include "intel_audio.h"
 #include "intel_audio_regs.h"
@@ -37,6 +37,7 @@
 #include "intel_crtc.h"
 #include "intel_de.h"
 #include "intel_display_types.h"
+#include "intel_display_wa.h"
 #include "intel_lpe_audio.h"
 
 /**
@@ -183,17 +184,6 @@ static const struct hdmi_aud_ncts hdmi_aud_ncts_36bpp[] = {
 	{ 192000, TMDS_445M, 23296, 421875 },
 	{ 192000, TMDS_445_5M, 20480, 371250 },
 };
-
-/*
- * WA_14020863754: Implement Audio Workaround
- * Corner case with Min Hblank Fix can cause audio hang
- */
-static bool needs_wa_14020863754(struct intel_display *display)
-{
-	return DISPLAY_VERx100(display) == 3000 ||
-		DISPLAY_VERx100(display) == 2000 ||
-		DISPLAY_VERx100(display) == 1401;
-}
 
 /* get AUD_CONFIG_PIXEL_CLOCK_HDMI_* value for mode */
 static u32 audio_config_hdmi_pixel_clock(const struct intel_crtc_state *crtc_state)
@@ -397,6 +387,19 @@ hsw_audio_config_update(struct intel_encoder *encoder,
 		hsw_hdmi_audio_config_update(encoder, crtc_state);
 }
 
+static void intel_audio_sdp_split_update(const struct intel_crtc_state *crtc_state,
+					 bool enable)
+{
+	struct intel_display *display = to_intel_display(crtc_state);
+	enum transcoder trans = crtc_state->cpu_transcoder;
+
+	if (!HAS_DP20(display))
+		return;
+
+	intel_de_rmw(display, AUD_DP_2DOT0_CTRL(trans), AUD_ENABLE_SDP_SPLIT,
+		     enable && crtc_state->sdp_split_enable ? AUD_ENABLE_SDP_SPLIT : 0);
+}
+
 static void hsw_audio_codec_disable(struct intel_encoder *encoder,
 				    const struct intel_crtc_state *old_crtc_state,
 				    const struct drm_connector_state *old_conn_state)
@@ -427,8 +430,14 @@ static void hsw_audio_codec_disable(struct intel_encoder *encoder,
 	intel_de_rmw(display, HSW_AUD_PIN_ELD_CP_VLD,
 		     AUDIO_OUTPUT_ENABLE(cpu_transcoder), 0);
 
-	if (needs_wa_14020863754(display))
+	/*
+	 * WA_14020863754: Implement Audio Workaround
+	 * Corner case with Min Hblank Fix can cause audio hang
+	 */
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_14020863754))
 		intel_de_rmw(display, AUD_CHICKENBIT_REG3, DACBE_DISABLE_MIN_HBLANK_FIX, 0);
+
+	intel_audio_sdp_split_update(old_crtc_state, false);
 
 	mutex_unlock(&display->audio.mutex);
 }
@@ -555,7 +564,13 @@ static void hsw_audio_codec_enable(struct intel_encoder *encoder,
 	if (intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP))
 		enable_audio_dsc_wa(encoder, crtc_state);
 
-	if (needs_wa_14020863754(display))
+	intel_audio_sdp_split_update(crtc_state, true);
+
+	/*
+	 * WA_14020863754: Implement Audio Workaround
+	 * Corner case with Min Hblank Fix can cause audio hang
+	 */
+	if (intel_display_wa(display, INTEL_DISPLAY_WA_14020863754))
 		intel_de_rmw(display, AUD_CHICKENBIT_REG3, 0, DACBE_DISABLE_MIN_HBLANK_FIX);
 
 	/* Enable audio presence detect */
@@ -587,19 +602,17 @@ static void ibx_audio_regs_init(struct intel_display *display,
 				enum pipe pipe,
 				struct ibx_audio_regs *regs)
 {
-	struct drm_i915_private *i915 = to_i915(display->drm);
-
 	if (display->platform.valleyview || display->platform.cherryview) {
 		regs->hdmiw_hdmiedid = VLV_HDMIW_HDMIEDID(pipe);
 		regs->aud_config = VLV_AUD_CFG(pipe);
 		regs->aud_cntl_st = VLV_AUD_CNTL_ST(pipe);
 		regs->aud_cntrl_st2 = VLV_AUD_CNTL_ST2;
-	} else if (HAS_PCH_CPT(i915)) {
+	} else if (HAS_PCH_CPT(display)) {
 		regs->hdmiw_hdmiedid = CPT_HDMIW_HDMIEDID(pipe);
 		regs->aud_config = CPT_AUD_CFG(pipe);
 		regs->aud_cntl_st = CPT_AUD_CNTL_ST(pipe);
 		regs->aud_cntrl_st2 = CPT_AUD_CNTRL_ST2;
-	} else if (HAS_PCH_IBX(i915)) {
+	} else if (HAS_PCH_IBX(display)) {
 		regs->hdmiw_hdmiedid = IBX_HDMIW_HDMIEDID(pipe);
 		regs->aud_config = IBX_AUD_CFG(pipe);
 		regs->aud_cntl_st = IBX_AUD_CNTL_ST(pipe);
@@ -681,16 +694,6 @@ static void ibx_audio_codec_enable(struct intel_encoder *encoder,
 		      audio_config_hdmi_pixel_clock(crtc_state)));
 
 	mutex_unlock(&display->audio.mutex);
-}
-
-void intel_audio_sdp_split_update(const struct intel_crtc_state *crtc_state)
-{
-	struct intel_display *display = to_intel_display(crtc_state);
-	enum transcoder trans = crtc_state->cpu_transcoder;
-
-	if (HAS_DP20(display))
-		intel_de_rmw(display, AUD_DP_2DOT0_CTRL(trans), AUD_ENABLE_SDP_SPLIT,
-			     crtc_state->sdp_split_enable ? AUD_ENABLE_SDP_SPLIT : 0);
 }
 
 bool intel_audio_compute_config(struct intel_encoder *encoder,
@@ -889,12 +892,10 @@ static const struct intel_audio_funcs hsw_audio_funcs = {
  */
 void intel_audio_hooks_init(struct intel_display *display)
 {
-	struct drm_i915_private *i915 = to_i915(display->drm);
-
 	if (display->platform.g4x)
 		display->funcs.audio = &g4x_audio_funcs;
 	else if (display->platform.valleyview || display->platform.cherryview ||
-		 HAS_PCH_CPT(i915) || HAS_PCH_IBX(i915))
+		 HAS_PCH_CPT(display) || HAS_PCH_IBX(display))
 		display->funcs.audio = &ibx_audio_funcs;
 	else if (display->platform.haswell || DISPLAY_VER(display) >= 8)
 		display->funcs.audio = &hsw_audio_funcs;
@@ -948,7 +949,7 @@ static int glk_force_audio_cdclk_commit(struct intel_atomic_state *state,
 	if (IS_ERR(cdclk_state))
 		return PTR_ERR(cdclk_state);
 
-	cdclk_state->force_min_cdclk = enable ? 2 * 96000 : 0;
+	intel_cdclk_force_min_cdclk(cdclk_state, enable ? 2 * 96000 : 0);
 
 	return drm_atomic_commit(&state->base);
 }
@@ -1039,10 +1040,10 @@ int intel_audio_min_cdclk(const struct intel_crtc_state *crtc_state)
 static unsigned long intel_audio_component_get_power(struct device *kdev)
 {
 	struct intel_display *display = to_intel_display(kdev);
-	intel_wakeref_t wakeref;
+	struct ref_tracker *wakeref;
 
 	/* Catch potential impedance mismatches before they occur! */
-	BUILD_BUG_ON(sizeof(intel_wakeref_t) > sizeof(unsigned long));
+	BUILD_BUG_ON(sizeof(wakeref) > sizeof(unsigned long));
 
 	wakeref = intel_display_power_get(display, POWER_DOMAIN_AUDIO_PLAYBACK);
 
@@ -1071,7 +1072,7 @@ static void intel_audio_component_put_power(struct device *kdev,
 					    unsigned long cookie)
 {
 	struct intel_display *display = to_intel_display(kdev);
-	intel_wakeref_t wakeref = (intel_wakeref_t)cookie;
+	struct ref_tracker *wakeref = (struct ref_tracker *)cookie;
 
 	/* Stop forcing CDCLK to 2*BCLK if no need for audio to be powered. */
 	if (--display->audio.power_refcount == 0)
