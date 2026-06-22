@@ -477,10 +477,6 @@
 	};
 };
 
-&uart0 {
-	status = "okay";
-};
-
 &uart8 {
 	status = "okay";
 
@@ -523,7 +519,7 @@
 	vdd-1.3-rfa-supply = <&vreg_pmu_rf>;
 	vdd-3.3-ch0-supply = <&vreg_pmu_ch0>;
 	qcom,calibration-variant = "Shikra_EVK";
-	firmware-name = "cq2390";
+	firmware-name = "shikra";
 
 	status = "okay";
 };
