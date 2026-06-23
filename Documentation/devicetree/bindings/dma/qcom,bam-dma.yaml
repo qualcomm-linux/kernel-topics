@@ -79,6 +79,17 @@ properties:
       Indicates that the bam is powered up by a remote processor but must be
       initialized by the local processor.
 
+  qcom,vmid:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Destination VMID for SCM assignment of per-channel descriptor FIFOs.
+      When the BAM is powered by a remote processor that enforces XPU access
+      control, the BAM hardware reads descriptor FIFOs as an AXI master under
+      the remote execution environment. Without an SCM memory assignment
+      granting the remote VMID read access, the first descriptor enqueue
+      triggers an XPU violation. This property is optional; platforms without
+      XPU enforcement omit it.
+
   reg:
     maxItems: 1
 

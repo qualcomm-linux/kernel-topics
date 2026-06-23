@@ -60,6 +60,15 @@ properties:
       - const: tx
       - const: rx
 
+  qcom,vmid:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      VMID of the remote processor that performs DMA into RX data buffers.
+      When present, the driver allocates a single contiguous coherent RX
+      buffer block and SCM-assigns it to both HLOS and the remote VMID,
+      preventing XPU violations on inbound DMA transfers. This property is
+      optional; platforms without XPU enforcement omit it.
+
 required:
   - compatible
   - interrupts
