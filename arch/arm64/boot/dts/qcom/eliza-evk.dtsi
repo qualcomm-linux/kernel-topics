@@ -253,6 +253,35 @@
 	status = "okay";
 };
 
+&pcie0 {
+	wake-gpios = <&tlmm 114 GPIO_ACTIVE_HIGH>;
+	perst-gpios = <&tlmm 78 GPIO_ACTIVE_LOW>;
+
+	status = "okay";
+};
+
+&pcie0_phy {
+	vdda-phy-supply = <&vreg_l1k>;
+	vdda-pll-supply = <&vreg_l3k>;
+
+	status = "okay";
+};
+
+&pcie1 {
+	wake-gpios = <&tlmm 53 GPIO_ACTIVE_HIGH>;
+	perst-gpios = <&tlmm 54 GPIO_ACTIVE_LOW>;
+
+	status = "okay";
+};
+
+&pcie1_phy {
+	vdda-phy-supply = <&vreg_l1k>;
+	vdda-pll-supply = <&vreg_l3k>;
+	vdda-qref-supply = <&vreg_l1k>;
+
+	status = "okay";
+};
+
 &pm7550ba_eusb2_repeater {
 	vdd18-supply = <&vreg_l7b>;
 	vdd3-supply = <&vreg_l17b>;
