@@ -42,6 +42,9 @@
 
 		dmas = <&bam_dmux_dma 4>, <&bam_dmux_dma 5>;
 		dma-names = "tx", "rx";
+
+		/* NAV VMID required for mDSP DMA access on Shikra */
+		qcom,vmid = <QCOM_SCM_VMID_NAV>;
 	};
 
 	clocks {
@@ -3207,6 +3210,9 @@
 			num-channels = <6>;
 			qcom,num-ees = <1>;
 			qcom,powered-remotely;
+
+			/* NAV VMID: SCM-assign descriptor FIFOs for mDSP BAM access */
+			qcom,vmid = <QCOM_SCM_VMID_NAV>;
 		};
 
 		remoteproc_mpss: remoteproc@6080000 {
