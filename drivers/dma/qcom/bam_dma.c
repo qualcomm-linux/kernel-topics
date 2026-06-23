@@ -622,13 +622,21 @@ static void bam_free_chan(struct dma_chan *chan)
 		    bchan->fifo_phys);
 	bchan->fifo_virt = NULL;
 
-	/* mask irq for pipe/channel */
-	val = readl_relaxed(bam_addr(bdev, 0, BAM_IRQ_SRCS_MSK_EE));
-	val &= ~BIT(bchan->id);
-	writel_relaxed(val, bam_addr(bdev, 0, BAM_IRQ_SRCS_MSK_EE));
+	/*
+	 * When the BAM is powered remotely (e.g. by the modem), the remote
+	 * side may have already removed power by the time the channel is
+	 * released. Skip pipe IRQ register accesses to avoid synchronous
+	 * external aborts.
+	 */
+	if (!bdev->powered_remotely) {
+		/* mask irq for pipe/channel */
+		val = readl_relaxed(bam_addr(bdev, 0, BAM_IRQ_SRCS_MSK_EE));
+		val &= ~BIT(bchan->id);
+		writel_relaxed(val, bam_addr(bdev, 0, BAM_IRQ_SRCS_MSK_EE));
 
-	/* disable irq */
-	writel_relaxed(0, bam_addr(bdev, bchan->id, BAM_P_IRQ_EN));
+		/* disable irq */
+		writel_relaxed(0, bam_addr(bdev, bchan->id, BAM_P_IRQ_EN));
+	}
 
 	if (--bdev->active_channels == 0 && bdev->powered_remotely) {
 		/* s/w reset bam */
@@ -769,7 +777,14 @@ static int bam_dma_terminate_all(struct dma_chan *chan)
 		if (!list_empty(&bchan->desc_list)) {
 			async_desc = list_first_entry(&bchan->desc_list,
 						      struct bam_async_desc, desc_node);
-			bam_chan_init_hw(bchan, async_desc->dir);
+			/*
+			 * Skip the hardware reset when the BAM is powered
+			 * remotely. The remote side may have already removed
+			 * power by the time terminate_all is called, and
+			 * writing to BAM pipe registers causes an SError.
+			 */
+			if (!bchan->bdev->powered_remotely)
+				bam_chan_init_hw(bchan, async_desc->dir);
 		}
 
 		list_for_each_entry_safe(async_desc, tmp,
