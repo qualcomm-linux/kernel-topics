@@ -1462,7 +1462,7 @@ static const struct qcom_pas_data shikra_cdsp_resource = {
 	.firmware_name = "cdsp.mbn",
 	.pas_id = 18,
 	.minidump_id = 7,
-	.auto_boot = false,
+	.auto_boot = true,
 	.proxy_pd_names = (char *[]){
 		"cx",
 		NULL
