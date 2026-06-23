@@ -721,7 +721,7 @@
 				     <GIC_SPI 599 IRQ_TYPE_LEVEL_HIGH>;
 
 			dma-channels = <12>;
-			dma-channel-mask = <0x3f>;
+			dma-channel-mask = <0x1e>;
 			#dma-cells = <3>;
 
 			iommus = <&apps_smmu 0x436 0>;
@@ -1247,7 +1247,7 @@
 				     <GIC_SPI 298 IRQ_TYPE_LEVEL_HIGH>;
 
 			dma-channels = <12>;
-			dma-channel-mask = <0x3f>;
+			dma-channel-mask = <0x1e>;
 			#dma-cells = <3>;
 
 			iommus = <&apps_smmu 0xb6 0x0>;
