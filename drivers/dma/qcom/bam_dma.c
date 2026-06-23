@@ -42,6 +42,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
+#include <linux/firmware/qcom/qcom_scm.h>
 
 #include "../dmaengine.h"
 #include "../virt-dma.h"
@@ -390,6 +391,7 @@ struct bam_device {
 	u32 ee;
 	bool controlled_remotely;
 	bool powered_remotely;
+	u32 vmid; /* destination VMID for SCM assignment of desc FIFOs, 0 = disabled */
 	u32 active_channels;
 
 	const struct reg_offset_data *layout;
@@ -551,6 +553,35 @@ static int bam_alloc_chan(struct dma_chan *chan)
 	if (!bchan->fifo_virt) {
 		dev_err(bdev->dev, "Failed to allocate desc fifo\n");
 		return -ENOMEM;
+	}
+
+	/*
+	 * On platforms where the BAM is powered remotely and the remote
+	 * processor enforces XPU access control (e.g. Shikra/NAV), the
+	 * descriptor FIFO must be SCM-assigned to the remote VMID. The BAM
+	 * hardware reads the FIFO as an AXI master under the remote EE, so
+	 * without this grant it triggers an XPU violation as soon as the
+	 * first descriptor is enqueued. Assignment is done once per channel
+	 * allocation — TZ does not revoke it on remote-processor crash.
+	 */
+	if (bdev->vmid) {
+		struct qcom_scm_vmperm dst[2] = {
+			{ QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RW },
+			{ bdev->vmid,         QCOM_SCM_PERM_RW },
+		};
+		u64 src = BIT_ULL(QCOM_SCM_VMID_HLOS);
+		int scm_ret;
+
+		scm_ret = qcom_scm_assign_mem(bchan->fifo_phys, BAM_DESC_FIFO_SIZE,
+					      &src, dst, ARRAY_SIZE(dst));
+		if (scm_ret) {
+			dev_err(bdev->dev, "SCM assign fifo chan %u failed: %d\n",
+				bchan->id, scm_ret);
+			dma_free_wc(bdev->dev, BAM_DESC_FIFO_SIZE,
+				    bchan->fifo_virt, bchan->fifo_phys);
+			bchan->fifo_virt = NULL;
+			return scm_ret;
+		}
 	}
 
 	if (bdev->active_channels++ == 0 && bdev->powered_remotely)
@@ -1251,6 +1282,9 @@ static int bam_dma_probe(struct platform_device *pdev)
 						"qcom,controlled-remotely");
 	bdev->powered_remotely = of_property_read_bool(pdev->dev.of_node,
 						"qcom,powered-remotely");
+
+	/* Optional: VMID for SCM-assigning descriptor FIFOs to the remote processor */
+	of_property_read_u32(pdev->dev.of_node, "qcom,vmid", &bdev->vmid);
 
 	if (bdev->controlled_remotely || bdev->powered_remotely)
 		bdev->bamclk = devm_clk_get_optional(bdev->dev, "bam_clk");
