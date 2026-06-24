@@ -5772,12 +5772,12 @@
 			};
 		};
 
-		tn@111b8000 {
-			compatible = "qcom,coresight-tnoc", "arm,primecell";
+		itnoc@111b8000 {
+			compatible = "qcom,coresight-itnoc";
 			reg = <0x0 0x111b8000 0x0 0x4200>;
 
 			clocks = <&aoss_qmp>;
-			clock-names = "apb_pclk";
+			clock-names = "apb";
 
 			in-ports {
 				#address-cells = <1>;
