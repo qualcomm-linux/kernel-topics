@@ -1085,6 +1085,7 @@ int usb_register_driver(struct usb_driver *new_driver, struct module *owner,
 
 	pr_info("%s: registered new interface driver %s , test_change \n",
 			usbcore_name, new_driver->name);
+	printk("----------> %s qc-123 \n", __func__);
 
 	return 0;
 
