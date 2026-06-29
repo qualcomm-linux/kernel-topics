@@ -163,6 +163,18 @@ static void drm_bridge_connector_handle_hpd(struct drm_bridge_connector *drm_bri
 	struct drm_connector *connector = &drm_bridge_connector->base;
 	struct drm_device *dev = connector->dev;
 
+	/*
+	 * IRQ-only notification: extra_status carries the event but
+	 * status is unknown — do not overwrite connector->status.
+	 */
+	if (status == connector_status_unknown &&
+	    extra_status != DRM_CONNECTOR_NO_EXTRA_STATUS) {
+		drm_bridge_connector_hpd_notify(connector,
+						connector->status,
+						extra_status, NULL);
+		return;
+	}
+
 	mutex_lock(&dev->mode_config.mutex);
 	connector->status = status;
 	mutex_unlock(&dev->mode_config.mutex);
