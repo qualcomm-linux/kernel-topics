@@ -8,7 +8,6 @@
 #include "shikra-iqs-som.dtsi"
 #include "shikra-evk.dtsi"
 #include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/net/ti-dp83867.h>
 
 / {
@@ -26,31 +25,6 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-	};
-
-	hdmi-connector {
-		compatible = "hdmi-connector";
-		type = "a";
-
-		port {
-			hdmi_con: endpoint {
-				remote-endpoint = <&lt9611_out>;
-			};
-		};
-	};
-
-	regulators {
-		lcd_bias: regulator-lcd-bias {
-			compatible = "regulator-fixed";
-			regulator-name = "lcd_bias";
-			regulator-min-microvolt = <3300000>;
-			regulator-max-microvolt = <3300000>;
-			vin-supply = <&pm8150_l17>;
-			gpio = <&pm8150_gpios 4 GPIO_ACTIVE_HIGH>;
-			enable-active-high;
-			pinctrl-0 = <&lcd_bias_en>;
-			pinctrl-names = "default";
-		};
 	};
 
 	sound {
@@ -386,62 +360,6 @@
 	};
 };
 
-&i2c4 {
-	status = "okay";
-
-	lt9611uxd: lt,lt9611uxd@41 {
-		compatible = "lontium,lt9611uxd";
-		reg = <0x41>;
-		interrupts-extended = <&tlmm 85 IRQ_TYPE_EDGE_RISING>;
-		reset-gpios = <&tlmm 76 GPIO_ACTIVE_HIGH>;
-		hdmi-gpios = <&pm8150_gpios 4 GPIO_ACTIVE_HIGH>;
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&lt9611_irq_pin &lt9611_rst_pin>;
-
-                ports {
-                        #address-cells = <1>;
-                        #size-cells = <0>;
-
-                        port@0 {
-                                reg = <0>;
-
-                                lt9611_a: endpoint {
-                                        remote-endpoint = <&mdss_dsi0_out>;
-                                };
-                        };
-
-                        port@2 {
-                                reg = <2>;
-
-                                lt9611_out: endpoint {
-                                        remote-endpoint = <&hdmi_con>;
-                                };
-                        };
-
-                };
-
-	};
-};
-
-&mdss {
-	status = "okay";
-};
-
-&mdss_dsi0 {
-	vdda-supply = <&pm8150_l11>;
-	status = "okay";
-};
-
-&mdss_dsi0_out {
-	remote-endpoint = <&lt9611_a>;
-	data-lanes = <0 1 2 3>;
-};
-
-&mdss_dsi0_phy {
-	status = "okay";
-};
-
 &pcie {
 	wake-gpios = <&tlmm 119 GPIO_ACTIVE_LOW>;
 
@@ -547,15 +465,6 @@
 				ranges;
 			};
 		};
-	};
-};
-
-&pm8150_gpios {
-	lcd_bias_en: lcd-bias-en-state {
-		pins = "gpio4";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
 	};
 };
 
@@ -750,22 +659,6 @@
 		function = "i2s0";
 		drive-strength = <8>;
 		bias-disable;
-	};
-
-	lt9611_irq_pin: lt9611-irq-state {
-		pins = "gpio85";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;   /* push-pull output: chip drives both HIGH and LOW */
-		input-enable;
-	};
-
-	lt9611_rst_pin: lt9611-rst-state {
-		pins = "gpio76";
-		function = "gpio";
-		drive-strength = <8>;
-		output-high;
-		input-disable;
 	};
 
 	max98091_default: max98091-default-state {
