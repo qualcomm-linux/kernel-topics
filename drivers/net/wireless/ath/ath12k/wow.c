@@ -867,6 +867,14 @@ int ath12k_wow_op_suspend(struct ieee80211_hw *hw,
 
 	lockdep_assert_wiphy(hw->wiphy);
 
+	/* Without an active vif there is no BSS, channel, or vdev to back
+	 * WoW. Letting WMI_WOW_ENABLE_CMDID reach firmware in this state
+	 * leaves it in an undefined mode and breaks MHI/PCIe on resume.
+	 * Return 1 so mac80211 falls back to a normal radio-off suspend.
+	 */
+	if (list_empty(&ar->arvifs))
+		return 1;
+
 	ret =  ath12k_wow_cleanup(ar);
 	if (ret) {
 		ath12k_warn(ar->ab, "failed to clear wow wakeup events: %d\n",
