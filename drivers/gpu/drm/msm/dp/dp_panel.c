@@ -39,6 +39,8 @@ u32 msm_dp_stream_reg(enum msm_dp_stream_id id, u32 reg)
 		return reg;
 
 	switch (reg) {
+	case REG_DP_STATE_CTRL:
+		return is_s1 ? REG_DP_STATE_CTRL : REG_DP_MSTLINK_STATE_CTRL;
 	case REG_DP_CONFIGURATION_CTRL:
 		return is_s1 ? REG_DP1_CONFIGURATION_CTRL : REG_DP_MSTLINK_CONFIGURATION_CTRL;
 	case REG_DP_SOFTWARE_MVID:
