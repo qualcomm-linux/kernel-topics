@@ -352,8 +352,10 @@ static int msm_dp_display_process_hpd_high(struct msm_dp_display_private *dp)
 	if (dp->max_stream > 1 && drm_dp_read_mst_cap(dp->aux, dp->panel->dpcd))
 		msm_dp_display_mst_init(dp);
 
-	if (dp->msm_dp_display.mst_active)
+	if (dp->msm_dp_display.mst_active) {
+		connector->status = connector_status_disconnected;
 		msm_dp_mst_display_set_mgr_state(&dp->msm_dp_display, true);
+	}
 
 	msm_dp_link_reset_phy_params_vx_px(dp->link);
 
