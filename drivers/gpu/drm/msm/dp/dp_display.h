@@ -63,4 +63,6 @@ void msm_dp_display_unprepare(struct msm_dp *dp);
 
 struct msm_dp_panel *msm_dp_display_get_panel(struct msm_dp *msm_dp_display,
 					      enum msm_dp_stream_id stream_id);
+void msm_dp_display_set_link_info(struct msm_dp *msm_dp_display,
+				  struct msm_dp_link_info *dst);
 #endif /* _DP_DISPLAY_H_ */
