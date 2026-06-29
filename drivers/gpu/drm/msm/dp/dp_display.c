@@ -87,6 +87,8 @@ struct msm_dp_display_private {
 
 	void __iomem *p0_base;
 	size_t p0_len;
+
+	int max_stream;
 };
 
 struct msm_dp_desc {
@@ -578,6 +580,7 @@ static int msm_dp_init_sub_modules(struct msm_dp_display_private *dp)
 		dp->ctrl = NULL;
 		goto error_link;
 	}
+	dp->max_stream = msm_dp_ctrl_get_stream_cnt(dp->ctrl);
 
 	dp->audio = msm_dp_audio_get(dp->msm_dp_display.pdev, dp->link_base);
 	if (IS_ERR(dp->audio)) {
@@ -1176,6 +1179,15 @@ static int msm_dp_display_get_io(struct msm_dp_display_private *display)
 	}
 
 	return 0;
+}
+
+int msm_dp_get_mst_max_stream(struct msm_dp *msm_dp_display)
+{
+	struct msm_dp_display_private *dp;
+
+	dp = container_of(msm_dp_display, struct msm_dp_display_private, msm_dp_display);
+
+	return dp->max_stream;
 }
 
 static int msm_dp_display_probe(struct platform_device *pdev)
