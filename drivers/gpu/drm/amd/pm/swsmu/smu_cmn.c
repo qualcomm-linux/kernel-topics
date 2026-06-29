@@ -272,11 +272,15 @@ static void __smu_msg_v1_send(struct smu_msg_ctl *ctl, u16 index,
 {
 	struct amdgpu_device *adev = ctl->smu->adev;
 	struct smu_msg_config *cfg = &ctl->config;
+	u32 arg;
 	int i;
 
 	WREG32(cfg->resp_reg, 0);
-	for (i = 0; i < args->num_args; i++)
-		WREG32(cfg->arg_regs[i], args->args[i]);
+	for (i = 0; i < cfg->num_arg_regs; i++) {
+		/* NOTE: Clear unused argument registers to avoid stale values. */
+		arg = i < args->num_args ? args->args[i] : 0;
+		WREG32(cfg->arg_regs[i], arg);
+	}
 	WREG32(cfg->msg_reg, index);
 }
 
@@ -1370,7 +1374,7 @@ int smu_cmn_print_dpm_clk_levels(struct smu_context *smu,
 		level_index = 1;
 	}
 
-	if (!is_fine_grained) {
+	if (!is_fine_grained || count == 1) {
 		for (i = 0; i < count; i++) {
 			freq_match = !is_deep_sleep &&
 				     smu_cmn_freqs_match(

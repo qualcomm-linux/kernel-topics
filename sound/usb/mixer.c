@@ -1190,6 +1190,16 @@ static void volume_control_quirks(struct usb_mixer_elem_info *cval,
 			cval->res = 1;
 		}
 		break;
+
+	case USB_ID(0x0e6f, 0x024a): /* PDP Riffmaster for PS4 */
+	case USB_ID(0x0e6f, 0x0249): /* PDP Riffmaster for PS5 */
+		if (!strcmp(kctl->id.name, "PCM Playback Volume")) {
+			usb_audio_info(chip,
+				"set volume quirk for PDP Riffmaster for PS4/PS5\n");
+			cval->min = -2560; /* Mute under it */
+		}
+		break;
+
 	case USB_ID(0x3302, 0x12db): /* MOONDROP Quark2 */
 		if (!strcmp(kctl->id.name, "PCM Playback Volume")) {
 			usb_audio_info(chip,
@@ -1361,10 +1371,8 @@ static int get_min_max_with_quirks(struct usb_mixer_elem_info *cval,
 				goto no_checks;
 
 			ret = check_sticky_volume_control(cval, minchn, saved);
-			if (ret < 0) {
-				snd_usb_set_cur_mix_value(cval, minchn, 0, saved);
-				return ret;
-			}
+			if (ret < 0)
+				goto sticky;
 
 			if (cval->min + cval->res < cval->max)
 				check_volume_control_res(cval, minchn, saved);
@@ -1421,6 +1429,33 @@ no_checks:
 	}
 
 	return 0;
+
+sticky:
+	/*
+	 * It makes no sense to restore the saved value for a sticky mixer,
+	 * since setting any value is a no-op.
+	 *
+	 * However, in some rare cases, SET_CUR is effective despite GET_CUR
+	 * always returns a constant value. These mixers are not sticky, but
+	 * there's no way to distinguish them. Without any additional
+	 * information, the best thing we can do is to set the mixer value to
+	 * the maximum before bailing out, so that a soft mixer can still reach
+	 * the maximum hardware volume if the mixer turns out to be non-sticky.
+	 * Meanwhile, all channels must be synchronized to prevent imbalance
+	 * volume.
+	 */
+	if (!cval->cmask) {
+		snd_usb_set_cur_mix_value(cval, 0, 0, cval->max);
+	} else {
+		for (i = 0; i < MAX_CHANNELS; i++) {
+			idx = 0;
+			if (cval->cmask & BIT(i)) {
+				snd_usb_set_cur_mix_value(cval, i + 1, idx, cval->max);
+				idx++;
+			}
+		}
+	}
+	return ret;
 }
 
 #define get_min_max(cval, def)	get_min_max_with_quirks(cval, def, NULL)
