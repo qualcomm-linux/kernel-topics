@@ -94,7 +94,7 @@ get_supported_features(struct cxl_features_state *cxlfs)
 		return NULL;
 
 	struct cxl_feat_entries *entries __free(kvfree) =
-		kvmalloc(struct_size(entries, ent, count), GFP_KERNEL);
+		kvmalloc_flex(*entries, ent, count);
 	if (!entries)
 		return NULL;
 
@@ -204,7 +204,7 @@ int devm_cxl_setup_features(struct cxl_dev_state *cxlds)
 		return -ENODEV;
 
 	struct cxl_features_state *cxlfs __free(kfree) =
-		kzalloc(sizeof(*cxlfs), GFP_KERNEL);
+		kzalloc_obj(*cxlfs);
 	if (!cxlfs)
 		return -ENOMEM;
 
@@ -423,6 +423,7 @@ static void *cxlctl_get_supported_features(struct cxl_features_state *cxlfs,
 
 	rpc_out->size = struct_size(feat_out, ents, requested);
 	feat_out = &rpc_out->get_sup_feats_out;
+	feat_out->num_entries = cpu_to_le16(requested);
 
 	for (i = start, pos = &feat_out->ents[0];
 	     i < cxlfs->entries->num_features; i++, pos++) {
@@ -444,7 +445,6 @@ static void *cxlctl_get_supported_features(struct cxl_features_state *cxlfs,
 		}
 	}
 
-	feat_out->num_entries = cpu_to_le16(requested);
 	feat_out->supported_feats = cpu_to_le16(cxlfs->entries->num_features);
 	rpc_out->retval = CXL_MBOX_CMD_RC_SUCCESS;
 	*out_len = out_size;

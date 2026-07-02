@@ -444,6 +444,22 @@ static u64 notrace read_hv_clock_tsc_cs(struct clocksource *arg)
 	return read_hv_clock_tsc();
 }
 
+static u64 notrace read_hv_clock_tsc_cs_snapshot(struct clocksource *arg,
+						  struct clocksource_hw_snapshot *chs)
+{
+	u64 time;
+
+	if (hv_read_tsc_page_tsc(tsc_page, &chs->hw_cycles, &time)) {
+		chs->hw_csid = CSID_X86_TSC;
+	} else {
+		chs->hw_cycles = 0;
+		chs->hw_csid = CSID_GENERIC;
+		time = read_hv_clock_msr();
+	}
+
+	return time;
+}
+
 static u64 noinstr read_hv_sched_clock_tsc(void)
 {
 	return (read_hv_clock_tsc() - hv_sched_clock_offset) *
@@ -492,18 +508,19 @@ static int hv_cs_enable(struct clocksource *cs)
 #endif
 
 static struct clocksource hyperv_cs_tsc = {
-	.name	= "hyperv_clocksource_tsc_page",
-	.rating	= 500,
-	.read	= read_hv_clock_tsc_cs,
-	.mask	= CLOCKSOURCE_MASK(64),
-	.flags	= CLOCK_SOURCE_IS_CONTINUOUS,
-	.suspend= suspend_hv_clock_tsc,
-	.resume	= resume_hv_clock_tsc,
+	.name			= "hyperv_clocksource_tsc_page",
+	.rating			= 500,
+	.read			= read_hv_clock_tsc_cs,
+	.read_snapshot		= read_hv_clock_tsc_cs_snapshot,
+	.mask			= CLOCKSOURCE_MASK(64),
+	.flags			= CLOCK_SOURCE_IS_CONTINUOUS,
+	.suspend		= suspend_hv_clock_tsc,
+	.resume			= resume_hv_clock_tsc,
 #ifdef HAVE_VDSO_CLOCKMODE_HVCLOCK
-	.enable = hv_cs_enable,
-	.vdso_clock_mode = VDSO_CLOCKMODE_HVCLOCK,
+	.enable			= hv_cs_enable,
+	.vdso_clock_mode	= VDSO_CLOCKMODE_HVCLOCK,
 #else
-	.vdso_clock_mode = VDSO_CLOCKMODE_NONE,
+	.vdso_clock_mode	= VDSO_CLOCKMODE_NONE,
 #endif
 };
 
@@ -535,6 +552,8 @@ static __always_inline void hv_setup_sched_clock(void *sched_clock)
 	sched_clock_register(sched_clock, 64, NSEC_PER_SEC);
 }
 #elif defined CONFIG_PARAVIRT
+#include <asm/timer.h>
+
 static __always_inline void hv_setup_sched_clock(void *sched_clock)
 {
 	/* We're on x86/x64 *and* using PV ops */

@@ -12,10 +12,12 @@ from dataclasses import dataclass
 from enum import Enum
 
 from lib.py import ksft_run, ksft_exit, ksft_eq, ksft_ge, ksft_ne, ksft_pr
-from lib.py import KsftFailEx, NetDrvEpEnv
+from lib.py import KsftNamedVariant, ksft_variants
+from lib.py import KsftFailEx, KsftSkipEx, NetDrvEpEnv
 from lib.py import EthtoolFamily, NetdevFamily, NlError
 from lib.py import bkg, cmd, rand_port, wait_port_listen
-from lib.py import ip, bpftool, defer
+from lib.py import ip, defer
+from lib.py import bpf_map_set, bpf_map_dump, bpf_prog_map_ids
 
 
 class TestConfig(Enum):
@@ -68,7 +70,7 @@ def _exchg_udp(cfg, port, test_string):
     cfg.require_cmd("socat", remote=True)
 
     rx_udp_cmd = f"socat -{cfg.addr_ipver} -T 2 -u UDP-RECV:{port},reuseport STDOUT"
-    tx_udp_cmd = f"echo -n {test_string} | socat -t 2 -u STDIN UDP:{cfg.baddr}:{port}"
+    tx_udp_cmd = f"echo -n {test_string} | socat -t 2 -u STDIN UDP:{cfg.baddr}:{port},shut-none"
 
     with bkg(rx_udp_cmd, exit_wait=True) as nc:
         wait_port_listen(port, proto="udp")
@@ -121,45 +123,9 @@ def _load_xdp_prog(cfg, bpf_info):
     xdp_info = ip(f"-d link show dev {cfg.ifname}", json=True)[0]
     prog_info["id"] = xdp_info["xdp"]["prog"]["id"]
     prog_info["name"] = xdp_info["xdp"]["prog"]["name"]
-    prog_id = prog_info["id"]
-
-    map_ids = bpftool(f"prog show id {prog_id}", json=True)["map_ids"]
-    prog_info["maps"] = {}
-    for map_id in map_ids:
-        name = bpftool(f"map show id {map_id}", json=True)["name"]
-        prog_info["maps"][name] = map_id
+    prog_info["maps"] = bpf_prog_map_ids(prog_info["id"])
 
     return prog_info
-
-
-def format_hex_bytes(value):
-    """
-    Helper function that converts an integer into a formatted hexadecimal byte string.
-
-    Args:
-        value: An integer representing the number to be converted.
-
-    Returns:
-        A string representing hexadecimal equivalent of value, with bytes separated by spaces.
-    """
-    hex_str = value.to_bytes(4, byteorder='little', signed=True)
-    return ' '.join(f'{byte:02x}' for byte in hex_str)
-
-
-def _set_xdp_map(map_name, key, value):
-    """
-    Updates an XDP map with a given key-value pair using bpftool.
-
-    Args:
-        map_name: The name of the XDP map to update.
-        key: The key to update in the map, formatted as a hexadecimal string.
-        value: The value to associate with the key, formatted as a hexadecimal string.
-    """
-    key_formatted = format_hex_bytes(key)
-    value_formatted = format_hex_bytes(value)
-    bpftool(
-        f"map update name {map_name} key hex {key_formatted} value hex {value_formatted}"
-    )
 
 
 def _get_stats(xdp_map_id):
@@ -176,25 +142,11 @@ def _get_stats(xdp_map_id):
     Raises:
         KsftFailEx: If the stats retrieval fails.
     """
-    stats_dump = bpftool(f"map dump id {xdp_map_id}", json=True)
-    if not stats_dump:
+    stats = bpf_map_dump(xdp_map_id)
+    if not stats:
         raise KsftFailEx(f"Failed to get stats for map {xdp_map_id}")
 
-    stats_formatted = {}
-    for key in range(0, 5):
-        val = stats_dump[key]["formatted"]["value"]
-        if stats_dump[key]["formatted"]["key"] == XDPStats.RX.value:
-            stats_formatted[XDPStats.RX.value] = val
-        elif stats_dump[key]["formatted"]["key"] == XDPStats.PASS.value:
-            stats_formatted[XDPStats.PASS.value] = val
-        elif stats_dump[key]["formatted"]["key"] == XDPStats.DROP.value:
-            stats_formatted[XDPStats.DROP.value] = val
-        elif stats_dump[key]["formatted"]["key"] == XDPStats.TX.value:
-            stats_formatted[XDPStats.TX.value] = val
-        elif stats_dump[key]["formatted"]["key"] == XDPStats.ABORT.value:
-            stats_formatted[XDPStats.ABORT.value] = val
-
-    return stats_formatted
+    return stats
 
 
 def _test_pass(cfg, bpf_info, msg_sz):
@@ -210,8 +162,8 @@ def _test_pass(cfg, bpf_info, msg_sz):
     prog_info = _load_xdp_prog(cfg, bpf_info)
     port = rand_port()
 
-    _set_xdp_map("map_xdp_setup", TestConfig.MODE.value, XDPAction.PASS.value)
-    _set_xdp_map("map_xdp_setup", TestConfig.PORT.value, port)
+    bpf_map_set("map_xdp_setup", TestConfig.MODE.value, XDPAction.PASS.value)
+    bpf_map_set("map_xdp_setup", TestConfig.PORT.value, port)
 
     ksft_eq(_test_udp(cfg, port, msg_sz), True, "UDP packet exchange failed")
     stats = _get_stats(prog_info["maps"]["map_xdp_stats"])
@@ -257,8 +209,8 @@ def _test_drop(cfg, bpf_info, msg_sz):
     prog_info = _load_xdp_prog(cfg, bpf_info)
     port = rand_port()
 
-    _set_xdp_map("map_xdp_setup", TestConfig.MODE.value, XDPAction.DROP.value)
-    _set_xdp_map("map_xdp_setup", TestConfig.PORT.value, port)
+    bpf_map_set("map_xdp_setup", TestConfig.MODE.value, XDPAction.DROP.value)
+    bpf_map_set("map_xdp_setup", TestConfig.PORT.value, port)
 
     ksft_eq(_test_udp(cfg, port, msg_sz), False, "UDP packet exchange should fail")
     stats = _get_stats(prog_info["maps"]["map_xdp_stats"])
@@ -304,8 +256,8 @@ def _test_xdp_native_tx(cfg, bpf_info, payload_lens):
     prog_info = _load_xdp_prog(cfg, bpf_info)
     port = rand_port()
 
-    _set_xdp_map("map_xdp_setup", TestConfig.MODE.value, XDPAction.TX.value)
-    _set_xdp_map("map_xdp_setup", TestConfig.PORT.value, port)
+    bpf_map_set("map_xdp_setup", TestConfig.MODE.value, XDPAction.TX.value)
+    bpf_map_set("map_xdp_setup", TestConfig.PORT.value, port)
 
     expected_pkts = 0
     for payload_len in payload_lens:
@@ -319,7 +271,7 @@ def _test_xdp_native_tx(cfg, bpf_info, payload_lens):
         # Writing zero bytes to stdin gets ignored by socat,
         # but with the shut-null flag socat generates a zero sized packet
         # when the socket is closed.
-        tx_cmd_suffix = ",shut-null" if payload_len == 0 else ""
+        tx_cmd_suffix = ",shut-null" if payload_len == 0 else ",shut-none"
         tx_udp = f"echo -n {test_string} | socat -t 2 " + \
                  f"-u STDIN UDP:{cfg.baddr}:{port}{tx_cmd_suffix}"
 
@@ -453,15 +405,15 @@ def _test_xdp_native_tail_adjst(cfg, pkt_sz_lst, offset_lst):
     prog_info = _load_xdp_prog(cfg, bpf_info)
 
     # Configure the XDP map for tail adjustment
-    _set_xdp_map("map_xdp_setup", TestConfig.MODE.value, XDPAction.TAIL_ADJST.value)
-    _set_xdp_map("map_xdp_setup", TestConfig.PORT.value, port)
+    bpf_map_set("map_xdp_setup", TestConfig.MODE.value, XDPAction.TAIL_ADJST.value)
+    bpf_map_set("map_xdp_setup", TestConfig.PORT.value, port)
 
     for offset in offset_lst:
         tag = format(random.randint(65, 90), "02x")
 
-        _set_xdp_map("map_xdp_setup", TestConfig.ADJST_OFFSET.value, offset)
+        bpf_map_set("map_xdp_setup", TestConfig.ADJST_OFFSET.value, offset)
         if offset > 0:
-            _set_xdp_map("map_xdp_setup", TestConfig.ADJST_TAG.value, int(tag, 16))
+            bpf_map_set("map_xdp_setup", TestConfig.ADJST_TAG.value, int(tag, 16))
 
         for pkt_sz in pkt_sz_lst:
             test_str = "".join(random.choice(string.ascii_lowercase) for _ in range(pkt_sz))
@@ -573,8 +525,8 @@ def _test_xdp_native_head_adjst(cfg, prog, pkt_sz_lst, offset_lst):
     prog_info = _load_xdp_prog(cfg, BPFProgInfo(prog, "xdp_native.bpf.o", "xdp.frags", 9000))
     port = rand_port()
 
-    _set_xdp_map("map_xdp_setup", TestConfig.MODE.value, XDPAction.HEAD_ADJST.value)
-    _set_xdp_map("map_xdp_setup", TestConfig.PORT.value, port)
+    bpf_map_set("map_xdp_setup", TestConfig.MODE.value, XDPAction.HEAD_ADJST.value)
+    bpf_map_set("map_xdp_setup", TestConfig.PORT.value, port)
 
     hds_thresh = get_hds_thresh(cfg)
     for offset in offset_lst:
@@ -594,11 +546,8 @@ def _test_xdp_native_head_adjst(cfg, prog, pkt_sz_lst, offset_lst):
             test_str = ''.join(random.choice(string.ascii_lowercase) for _ in range(pkt_sz))
             tag = format(random.randint(65, 90), '02x')
 
-            _set_xdp_map("map_xdp_setup",
-                     TestConfig.ADJST_OFFSET.value,
-                     offset)
-            _set_xdp_map("map_xdp_setup", TestConfig.ADJST_TAG.value, int(tag, 16))
-            _set_xdp_map("map_xdp_setup", TestConfig.ADJST_OFFSET.value, offset)
+            bpf_map_set("map_xdp_setup", TestConfig.ADJST_OFFSET.value, offset)
+            bpf_map_set("map_xdp_setup", TestConfig.ADJST_TAG.value, int(tag, 16))
 
             recvd_str = _exchg_udp(cfg, port, test_str)
 
@@ -672,24 +621,38 @@ def test_xdp_native_adjst_head_shrnk_data(cfg):
     _validate_res(res, offset_lst, pkt_sz_lst)
 
 
-def _test_xdp_native_ifc_stats(cfg, act):
+@ksft_variants([
+    KsftNamedVariant("pass", XDPAction.PASS),
+    KsftNamedVariant("drop", XDPAction.DROP),
+    KsftNamedVariant("tx", XDPAction.TX),
+])
+def test_xdp_native_qstats(cfg, act):
+    """
+    Send 1000 messages. Expect XDP action specified in @act.
+    Make sure the packets were counted to interface level qstats
+    (Rx, and Tx if act is TX).
+    """
+
     cfg.require_cmd("socat")
 
     bpf_info = BPFProgInfo("xdp_prog", "xdp_native.bpf.o", "xdp", 1500)
     prog_info = _load_xdp_prog(cfg, bpf_info)
     port = rand_port()
 
-    _set_xdp_map("map_xdp_setup", TestConfig.MODE.value, act.value)
-    _set_xdp_map("map_xdp_setup", TestConfig.PORT.value, port)
+    bpf_map_set("map_xdp_setup", TestConfig.MODE.value, act.value)
+    bpf_map_set("map_xdp_setup", TestConfig.PORT.value, port)
 
     # Discard the input, but we need a listener to avoid ICMP errors
     rx_udp = f"socat -{cfg.addr_ipver} -T 2 -u UDP-RECV:{port},reuseport " + \
         "/dev/null"
     # Listener runs on "remote" in case of XDP_TX
     rx_host = cfg.remote if act == XDPAction.TX else None
-    # We want to spew 2000 packets quickly, bash seems to do a good enough job
-    tx_udp =  f"exec 5<>/dev/udp/{cfg.addr}/{port}; " \
-        "for i in `seq 2000`; do echo a >&5; done; exec 5>&-"
+    # We want to spew 1000 packets quickly, bash seems to do a good enough job
+    # Each reopening of the socket gives us a differenot local port (for RSS)
+    tx_udp = "for _ in `seq 20`; do " \
+        f"exec 5<>/dev/udp/{cfg.addr}/{port}; " \
+        "for i in `seq 50`; do echo a >&5; done; " \
+        "exec 5>&-; done"
 
     cfg.wait_hw_stats_settle()
     # Qstats have more clearly defined semantics than rtnetlink.
@@ -704,11 +667,11 @@ def _test_xdp_native_ifc_stats(cfg, act):
     cfg.wait_hw_stats_settle()
     after = cfg.netnl.qstats_get({"ifindex": cfg.ifindex}, dump=True)[0]
 
-    ksft_ge(after['rx-packets'] - before['rx-packets'], 2000)
+    expected_pkts = 1000
+    ksft_ge(after['rx-packets'] - before['rx-packets'], expected_pkts)
     if act == XDPAction.TX:
-        ksft_ge(after['tx-packets'] - before['tx-packets'], 2000)
+        ksft_ge(after['tx-packets'] - before['tx-packets'], expected_pkts)
 
-    expected_pkts = 2000
     stats = _get_stats(prog_info["maps"]["map_xdp_stats"])
     ksft_eq(stats[XDPStats.RX.value], expected_pkts, "XDP RX stats mismatch")
     if act == XDPAction.TX:
@@ -730,28 +693,32 @@ def _test_xdp_native_ifc_stats(cfg, act):
             ksft_ge(after['tx-packets'], before['tx-packets'])
 
 
-def test_xdp_native_qstats_pass(cfg):
+def test_xdp_native_update_mb_to_sb(cfg):
     """
-    Send 2000 messages, expect XDP_PASS, make sure the packets were counted
-    to interface level qstats (Rx).
+    Test multi-buf to single-buf replacement with jumbo MTU.
     """
-    _test_xdp_native_ifc_stats(cfg, XDPAction.PASS)
+    obj = cfg.net_lib_dir / "xdp_dummy.bpf.o"
+    mtu = 9000
 
+    ip(f"link set dev {cfg.ifname} mtu {mtu}")
+    defer(ip, f"link set dev {cfg.ifname} mtu {cfg.dev['mtu']} xdpdrv off")
 
-def test_xdp_native_qstats_drop(cfg):
-    """
-    Send 2000 messages, expect XDP_DROP, make sure the packets were counted
-    to interface level qstats (Rx).
-    """
-    _test_xdp_native_ifc_stats(cfg, XDPAction.DROP)
+    attach = cmd(f"ip link set dev {cfg.ifname} xdpdrv obj {obj} sec xdp", fail=False)
+    if attach.ret == 0:
+        raise KsftSkipEx(f"device supports single-buffer XDP with mtu {mtu}")
 
+    attach = cmd(f"ip link set dev {cfg.ifname} xdpdrv obj {obj} sec xdp.frags", fail=False)
+    if attach.ret != 0:
+        ksft_pr(attach)
+        raise KsftSkipEx("device does not support multi-buffer XDP")
 
-def test_xdp_native_qstats_tx(cfg):
-    """
-    Send 2000 messages, expect XDP_TX, make sure the packets were counted
-    to interface level qstats (Rx and Tx)
-    """
-    _test_xdp_native_ifc_stats(cfg, XDPAction.TX)
+    # Verify updating mb -> mb program works.
+    cmd(f"ip -force link set dev {cfg.ifname} xdpdrv obj {obj} sec xdp.frags")
+
+    # Verify updating mb -> sb program does not work.
+    update = cmd(f"ip -force link set dev {cfg.ifname} xdpdrv obj {obj} sec xdp", fail=False)
+    if update.ret == 0:
+        raise KsftFailEx("device unexpectedly updates non-multi-buffer XDP")
 
 
 def main():
@@ -778,9 +745,8 @@ def main():
                 test_xdp_native_adjst_tail_shrnk_data,
                 test_xdp_native_adjst_head_grow_data,
                 test_xdp_native_adjst_head_shrnk_data,
-                test_xdp_native_qstats_pass,
-                test_xdp_native_qstats_drop,
-                test_xdp_native_qstats_tx,
+                test_xdp_native_qstats,
+                test_xdp_native_update_mb_to_sb,
             ],
             args=(cfg,))
     ksft_exit()

@@ -754,7 +754,7 @@ static int ltr501_get_gain_index(const struct ltr501_gain *gain, int size,
 		if (val == gain[i].scale && val2 == gain[i].uscale)
 			return i;
 
-	return -1;
+	return -EINVAL;
 }
 
 static int __ltr501_write_raw(struct iio_dev *indio_dev,
@@ -773,7 +773,7 @@ static int __ltr501_write_raw(struct iio_dev *indio_dev,
 						  info->als_gain_tbl_size,
 						  val, val2);
 			if (i < 0)
-				return -EINVAL;
+				return i;
 
 			data->als_contr &= ~info->als_gain_mask;
 			data->als_contr |= i << info->als_gain_shift;
@@ -785,7 +785,7 @@ static int __ltr501_write_raw(struct iio_dev *indio_dev,
 						  info->ps_gain_tbl_size,
 						  val, val2);
 			if (i < 0)
-				return -EINVAL;
+				return i;
 
 			data->ps_contr &= ~LTR501_CONTR_PS_GAIN_MASK;
 			data->ps_contr |= i << LTR501_CONTR_PS_GAIN_SHIFT;
@@ -1601,10 +1601,10 @@ static const struct acpi_device_id ltr_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, ltr_acpi_match);
 
 static const struct i2c_device_id ltr501_id[] = {
-	{ "ltr501", ltr501 },
-	{ "ltr559", ltr559 },
-	{ "ltr301", ltr301 },
-	{ "ltr303", ltr303 },
+	{ .name = "ltr501", .driver_data = ltr501 },
+	{ .name = "ltr559", .driver_data = ltr559 },
+	{ .name = "ltr301", .driver_data = ltr301 },
+	{ .name = "ltr303", .driver_data = ltr303 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ltr501_id);

@@ -207,7 +207,6 @@ void fib_nh_common_release(struct fib_nh_common *nhc)
 	rt_fibinfo_free(&nhc->nhc_rth_input);
 	free_nh_exceptions(nhc);
 }
-EXPORT_SYMBOL_GPL(fib_nh_common_release);
 
 void fib_nh_release(struct net *net, struct fib_nh *fib_nh)
 {
@@ -365,8 +364,7 @@ static struct hlist_head *fib_info_laddrhash_bucket(const struct net *net,
 static struct hlist_head *fib_info_hash_alloc(unsigned int hash_bits)
 {
 	/* The second half is used for prefsrc */
-	return kvcalloc((1 << hash_bits) * 2, sizeof(struct hlist_head),
-			GFP_KERNEL);
+	return kvzalloc_objs(struct hlist_head, (1 << hash_bits) * 2);
 }
 
 static void fib_info_hash_free(struct hlist_head *head)
@@ -586,9 +584,8 @@ static int fib_detect_death(struct fib_info *fi, int order,
 
 	if (likely(nhc->nhc_gw_family == AF_INET))
 		n = neigh_lookup(&arp_tbl, &nhc->nhc_gw.ipv4, nhc->nhc_dev);
-	else if (nhc->nhc_gw_family == AF_INET6)
-		n = neigh_lookup(ipv6_stub->nd_tbl, &nhc->nhc_gw.ipv6,
-				 nhc->nhc_dev);
+	else if (IS_ENABLED(CONFIG_IPV6) && nhc->nhc_gw_family == AF_INET6)
+		n = neigh_lookup(&nd_tbl, &nhc->nhc_gw.ipv6, nhc->nhc_dev);
 	else
 		n = NULL;
 
@@ -641,7 +638,6 @@ lwt_failure:
 	nhc->nhc_pcpu_rth_output = NULL;
 	return err;
 }
-EXPORT_SYMBOL_GPL(fib_nh_common_init);
 
 int fib_nh_init(struct net *net, struct fib_nh *nh,
 		struct fib_config *cfg, int nh_weight,
@@ -1084,7 +1080,7 @@ static int fib_check_nh_v6_gw(struct net *net, struct fib_nh *nh,
 	struct fib6_nh fib6_nh = {};
 	int err;
 
-	err = ipv6_stub->fib6_nh_init(net, &fib6_nh, &cfg, GFP_KERNEL, extack);
+	err = fib6_nh_init(net, &fib6_nh, &cfg, GFP_KERNEL, extack);
 	if (!err) {
 		nh->fib_nh_dev = fib6_nh.fib_nh_dev;
 		netdev_hold(nh->fib_nh_dev, &nh->fib_nh_dev_tracker,
@@ -1092,7 +1088,7 @@ static int fib_check_nh_v6_gw(struct net *net, struct fib_nh *nh,
 		nh->fib_nh_oif = nh->fib_nh_dev->ifindex;
 		nh->fib_nh_scope = RT_SCOPE_LINK;
 
-		ipv6_stub->fib6_nh_release(&fib6_nh);
+		fib6_nh_release(&fib6_nh);
 	}
 
 	return err;
@@ -1399,7 +1395,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg,
 
 	fib_info_hash_grow(net);
 
-	fi = kzalloc(struct_size(fi, fib_nh, nhs), GFP_KERNEL);
+	fi = kzalloc_flex(*fi, fib_nh, nhs);
 	if (!fi) {
 		err = -ENOBUFS;
 		goto failure;
@@ -1644,7 +1640,6 @@ int fib_nexthop_info(struct sk_buff *skb, const struct fib_nh_common *nhc,
 nla_put_failure:
 	return -EMSGSIZE;
 }
-EXPORT_SYMBOL_GPL(fib_nexthop_info);
 
 #if IS_ENABLED(CONFIG_IP_ROUTE_MULTIPATH) || IS_ENABLED(CONFIG_IPV6)
 int fib_add_nexthop(struct sk_buff *skb, const struct fib_nh_common *nhc,
@@ -1677,7 +1672,6 @@ int fib_add_nexthop(struct sk_buff *skb, const struct fib_nh_common *nhc,
 nla_put_failure:
 	return -EMSGSIZE;
 }
-EXPORT_SYMBOL_GPL(fib_add_nexthop);
 #endif
 
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
@@ -2148,9 +2142,10 @@ static bool fib_good_nh(const struct fib_nh *nh)
 		if (likely(nh->fib_nh_gw_family == AF_INET))
 			n = __ipv4_neigh_lookup_noref(nh->fib_nh_dev,
 						   (__force u32)nh->fib_nh_gw4);
-		else if (nh->fib_nh_gw_family == AF_INET6)
-			n = __ipv6_neigh_lookup_noref_stub(nh->fib_nh_dev,
-							   &nh->fib_nh_gw6);
+		else if (IS_ENABLED(CONFIG_IPV6) &&
+			 nh->fib_nh_gw_family == AF_INET6)
+			n = __ipv6_neigh_lookup_noref(nh->fib_nh_dev,
+						      &nh->fib_nh_gw6);
 		else
 			n = NULL;
 		if (n)
@@ -2167,8 +2162,8 @@ void fib_select_multipath(struct fib_result *res, int hash,
 {
 	struct fib_info *fi = res->fi;
 	struct net *net = fi->fib_net;
-	bool found = false;
 	bool use_neigh;
+	int score = -1;
 	__be32 saddr;
 
 	if (unlikely(res->fi->nh)) {
@@ -2180,7 +2175,7 @@ void fib_select_multipath(struct fib_result *res, int hash,
 	saddr = fl4 ? fl4->saddr : 0;
 
 	change_nexthops(fi) {
-		int nh_upper_bound;
+		int nh_upper_bound, nh_score = 0;
 
 		/* Nexthops without a carrier are assigned an upper bound of
 		 * minus one when "ignore_routes_with_linkdown" is set.
@@ -2190,23 +2185,17 @@ void fib_select_multipath(struct fib_result *res, int hash,
 		    (use_neigh && !fib_good_nh(nexthop_nh)))
 			continue;
 
-		if (!found) {
+		if (saddr && nexthop_nh->nh_saddr == saddr)
+			nh_score += 2;
+		if (hash <= nh_upper_bound)
+			nh_score++;
+		if (score < nh_score) {
 			res->nh_sel = nhsel;
 			res->nhc = &nexthop_nh->nh_common;
-			found = !saddr || nexthop_nh->nh_saddr == saddr;
+			if (nh_score == 3 || (!saddr && nh_score == 1))
+				return;
+			score = nh_score;
 		}
-
-		if (hash > nh_upper_bound)
-			continue;
-
-		if (!saddr || nexthop_nh->nh_saddr == saddr) {
-			res->nh_sel = nhsel;
-			res->nhc = &nexthop_nh->nh_common;
-			return;
-		}
-
-		if (found)
-			return;
 
 	} endfor_nexthops(fi);
 }

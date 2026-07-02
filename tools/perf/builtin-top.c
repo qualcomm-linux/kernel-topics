@@ -56,6 +56,7 @@
 #include "util/debug.h"
 #include "util/ordered-events.h"
 #include "util/pfm.h"
+#include "dwarf-regs.h"
 
 #include <assert.h>
 #include <elf.h>
@@ -185,8 +186,8 @@ static void ui__warn_map_erange(struct map *map, struct symbol *sym, u64 ip)
 		    "Please report to linux-kernel@vger.kernel.org\n",
 		    ip, dso__long_name(dso), dso__symtab_origin(dso),
 		    map__start(map), map__end(map), sym->start, sym->end,
-		    sym->binding == STB_GLOBAL ? 'g' :
-		    sym->binding == STB_LOCAL  ? 'l' : 'w', sym->name,
+		    symbol__binding(sym) == STB_GLOBAL ? 'g' :
+		    symbol__binding(sym) == STB_LOCAL  ? 'l' : 'w', sym->name,
 		    err ? "[unknown]" : uts.machine,
 		    err ? "[unknown]" : uts.release, perf_version_string);
 	if (use_browser <= 0)
@@ -198,7 +199,7 @@ static void ui__warn_map_erange(struct map *map, struct symbol *sym, u64 ip)
 static void perf_top__record_precise_ip(struct perf_top *top,
 					struct hist_entry *he,
 					struct perf_sample *sample,
-					struct evsel *evsel, u64 ip)
+					u64 ip)
 	EXCLUSIVE_LOCKS_REQUIRED(he->hists->lock)
 {
 	struct annotation *notes;
@@ -215,7 +216,7 @@ static void perf_top__record_precise_ip(struct perf_top *top,
 	if (!annotation__trylock(notes))
 		return;
 
-	err = hist_entry__inc_addr_samples(he, sample, evsel, ip);
+	err = hist_entry__inc_addr_samples(he, sample, ip);
 
 	annotation__unlock(notes);
 
@@ -731,20 +732,18 @@ static int hist_iter__top_callback(struct hist_entry_iter *iter,
 	EXCLUSIVE_LOCKS_REQUIRED(iter->he->hists->lock)
 {
 	struct perf_top *top = arg;
-	struct evsel *evsel = iter->evsel;
 
 	if (perf_hpp_list.sym && single)
-		perf_top__record_precise_ip(top, iter->he, iter->sample, evsel, al->addr);
+		perf_top__record_precise_ip(top, iter->he, iter->sample, al->addr);
 
 	hist__account_cycles(iter->sample->branch_stack, al, iter->sample,
 			     !(top->record_opts.branch_stack & PERF_SAMPLE_BRANCH_ANY),
-			     NULL, evsel);
+			     /*total_cycles=*/NULL);
 	return 0;
 }
 
 static void perf_event__process_sample(const struct perf_tool *tool,
 				       const union perf_event *event,
-				       struct evsel *evsel,
 				       struct perf_sample *sample,
 				       struct machine *machine)
 {
@@ -829,10 +828,10 @@ static void perf_event__process_sample(const struct perf_tool *tool,
 		}
 	}
 
-	if (al.sym == NULL || !al.sym->idle) {
-		struct hists *hists = evsel__hists(evsel);
+	if (al.sym == NULL ||
+	    !symbol__is_idle(al.sym, al.map ? map__dso(al.map) : NULL, machine->env)) {
+		struct hists *hists = evsel__hists(sample->evsel);
 		struct hist_entry_iter iter = {
-			.evsel		= evsel,
 			.sample 	= sample,
 			.add_entry_cb 	= hist_iter__top_callback,
 		};
@@ -1166,7 +1165,9 @@ static int deliver_event(struct ordered_events *qe,
 		goto next_event;
 	}
 
-	evsel = evlist__id2evsel(session->evlist, sample.id);
+	evsel = sample.evsel;
+	if (!evsel)
+		evsel = evlist__id2evsel(session->evlist, sample.id);
 	assert(evsel != NULL);
 
 	if (event->header.type == PERF_RECORD_SAMPLE) {
@@ -1210,7 +1211,7 @@ static int deliver_event(struct ordered_events *qe,
 	}
 
 	if (event->header.type == PERF_RECORD_SAMPLE) {
-		perf_event__process_sample(&top->tool, event, evsel,
+		perf_event__process_sample(&top->tool, event,
 					   &sample, machine);
 	} else if (event->header.type == PERF_RECORD_LOST) {
 		perf_top__process_lost(top, event, evsel);
@@ -1387,13 +1388,6 @@ out_join_thread:
 }
 
 static int
-callchain_opt(const struct option *opt, const char *arg, int unset)
-{
-	symbol_conf.use_callchain = true;
-	return record_callchain_opt(opt, arg, unset);
-}
-
-static int
 parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 {
 	struct callchain_param *callchain = opt->value;
@@ -1412,6 +1406,24 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 
 	return parse_callchain_top_opt(arg);
 }
+
+static int
+callchain_opt(const struct option *opt, const char *arg __maybe_unused, int unset)
+{
+	struct callchain_param *callchain = opt->value;
+
+	/*
+	 * The -g option only sets the callchain if not already configured by
+	 * .perfconfig. It does, however, enable it.
+	 */
+	if (callchain->record_mode != CALLCHAIN_NONE) {
+		callchain->enabled = true;
+		return 0;
+	}
+
+	return parse_callchain_opt(opt, EM_HOST != EM_S390 ? "fp" : "dwarf", unset);
+}
+
 
 static int perf_top_config(const char *var, const char *value, void *cb __maybe_unused)
 {
@@ -1437,11 +1449,10 @@ parse_percent_limit(const struct option *opt, const char *arg,
 	return 0;
 }
 
-const char top_callchain_help[] = CALLCHAIN_RECORD_HELP CALLCHAIN_REPORT_HELP
-	"\n\t\t\t\tDefault: fp,graph,0.5,caller,function";
-
 int cmd_top(int argc, const char **argv)
 {
+	static const char top_callchain_help[] = CALLCHAIN_RECORD_HELP CALLCHAIN_REPORT_HELP
+		"\n\t\t\t\tDefault: fp,graph,0.5,caller,function";
 	char errbuf[BUFSIZ];
 	struct perf_top top = {
 		.count_filter	     = 5,
@@ -1694,12 +1705,23 @@ int cmd_top(int argc, const char **argv)
 	if (annotate_check_args() < 0)
 		goto out_delete_evlist;
 
-	if (!top.evlist->core.nr_entries) {
-		bool can_profile_kernel = perf_event_paranoid_check(1);
-		int err = parse_event(top.evlist, can_profile_kernel ? "cycles:P" : "cycles:Pu");
+	status = target__validate(target);
+	if (status) {
+		target__strerror(target, status, errbuf, BUFSIZ);
+		ui__warning("%s\n", errbuf);
+	}
 
-		if (err)
+	if (target__none(target))
+		target->system_wide = true;
+
+	if (!top.evlist->core.nr_entries) {
+		struct evlist *def_evlist = evlist__new_default(target, callchain_param.enabled);
+
+		if (!def_evlist)
 			goto out_delete_evlist;
+
+		evlist__splice_list_tail(top.evlist, &def_evlist->core.entries);
+		evlist__delete(def_evlist);
 	}
 
 	status = evswitch__init(&top.evswitch, top.evlist, stderr);
@@ -1786,12 +1808,6 @@ int cmd_top(int argc, const char **argv)
 		goto out_delete_evlist;
 	}
 
-	status = target__validate(target);
-	if (status) {
-		target__strerror(target, status, errbuf, BUFSIZ);
-		ui__warning("%s\n", errbuf);
-	}
-
 	if (top.uid_str) {
 		uid_t uid = parse_uid(top.uid_str);
 
@@ -1804,9 +1820,6 @@ int cmd_top(int argc, const char **argv)
 		if (status)
 			goto out_delete_evlist;
 	}
-
-	if (target__none(target))
-		target->system_wide = true;
 
 	if (evlist__create_maps(top.evlist, target) < 0) {
 		ui__error("Couldn't create thread/CPU maps: %s\n",

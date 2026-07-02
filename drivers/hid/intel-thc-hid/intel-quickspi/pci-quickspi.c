@@ -37,6 +37,10 @@ struct quickspi_driver_data arl = {
 	.max_packet_size_value = MAX_PACKET_SIZE_VALUE_MTL,
 };
 
+struct quickspi_driver_data nvl = {
+	.max_packet_size_value = MAX_PACKET_SIZE_VALUE_LNL,
+};
+
 /* THC QuickSPI ACPI method to get device properties */
 /* HIDSPI Method: {6e2ac436-0fcf-41af-a265-b32a220dcfab} */
 static guid_t hidspi_guid =
@@ -339,7 +343,6 @@ end:
 		if (try_recover(qsdev))
 			qsdev->state = QUICKSPI_DISABLED;
 
-	pm_runtime_mark_last_busy(qsdev->dev);
 	pm_runtime_put_autosuspend(qsdev->dev);
 
 	return IRQ_HANDLED;
@@ -674,7 +677,6 @@ static int quickspi_probe(struct pci_dev *pdev,
 	/* Enable runtime power management */
 	pm_runtime_use_autosuspend(qsdev->dev);
 	pm_runtime_set_autosuspend_delay(qsdev->dev, DEFAULT_AUTO_SUSPEND_DELAY_MS);
-	pm_runtime_mark_last_busy(qsdev->dev);
 	pm_runtime_put_noidle(qsdev->dev);
 	pm_runtime_put_autosuspend(qsdev->dev);
 
@@ -751,9 +753,11 @@ static int quickspi_suspend(struct device *device)
 	if (!qsdev)
 		return -ENODEV;
 
-	ret = quickspi_set_power(qsdev, HIDSPI_SLEEP);
-	if (ret)
-		return ret;
+	if (!device_may_wakeup(qsdev->dev)) {
+		ret = quickspi_set_power(qsdev, HIDSPI_SLEEP);
+		if (ret)
+			return ret;
+	}
 
 	ret = thc_interrupt_quiesce(qsdev->thc_hw, true);
 	if (ret)
@@ -780,21 +784,72 @@ static int quickspi_resume(struct device *device)
 	if (ret)
 		return ret;
 
+	/*
+	 * A wake-enabled device keeps its power and state across suspend, so
+	 * only restore the THC context. Resetting it here would discard a
+	 * pending wake touch event and break wake-on-touch.
+	 */
+	if (device_may_wakeup(qsdev->dev)) {
+		thc_interrupt_config(qsdev->thc_hw);
+
+		thc_interrupt_enable(qsdev->thc_hw, true);
+
+		ret = thc_dma_configure(qsdev->thc_hw);
+		if (ret)
+			return ret;
+
+		return thc_interrupt_quiesce(qsdev->thc_hw, false);
+	}
+
+	/*
+	 * Otherwise the touch IC may have lost power across suspend. On
+	 * platforms that suspend through s2idle (for example the Surface Pro
+	 * 10, whose firmware exposes s2idle as the only mem_sleep state) the
+	 * IC loses power the same way it does across hibernation. A plain
+	 * HIDSPI_ON is then not acknowledged and the descriptor read fails, so
+	 * re-enumerate the device through the full reset flow already used by
+	 * quickspi_restore().
+	 */
+	thc_spi_input_output_address_config(qsdev->thc_hw,
+					    qsdev->input_report_hdr_addr,
+					    qsdev->input_report_bdy_addr,
+					    qsdev->output_report_addr);
+
+	ret = thc_spi_read_config(qsdev->thc_hw, qsdev->spi_freq_val,
+				  qsdev->spi_read_io_mode,
+				  qsdev->spi_read_opcode,
+				  qsdev->spi_packet_size);
+	if (ret)
+		return ret;
+
+	ret = thc_spi_write_config(qsdev->thc_hw, qsdev->spi_freq_val,
+				   qsdev->spi_write_io_mode,
+				   qsdev->spi_write_opcode,
+				   qsdev->spi_packet_size,
+				   qsdev->performance_limit);
+	if (ret)
+		return ret;
+
 	thc_interrupt_config(qsdev->thc_hw);
 
 	thc_interrupt_enable(qsdev->thc_hw, true);
+
+	/* The touch IC may have lost power, reset it to recover */
+	ret = reset_tic(qsdev);
+	if (ret)
+		return ret;
 
 	ret = thc_dma_configure(qsdev->thc_hw);
 	if (ret)
 		return ret;
 
-	ret = thc_interrupt_quiesce(qsdev->thc_hw, false);
-	if (ret)
-		return ret;
+	thc_ltr_config(qsdev->thc_hw,
+		       qsdev->active_ltr_val,
+		       qsdev->low_power_ltr_val);
 
-	ret = quickspi_set_power(qsdev, HIDSPI_ON);
-	if (ret)
-		return ret;
+	thc_change_ltr_mode(qsdev->thc_hw, THC_LTR_MODE_ACTIVE);
+
+	qsdev->state = QUICKSPI_ENABLED;
 
 	return 0;
 }
@@ -852,6 +907,9 @@ static int quickspi_poweroff(struct device *device)
 	qsdev = pci_get_drvdata(pdev);
 	if (!qsdev)
 		return -ENODEV;
+
+	/* Ignore the return value as platform will be poweroff soon */
+	quickspi_set_power(qsdev, HIDSPI_OFF);
 
 	ret = thc_interrupt_quiesce(qsdev->thc_hw, true);
 	if (ret)
@@ -984,6 +1042,8 @@ static const struct pci_device_id quickspi_pci_tbl[] = {
 	{PCI_DEVICE_DATA(INTEL, THC_WCL_DEVICE_ID_SPI_PORT2, &ptl), },
 	{PCI_DEVICE_DATA(INTEL, THC_ARL_DEVICE_ID_SPI_PORT1, &arl), },
 	{PCI_DEVICE_DATA(INTEL, THC_ARL_DEVICE_ID_SPI_PORT2, &arl), },
+	{PCI_DEVICE_DATA(INTEL, THC_NVL_H_DEVICE_ID_SPI_PORT1, &nvl), },
+	{PCI_DEVICE_DATA(INTEL, THC_NVL_H_DEVICE_ID_SPI_PORT2, &nvl), },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, quickspi_pci_tbl);

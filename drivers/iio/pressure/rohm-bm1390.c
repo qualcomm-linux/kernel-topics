@@ -440,7 +440,7 @@ static int bm1390_fifo_flush(struct iio_dev *idev, unsigned int samples)
 	 * the timestamps. If we are ran from IRQ, then the
 	 * IRQF_ONESHOT has us covered - but if we are ran by the
 	 * user-space read we need to disable the IRQ to be on a safe
-	 * side. We do this usng synchronous disable so that if the
+	 * side. We do this using synchronous disable so that if the
 	 * IRQ thread is being ran on other CPU we wait for it to be
 	 * finished.
 	 */
@@ -888,7 +888,7 @@ static const struct of_device_id bm1390_of_match[] = {
 MODULE_DEVICE_TABLE(of, bm1390_of_match);
 
 static const struct i2c_device_id bm1390_id[] = {
-	{ "bm1390glv-z", },
+	{ .name = "bm1390glv-z" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bm1390_id);

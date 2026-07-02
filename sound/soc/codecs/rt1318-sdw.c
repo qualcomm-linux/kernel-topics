@@ -793,11 +793,9 @@ static int rt1318_sdw_probe(struct sdw_slave *slave,
 	return rt1318_sdw_init(&slave->dev, regmap, slave);
 }
 
-static int rt1318_sdw_remove(struct sdw_slave *slave)
+static void rt1318_sdw_remove(struct sdw_slave *slave)
 {
 	pm_runtime_disable(&slave->dev);
-
-	return 0;
 }
 
 static const struct sdw_device_id rt1318_id[] = {
@@ -823,23 +821,15 @@ static int rt1318_dev_resume(struct device *dev)
 {
 	struct sdw_slave *slave = dev_to_sdw_dev(dev);
 	struct rt1318_sdw_priv *rt1318 = dev_get_drvdata(dev);
-	unsigned long time;
+	int ret;
 
 	if (!rt1318->first_hw_init)
 		return 0;
 
-	if (!slave->unattach_request)
-		goto regmap_sync;
+	ret = sdw_slave_wait_for_init(slave, RT1318_PROBE_TIMEOUT);
+	if (ret)
+		return ret;
 
-	time = wait_for_completion_timeout(&slave->initialization_complete,
-				msecs_to_jiffies(RT1318_PROBE_TIMEOUT));
-	if (!time) {
-		dev_err(&slave->dev, "%s: Initialization not complete, timed out\n", __func__);
-		return -ETIMEDOUT;
-	}
-
-regmap_sync:
-	slave->unattach_request = 0;
 	regcache_cache_only(rt1318->regmap, false);
 	regcache_sync(rt1318->regmap);
 

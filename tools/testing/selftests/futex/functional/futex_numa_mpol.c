@@ -10,15 +10,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#ifdef LIBNUMA_VER_SUFFICIENT
 #include <numa.h>
 #include <numaif.h>
+#endif
 
 #include <linux/futex.h>
 #include <sys/mman.h>
 
 #include "futextest.h"
 #include "futex2test.h"
-#include "../../kselftest_harness.h"
+#include "kselftest_harness.h"
 
 #define MAX_THREADS	64
 
@@ -131,11 +133,6 @@ static void test_futex(void *futex_ptr, int err_value)
 	__test_futex(futex_ptr, err_value, FUTEX2_SIZE_U32 | FUTEX_PRIVATE_FLAG | FUTEX2_NUMA);
 }
 
-static void test_futex_mpol(void *futex_ptr, int err_value)
-{
-	__test_futex(futex_ptr, err_value, FUTEX2_SIZE_U32 | FUTEX_PRIVATE_FLAG | FUTEX2_NUMA | FUTEX2_MPOL);
-}
-
 TEST(futex_numa_mpol)
 {
 	struct futex32_numa *futex_numa;
@@ -211,7 +208,7 @@ TEST(futex_numa_mpol)
 	}
 	ksft_test_result_pass("futex2 MPOL hints test passed\n");
 #else
-	ksft_test_result_skip("futex2 MPOL hints test requires libnuma 2.0.16+\n");
+	ksft_test_result_skip("futex2 MPOL hints test requires libnuma 2.0.18+\n");
 #endif
 	munmap(futex_ptr, mem_size * 2);
 }

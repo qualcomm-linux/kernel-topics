@@ -523,6 +523,10 @@ static int bmc150_accel_set_interrupt(struct bmc150_accel_data *data, int i,
 	const struct bmc150_accel_interrupt_info *info = intr->info;
 	int ret;
 
+	/* We do not always have an IRQ */
+	if (data->irq <= 0)
+		return 0;
+
 	if (state) {
 		if (atomic_inc_return(&intr->users) > 1)
 			return 0;
@@ -847,7 +851,7 @@ static ssize_t bmc150_accel_get_fifo_watermark(struct device *dev,
 	wm = data->watermark;
 	mutex_unlock(&data->mutex);
 
-	return sprintf(buf, "%d\n", wm);
+	return sysfs_emit(buf, "%d\n", wm);
 }
 
 static ssize_t bmc150_accel_get_fifo_state(struct device *dev,
@@ -862,7 +866,7 @@ static ssize_t bmc150_accel_get_fifo_state(struct device *dev,
 	state = data->fifo_mode;
 	mutex_unlock(&data->mutex);
 
-	return sprintf(buf, "%d\n", state);
+	return sysfs_emit(buf, "%d\n", state);
 }
 
 static const struct iio_mount_matrix *
@@ -1696,6 +1700,7 @@ int bmc150_accel_core_probe(struct device *dev, struct regmap *regmap, int irq,
 	}
 
 	if (irq > 0) {
+		data->irq = irq;
 		ret = devm_request_threaded_irq(dev, irq,
 						bmc150_accel_irq_handler,
 						bmc150_accel_irq_thread_handler,

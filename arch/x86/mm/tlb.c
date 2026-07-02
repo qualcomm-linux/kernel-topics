@@ -12,6 +12,7 @@
 #include <linux/task_work.h>
 #include <linux/mmu_notifier.h>
 #include <linux/mmu_context.h>
+#include <linux/kvm_types.h>
 
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
@@ -400,6 +401,7 @@ static void use_global_asid(struct mm_struct *mm)
 	mm_assign_global_asid(mm, asid);
 }
 
+#ifdef CONFIG_BROADCAST_TLB_FLUSH
 void mm_free_global_asid(struct mm_struct *mm)
 {
 	if (!cpu_feature_enabled(X86_FEATURE_INVLPGB))
@@ -411,13 +413,12 @@ void mm_free_global_asid(struct mm_struct *mm)
 	guard(raw_spinlock_irqsave)(&global_asid_lock);
 
 	/* The global ASID can be re-used only after flush at wrap-around. */
-#ifdef CONFIG_BROADCAST_TLB_FLUSH
 	__set_bit(mm->context.global_asid, global_asid_freed);
 
 	mm->context.global_asid = 0;
 	global_asid_available++;
-#endif
 }
+#endif
 
 /*
  * Is the mm transitioning from a CPU-local ASID to a global ASID?
@@ -971,27 +972,6 @@ reload_tlb:
 }
 
 /*
- * Please ignore the name of this function.  It should be called
- * switch_to_kernel_thread().
- *
- * enter_lazy_tlb() is a hint from the scheduler that we are entering a
- * kernel thread or other context without an mm.  Acceptable implementations
- * include doing nothing whatsoever, switching to init_mm, or various clever
- * lazy tricks to try to minimize TLB flushes.
- *
- * The scheduler reserves the right to call enter_lazy_tlb() several times
- * in a row.  It will notify us that we're going back to a real mm by
- * calling switch_mm_irqs_off().
- */
-void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
-{
-	if (this_cpu_read(cpu_tlbstate.loaded_mm) == &init_mm)
-		return;
-
-	this_cpu_write(cpu_tlbstate_shared.is_lazy, true);
-}
-
-/*
  * Using a temporary mm allows to set temporary mappings that are not accessible
  * by other CPUs. Such mappings are needed to perform sensitive memory writes
  * that override the kernel memory protections (e.g., W^X), without exposing the
@@ -1143,7 +1123,7 @@ static void flush_tlb_func(void *info)
 	VM_WARN_ON(!irqs_disabled());
 
 	if (!local) {
-		inc_irq_stat(irq_tlb_count);
+		inc_irq_stat(TLB);
 		count_vm_tlb_event(NR_TLB_REMOTE_FLUSH_RECEIVED);
 	}
 
@@ -1582,7 +1562,7 @@ unsigned long __get_current_cr3_fast(void)
 	VM_BUG_ON(cr3 != __read_cr3());
 	return cr3;
 }
-EXPORT_SYMBOL_GPL(__get_current_cr3_fast);
+EXPORT_SYMBOL_FOR_KVM(__get_current_cr3_fast);
 
 /*
  * Flush one page in the kernel mapping
@@ -1723,7 +1703,7 @@ void __flush_tlb_all(void)
 		flush_tlb_local();
 	}
 }
-EXPORT_SYMBOL_GPL(__flush_tlb_all);
+EXPORT_SYMBOL_FOR_KVM(__flush_tlb_all);
 
 void arch_tlbbatch_flush(struct arch_tlbflush_unmap_batch *batch)
 {
@@ -1789,7 +1769,7 @@ bool nmi_uaccess_okay(void)
 }
 
 static ssize_t tlbflush_read_file(struct file *file, char __user *user_buf,
-			     size_t count, loff_t *ppos)
+				  size_t count, loff_t *ppos)
 {
 	char buf[32];
 	unsigned int len;
@@ -1798,20 +1778,15 @@ static ssize_t tlbflush_read_file(struct file *file, char __user *user_buf,
 	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
 }
 
-static ssize_t tlbflush_write_file(struct file *file,
-		 const char __user *user_buf, size_t count, loff_t *ppos)
+static ssize_t tlbflush_write_file(struct file *file, const char __user *user_buf,
+				   size_t count, loff_t *ppos)
 {
-	char buf[32];
-	ssize_t len;
 	int ceiling;
+	int err;
 
-	len = min(count, sizeof(buf) - 1);
-	if (copy_from_user(buf, user_buf, len))
-		return -EFAULT;
-
-	buf[len] = '\0';
-	if (kstrtoint(buf, 0, &ceiling))
-		return -EINVAL;
+	err = kstrtoint_from_user(user_buf, count, 0, &ceiling);
+	if (err)
+		return err;
 
 	if (ceiling < 0)
 		return -EINVAL;

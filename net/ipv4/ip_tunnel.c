@@ -679,6 +679,7 @@ void ip_tunnel_xmit(struct sk_buff *skb, struct net_device *dev,
 	struct flowi4 fl4;
 	bool md = false;
 	bool connected;
+	int err_count;
 	u8 tos, ttl;
 	__be32 dst;
 	__be16 df;
@@ -807,14 +808,16 @@ void ip_tunnel_xmit(struct sk_buff *skb, struct net_device *dev,
 		goto tx_error;
 	}
 
-	if (tunnel->err_count > 0) {
+	err_count = READ_ONCE(tunnel->err_count);
+	if (err_count > 0) {
 		if (time_before(jiffies,
-				tunnel->err_time + IPTUNNEL_ERR_TIMEO)) {
-			tunnel->err_count--;
+				READ_ONCE(tunnel->err_time) + IPTUNNEL_ERR_TIMEO)) {
+			WRITE_ONCE(tunnel->err_count, err_count - 1);
 
 			dst_link_failure(skb);
-		} else
-			tunnel->err_count = 0;
+		} else {
+			WRITE_ONCE(tunnel->err_count, 0);
+		}
 	}
 
 	tos = ip_tunnel_ecn_encap(tos, inner_iph, skb);
@@ -1281,7 +1284,7 @@ int ip_tunnel_changelink(struct net_device *dev, struct nlattr *tb[],
 }
 EXPORT_SYMBOL_GPL(ip_tunnel_changelink);
 
-int ip_tunnel_init(struct net_device *dev)
+int __ip_tunnel_init(struct net_device *dev)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
 	struct iphdr *iph = &tunnel->parms.iph;
@@ -1308,10 +1311,9 @@ int ip_tunnel_init(struct net_device *dev)
 
 	if (tunnel->collect_md)
 		netif_keep_dst(dev);
-	netdev_lockdep_set_classes(dev);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(ip_tunnel_init);
+EXPORT_SYMBOL_GPL(__ip_tunnel_init);
 
 void ip_tunnel_uninit(struct net_device *dev)
 {

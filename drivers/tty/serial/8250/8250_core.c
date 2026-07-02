@@ -52,6 +52,10 @@ struct irq_info {
 static DEFINE_HASHTABLE(irq_lists, IRQ_HASH_BITS);
 static DEFINE_MUTEX(hash_mutex);	/* Used to walk the hash */
 
+static bool skip_txen_test;
+module_param(skip_txen_test, bool, 0644);
+MODULE_PARM_DESC(skip_txen_test, "Skip checking for the TXEN bug at init time");
+
 /*
  * This is the serial driver's interrupt routine.
  *
@@ -136,7 +140,7 @@ static struct irq_info *serial_get_or_create_irq_info(const struct uart_8250_por
 		if (i->irq == up->port.irq)
 			return i;
 
-	i = kzalloc(sizeof(*i), GFP_KERNEL);
+	i = kzalloc_obj(*i);
 	if (i == NULL)
 		return ERR_PTR(-ENOMEM);
 
@@ -520,7 +524,7 @@ console_initcall(univ8250_console_init);
 
 struct uart_driver serial8250_reg = {
 	.owner			= THIS_MODULE,
-	.driver_name		= "serial",
+	.driver_name		= "serial_8250",
 	.dev_name		= "ttyS",
 	.major			= TTY_MAJOR,
 	.minor			= 64,
@@ -689,6 +693,7 @@ static void serial_8250_overrun_backoff_work(struct work_struct *work)
 int serial8250_register_8250_port(const struct uart_8250_port *up)
 {
 	struct uart_8250_port *uart;
+	bool cons_flow;
 	int ret;
 
 	if (up->port.uartclk == 0)
@@ -711,6 +716,9 @@ int serial8250_register_8250_port(const struct uart_8250_port *up)
 	/* Check if it is CIR already. We check this below again, see there why. */
 	if (uart->port.type == PORT_8250_CIR)
 		return -ENODEV;
+
+	/* Preserve specified console flow control. */
+	cons_flow = uart_cons_flow_enabled(&uart->port);
 
 	if (uart->port.dev)
 		uart_remove_one_port(&serial8250_reg, &uart->port);
@@ -742,6 +750,8 @@ int serial8250_register_8250_port(const struct uart_8250_port *up)
 	uart->lsr_save_mask	= up->lsr_save_mask;
 	uart->dma		= up->dma;
 
+	uart_set_cons_flow_enabled(&uart->port, uart_cons_flow_enabled(&up->port) | cons_flow);
+
 	/* Take tx_loadsz from fifosize if it wasn't set separately */
 	if (uart->port.fifosize && !uart->tx_loadsz)
 		uart->tx_loadsz = uart->port.fifosize;
@@ -760,7 +770,7 @@ int serial8250_register_8250_port(const struct uart_8250_port *up)
 	 * Only call mctrl_gpio_init(), if the device has no ACPI
 	 * companion device
 	 */
-	if (!has_acpi_companion(uart->port.dev)) {
+	if (uart->port.dev && !has_acpi_companion(uart->port.dev)) {
 		struct mctrl_gpios *gpios = mctrl_gpio_init(&uart->port, 0);
 		if (IS_ERR(gpios)) {
 			ret = PTR_ERR(gpios);

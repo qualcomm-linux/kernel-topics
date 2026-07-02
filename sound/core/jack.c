@@ -250,18 +250,15 @@ static const char * const jack_events_name[] = {
 /* the recommended buffer size is 256 */
 static int parse_mask_bits(unsigned int mask_bits, char *buf, size_t buf_size)
 {
+	int len = scnprintf(buf, buf_size, "0x%04x", mask_bits);
 	int i;
 
-	scnprintf(buf, buf_size, "0x%04x", mask_bits);
-
 	for (i = 0; i < ARRAY_SIZE(jack_events_name); i++)
-		if (mask_bits & (1 << i)) {
-			strlcat(buf, " ", buf_size);
-			strlcat(buf, jack_events_name[i], buf_size);
-		}
-	strlcat(buf, "\n", buf_size);
+		if (mask_bits & (1 << i))
+			len += scnprintf(buf + len, buf_size - len, " %s", jack_events_name[i]);
+	len += scnprintf(buf + len, buf_size - len, "\n");
 
-	return strlen(buf);
+	return len;
 }
 
 static ssize_t jack_kctl_mask_bits_read(struct file *file,
@@ -440,7 +437,7 @@ static struct snd_jack_kctl * snd_jack_kctl_new(struct snd_card *card, const cha
 	if (err < 0)
 		return NULL;
 
-	jack_kctl = kzalloc(sizeof(*jack_kctl), GFP_KERNEL);
+	jack_kctl = kzalloc_obj(*jack_kctl);
 
 	if (!jack_kctl)
 		goto error;
@@ -516,7 +513,7 @@ int snd_jack_new(struct snd_card *card, const char *id, int type,
 			return -ENOMEM;
 	}
 
-	jack = kzalloc(sizeof(struct snd_jack), GFP_KERNEL);
+	jack = kzalloc_obj(struct snd_jack);
 	if (jack == NULL)
 		return -ENOMEM;
 

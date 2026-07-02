@@ -65,8 +65,7 @@ static ssize_t __blkdev_direct_IO_simple(struct kiocb *iocb,
 	if (nr_pages <= DIO_INLINE_BIO_VECS)
 		vecs = inline_vecs;
 	else {
-		vecs = kmalloc_array(nr_pages, sizeof(struct bio_vec),
-				     GFP_KERNEL);
+		vecs = kmalloc_objs(struct bio_vec, nr_pages);
 		if (!vecs)
 			return -ENOMEM;
 	}
@@ -184,8 +183,6 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 	loff_t pos = iocb->ki_pos;
 	int ret = 0;
 
-	if (iocb->ki_flags & IOCB_ALLOC_CACHE)
-		opf |= REQ_ALLOC_CACHE;
 	bio = bio_alloc_bioset(bdev, nr_pages, opf, GFP_KERNEL,
 			       &blkdev_dio_pool);
 	dio = container_of(bio, struct blkdev_dio, bio);
@@ -221,8 +218,7 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 
 		ret = blkdev_iov_iter_get_pages(bio, iter, bdev);
 		if (unlikely(ret)) {
-			bio->bi_status = BLK_STS_IOERR;
-			bio_endio(bio);
+			bio_endio_status(bio, BLK_STS_IOERR);
 			break;
 		}
 		if (iocb->ki_flags & IOCB_NOWAIT) {
@@ -333,8 +329,6 @@ static ssize_t __blkdev_direct_IO_async(struct kiocb *iocb,
 	loff_t pos = iocb->ki_pos;
 	int ret = 0;
 
-	if (iocb->ki_flags & IOCB_ALLOC_CACHE)
-		opf |= REQ_ALLOC_CACHE;
 	bio = bio_alloc_bioset(bdev, nr_pages, opf, GFP_KERNEL,
 			       &blkdev_dio_pool);
 	dio = container_of(bio, struct blkdev_dio, bio);
@@ -504,48 +498,25 @@ static void blkdev_readahead(struct readahead_control *rac)
 	mpage_readahead(rac, blkdev_get_block);
 }
 
-static int blkdev_write_begin(const struct kiocb *iocb,
-			      struct address_space *mapping, loff_t pos,
-			      unsigned len, struct folio **foliop,
-			      void **fsdata)
-{
-	return block_write_begin(mapping, pos, len, foliop, blkdev_get_block);
-}
-
-static int blkdev_write_end(const struct kiocb *iocb,
-			    struct address_space *mapping,
-			    loff_t pos, unsigned len, unsigned copied,
-			    struct folio *folio, void *fsdata)
-{
-	int ret;
-	ret = block_write_end(pos, len, copied, folio);
-
-	folio_unlock(folio);
-	folio_put(folio);
-
-	return ret;
-}
-
 const struct address_space_operations def_blk_aops = {
 	.dirty_folio	= block_dirty_folio,
 	.invalidate_folio = block_invalidate_folio,
 	.read_folio	= blkdev_read_folio,
 	.readahead	= blkdev_readahead,
 	.writepages	= blkdev_writepages,
-	.write_begin	= blkdev_write_begin,
-	.write_end	= blkdev_write_end,
 	.migrate_folio	= buffer_migrate_folio_norefs,
 	.is_dirty_writeback = buffer_check_dirty_writeback,
 };
 #else /* CONFIG_BUFFER_HEAD */
 static int blkdev_read_folio(struct file *file, struct folio *folio)
 {
-	return iomap_read_folio(folio, &blkdev_iomap_ops);
+	iomap_bio_read_folio(folio, &blkdev_iomap_ops);
+	return 0;
 }
 
 static void blkdev_readahead(struct readahead_control *rac)
 {
-	iomap_readahead(rac, &blkdev_iomap_ops);
+	iomap_bio_readahead(rac, &blkdev_iomap_ops);
 }
 
 static ssize_t blkdev_writeback_range(struct iomap_writepage_ctx *wpc,

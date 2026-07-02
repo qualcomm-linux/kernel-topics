@@ -2940,7 +2940,7 @@ static int virtio_mem_probe(struct virtio_device *vdev)
 	BUILD_BUG_ON(sizeof(struct virtio_mem_req) != 24);
 	BUILD_BUG_ON(sizeof(struct virtio_mem_resp) != 10);
 
-	vdev->priv = vm = kzalloc(sizeof(*vm), GFP_KERNEL);
+	vdev->priv = vm = kzalloc_obj(*vm);
 	if (!vm)
 		return -ENOMEM;
 
@@ -2975,6 +2975,7 @@ static int virtio_mem_probe(struct virtio_device *vdev)
 out_del_vq:
 	vdev->config->del_vqs(vdev);
 out_free_vm:
+	mutex_destroy(&vm->hotplug_mutex);
 	kfree(vm);
 	vdev->priv = NULL;
 
@@ -3067,6 +3068,7 @@ static void virtio_mem_remove(struct virtio_device *vdev)
 	virtio_reset_device(vdev);
 	vdev->config->del_vqs(vdev);
 
+	mutex_destroy(&vm->hotplug_mutex);
 	kfree(vm);
 	vdev->priv = NULL;
 }

@@ -992,6 +992,13 @@ static void ata_gen_ata_sense(struct ata_queued_cmd *qc)
 		return;
 	}
 
+	if (ata_id_is_locked(dev->id)) {
+		/* Security locked */
+		/* LOGICAL UNIT ACCESS NOT AUTHORIZED */
+		ata_scsi_set_sense(dev, cmd, DATA_PROTECT, 0x74, 0x71);
+		return;
+	}
+
 	if (!(qc->flags & ATA_QCFLAG_RTF_FILLED)) {
 		ata_dev_dbg(dev,
 			    "Missing result TF: reporting aborted command\n");
@@ -1095,6 +1102,7 @@ int ata_scsi_dev_config(struct scsi_device *sdev, struct queue_limits *lim,
 		 */
 		sdev->manage_runtime_start_stop = 1;
 		sdev->manage_shutdown = 1;
+		sdev->manage_restart = ata_acpi_dev_manage_restart(dev);
 		sdev->force_runtime_start_on_system_start = 1;
 	}
 
@@ -1641,17 +1649,92 @@ nothing_to_do:
 	return 1;
 }
 
-static void ata_qc_done(struct ata_queued_cmd *qc)
+static void ata_scsi_qc_done(struct ata_queued_cmd *qc, bool set_result,
+			     u32 scmd_result)
 {
 	struct scsi_cmnd *cmd = qc->scsicmd;
 	void (*done)(struct scsi_cmnd *) = qc->scsidone;
 
 	ata_qc_free(qc);
+
+	if (set_result)
+		cmd->result = scmd_result;
 	done(cmd);
+}
+
+void ata_scsi_deferred_qc_work(struct work_struct *work)
+{
+	struct ata_link *link =
+		container_of(work, struct ata_link, deferred_qc_work);
+	struct ata_port *ap = link->ap;
+	struct ata_queued_cmd *qc;
+	unsigned long flags;
+
+	spin_lock_irqsave(ap->lock, flags);
+
+	/*
+	 * If we still have a deferred qc and we are not in EH, issue it. In
+	 * such case, we should not need any more deferring the qc, so warn if
+	 * qc_defer() says otherwise.
+	 */
+	qc = link->deferred_qc;
+	if (qc && !ata_port_eh_scheduled(ap)) {
+		WARN_ON_ONCE(ap->ops->qc_defer(qc));
+		link->deferred_qc = NULL;
+		ata_qc_issue(ap, qc);
+	}
+
+	spin_unlock_irqrestore(ap->lock, flags);
+}
+
+void ata_scsi_requeue_deferred_qc(struct ata_port *ap)
+{
+	struct ata_link *link;
+
+	lockdep_assert_held(ap->lock);
+
+	/*
+	 * If we have a deferred qc when a reset occurs or NCQ commands fail,
+	 * do not try to be smart about what to do with this deferred command
+	 * and simply requeue it by completing it with DID_REQUEUE.
+	 */
+	ata_for_each_link(link, ap, PMP_FIRST) {
+		struct ata_queued_cmd *qc = link->deferred_qc;
+
+		if (qc) {
+			link->deferred_qc = NULL;
+			cancel_work(&link->deferred_qc_work);
+			ata_scsi_qc_done(qc, true, DID_REQUEUE << 16);
+		}
+	}
+}
+
+static void ata_scsi_schedule_deferred_qc(struct ata_link *link)
+{
+	struct ata_queued_cmd *qc = link->deferred_qc;
+	struct ata_port *ap = link->ap;
+
+	lockdep_assert_held(ap->lock);
+
+	/*
+	 * If we have a deferred qc, then qc_defer() is defined and we can use
+	 * this callback to determine if this qc is good to go, unless EH has
+	 * been scheduled.
+	 */
+	if (!qc)
+		return;
+
+	if (ata_port_eh_scheduled(ap)) {
+		ata_scsi_requeue_deferred_qc(ap);
+		return;
+	}
+	if (!ap->ops->qc_defer(qc))
+		queue_work(system_highpri_wq, &link->deferred_qc_work);
 }
 
 static void ata_scsi_qc_complete(struct ata_queued_cmd *qc)
 {
+	struct ata_link *link = qc->dev->link;
 	struct scsi_cmnd *cmd = qc->scsicmd;
 	u8 *cdb = cmd->cmnd;
 	bool have_sense = qc->flags & ATA_QCFLAG_SENSE_VALID;
@@ -1680,7 +1763,77 @@ static void ata_scsi_qc_complete(struct ata_queued_cmd *qc)
 		ata_scsi_set_sense_information(qc);
 	}
 
-	ata_qc_done(qc);
+	ata_scsi_qc_done(qc, false, 0);
+
+	ata_scsi_schedule_deferred_qc(link);
+}
+
+static int ata_scsi_qc_issue(struct ata_port *ap, struct ata_queued_cmd *qc)
+	__must_hold(ap->lock)
+{
+	struct ata_link *link = qc->dev->link;
+	int ret;
+
+	if (!ap->ops->qc_defer)
+		goto issue_qc;
+
+	/*
+	 * If we already have a deferred qc, then rely on the SCSI layer to
+	 * requeue and defer all incoming commands until the deferred qc is
+	 * processed, once all on-going commands complete.
+	 */
+	if (link->deferred_qc) {
+		ata_qc_free(qc);
+		return SCSI_MLQUEUE_DEVICE_BUSY;
+	}
+
+	/* Check if the command needs to be deferred. */
+	ret = ap->ops->qc_defer(qc);
+	switch (ret) {
+	case 0:
+		break;
+	case ATA_DEFER_LINK:
+		ret = SCSI_MLQUEUE_DEVICE_BUSY;
+		goto defer_qc;
+	case ATA_DEFER_LINK_EXCL:
+		/*
+		 * Drivers making use of ap->excl_link cannot store the QC in
+		 * link->deferred_qc, because the ap->excl_link handling is
+		 * incompatible with the link->deferred_qc workqueue handling.
+		 */
+		ret = SCSI_MLQUEUE_DEVICE_BUSY;
+		goto free_qc;
+	case ATA_DEFER_PORT:
+		ret = SCSI_MLQUEUE_HOST_BUSY;
+		goto free_qc;
+	default:
+		WARN_ON_ONCE(1);
+		ret = SCSI_MLQUEUE_HOST_BUSY;
+		goto free_qc;
+	}
+
+issue_qc:
+	ata_qc_issue(ap, qc);
+	return 0;
+
+defer_qc:
+	/*
+	 * We must defer this qc: if this is not an NCQ command, keep
+	 * this qc as a deferred one and report to the SCSI layer that
+	 * we issued it so that it is not requeued. The deferred qc will
+	 * be issued with the port deferred_qc_work once all on-going
+	 * commands complete.
+	 */
+	if (!ata_is_ncq(qc->tf.protocol)) {
+		link->deferred_qc = qc;
+		return 0;
+	}
+
+free_qc:
+	/* Force a requeue of the command to defer its execution. */
+	ata_qc_free(qc);
+
+	return ret;
 }
 
 /**
@@ -1688,6 +1841,7 @@ static void ata_scsi_qc_complete(struct ata_queued_cmd *qc)
  *	@dev: ATA device to which the command is addressed
  *	@cmd: SCSI command to execute
  *	@xlat_func: Actor which translates @cmd to an ATA taskfile
+ *	@ap: ATA port of interest
  *
  *	Our ->queuecommand() function has decided that the SCSI
  *	command issued can be directly translated into an ATA
@@ -1706,66 +1860,49 @@ static void ata_scsi_qc_complete(struct ata_queued_cmd *qc)
  *	spin_lock_irqsave(host lock)
  *
  *	RETURNS:
- *	0 on success, SCSI_ML_QUEUE_DEVICE_BUSY if the command
- *	needs to be deferred.
+ *	0 on success, SCSI_ML_QUEUE_DEVICE_BUSY or SCSI_MLQUEUE_HOST_BUSY if the
+ *	command needs to be deferred.
  */
 static int ata_scsi_translate(struct ata_device *dev, struct scsi_cmnd *cmd,
-			      ata_xlat_func_t xlat_func)
+			      ata_xlat_func_t xlat_func, struct ata_port *ap)
+	__must_hold(ap->lock)
 {
-	struct ata_port *ap = dev->link->ap;
 	struct ata_queued_cmd *qc;
-	int rc;
 
+	lockdep_assert_held(ap->lock);
+
+	/*
+	 * ata_scsi_qc_new() calls scsi_done(cmd) in case of failure. So we
+	 * have nothing further to do when allocating a qc fails.
+	 */
 	qc = ata_scsi_qc_new(dev, cmd);
 	if (!qc)
-		goto err_mem;
+		return 0;
 
 	/* data is present; dma-map it */
 	if (cmd->sc_data_direction == DMA_FROM_DEVICE ||
 	    cmd->sc_data_direction == DMA_TO_DEVICE) {
 		if (unlikely(scsi_bufflen(cmd) < 1)) {
 			ata_dev_warn(dev, "WARNING: zero len r/w req\n");
-			goto err_did;
+			cmd->result = (DID_ERROR << 16);
+			goto done;
 		}
 
 		ata_sg_init(qc, scsi_sglist(cmd), scsi_sg_count(cmd));
-
 		qc->dma_dir = cmd->sc_data_direction;
 	}
 
 	qc->complete_fn = ata_scsi_qc_complete;
 
 	if (xlat_func(qc))
-		goto early_finish;
+		goto done;
 
-	if (ap->ops->qc_defer) {
-		if ((rc = ap->ops->qc_defer(qc)))
-			goto defer;
-	}
+	return ata_scsi_qc_issue(ap, qc);
 
-	/* select device, send command to hardware */
-	ata_qc_issue(qc);
-
-	return 0;
-
-early_finish:
+done:
 	ata_qc_free(qc);
 	scsi_done(cmd);
 	return 0;
-
-err_did:
-	ata_qc_free(qc);
-	cmd->result = (DID_ERROR << 16);
-	scsi_done(cmd);
-err_mem:
-	return 0;
-
-defer:
-	ata_qc_free(qc);
-	if (rc == ATA_DEFER_LINK)
-		return SCSI_MLQUEUE_DEVICE_BUSY;
-	else
-		return SCSI_MLQUEUE_HOST_BUSY;
 }
 
 /**
@@ -2796,17 +2933,15 @@ static void atapi_qc_complete(struct ata_queued_cmd *qc)
 		if (qc->cdb[0] == ALLOW_MEDIUM_REMOVAL && qc->dev->sdev)
 			qc->dev->sdev->locked = 0;
 
-		qc->scsicmd->result = SAM_STAT_CHECK_CONDITION;
-		ata_qc_done(qc);
+		ata_scsi_qc_done(qc, true, SAM_STAT_CHECK_CONDITION);
 		return;
 	}
 
 	/* successful completion path */
 	if (cmd->cmnd[0] == INQUIRY && (cmd->cmnd[1] & 0x03) == 0)
 		atapi_fixup_inquiry(cmd);
-	cmd->result = SAM_STAT_GOOD;
 
-	ata_qc_done(qc);
+	ata_scsi_qc_done(qc, true, SAM_STAT_GOOD);
 }
 /**
  *	atapi_xlat - Initialize PACKET taskfile
@@ -2973,6 +3108,9 @@ struct ata_device *
 ata_scsi_find_dev(struct ata_port *ap, const struct scsi_device *scsidev)
 {
 	struct ata_device *dev = __ata_scsi_find_dev(ap, scsidev);
+
+	if (!ata_adapter_is_online(ap))
+		return NULL;
 
 	if (unlikely(!dev || !ata_dev_enabled(dev)))
 		return NULL;
@@ -3452,31 +3590,16 @@ invalid_opcode:
 	return 1;
 }
 
-/**
- *	ata_scsiop_maint_in - Simulate a subset of MAINTENANCE_IN
- *	@dev: Target device.
- *	@cmd: SCSI command of interest.
- *	@rbuf: Response buffer, to which simulated SCSI cmd output is sent.
- *
- *	Yields a subset to satisfy scsi_report_opcode()
- *
- *	LOCKING:
- *	spin_lock_irqsave(host lock)
- */
-static unsigned int ata_scsiop_maint_in(struct ata_device *dev,
-					struct scsi_cmnd *cmd, u8 *rbuf)
+static unsigned int ata_scsi_report_supported_opcodes(struct ata_device *dev,
+						      struct scsi_cmnd *cmd,
+						      u8 *rbuf)
 {
 	u8 *cdb = cmd->cmnd;
 	u8 supported = 0, cdlp = 0, rwcdlp = 0;
 
-	if ((cdb[1] & 0x1f) != MI_REPORT_SUPPORTED_OPERATION_CODES) {
-		ata_scsi_set_invalid_field(dev, cmd, 1, 0xff);
-		return 0;
-	}
-
 	if (cdb[2] != 1 && cdb[2] != 3) {
 		ata_dev_warn(dev, "invalid command format %d\n", cdb[2]);
-		ata_scsi_set_invalid_field(dev, cmd, 1, 0xff);
+		ata_scsi_set_invalid_field(dev, cmd, 2, 0xff);
 		return 0;
 	}
 
@@ -3554,6 +3677,32 @@ static unsigned int ata_scsiop_maint_in(struct ata_device *dev,
 }
 
 /**
+ *	ata_scsiop_maint_in - Simulate a subset of MAINTENANCE_IN
+ *	@dev: Target device.
+ *	@cmd: SCSI command of interest.
+ *	@rbuf: Response buffer, to which simulated SCSI cmd output is sent.
+ *
+ *	Yields a subset to satisfy scsi_report_opcode()
+ *
+ *	LOCKING:
+ *	spin_lock_irqsave(host lock)
+ */
+static unsigned int ata_scsiop_maint_in(struct ata_device *dev,
+					struct scsi_cmnd *cmd, u8 *rbuf)
+{
+	u8 *cdb = cmd->cmnd;
+	u8 service_action = cdb[1] & 0x1f;
+
+	switch (service_action) {
+	case MI_REPORT_SUPPORTED_OPERATION_CODES:
+		return ata_scsi_report_supported_opcodes(dev, cmd, rbuf);
+	default:
+		ata_scsi_set_invalid_field(dev, cmd, 1, 0xff);
+		return 0;
+	}
+}
+
+/**
  *	ata_scsi_report_zones_complete - convert ATA output
  *	@qc: command structure returning the data
  *
@@ -3565,13 +3714,13 @@ static void ata_scsi_report_zones_complete(struct ata_queued_cmd *qc)
 {
 	struct scsi_cmnd *scmd = qc->scsicmd;
 	struct sg_mapping_iter miter;
-	unsigned long flags;
 	unsigned int bytes = 0;
+
+	lockdep_assert_held(qc->ap->lock);
 
 	sg_miter_start(&miter, scsi_sglist(scmd), scsi_sg_count(scmd),
 		       SG_MITER_TO_SG | SG_MITER_ATOMIC);
 
-	local_irq_save(flags);
 	while (sg_miter_next(&miter)) {
 		unsigned int offset = 0;
 
@@ -3619,7 +3768,6 @@ static void ata_scsi_report_zones_complete(struct ata_queued_cmd *qc)
 		}
 	}
 	sg_miter_stop(&miter);
-	local_irq_restore(flags);
 
 	ata_scsi_qc_complete(qc);
 }
@@ -4301,106 +4449,6 @@ static inline ata_xlat_func_t ata_get_xlat_func(struct ata_device *dev, u8 cmd)
 	return NULL;
 }
 
-int __ata_scsi_queuecmd(struct scsi_cmnd *scmd, struct ata_device *dev)
-{
-	struct ata_port *ap = dev->link->ap;
-	u8 scsi_op = scmd->cmnd[0];
-	ata_xlat_func_t xlat_func;
-
-	/*
-	 * scsi_queue_rq() will defer commands if scsi_host_in_recovery().
-	 * However, this check is done without holding the ap->lock (a libata
-	 * specific lock), so we can have received an error irq since then,
-	 * therefore we must check if EH is pending or running, while holding
-	 * ap->lock.
-	 */
-	if (ata_port_eh_scheduled(ap))
-		return SCSI_MLQUEUE_DEVICE_BUSY;
-
-	if (unlikely(!scmd->cmd_len))
-		goto bad_cdb_len;
-
-	if (dev->class == ATA_DEV_ATA || dev->class == ATA_DEV_ZAC) {
-		if (unlikely(scmd->cmd_len > dev->cdb_len))
-			goto bad_cdb_len;
-
-		xlat_func = ata_get_xlat_func(dev, scsi_op);
-	} else if (likely((scsi_op != ATA_16) || !atapi_passthru16)) {
-		/* relay SCSI command to ATAPI device */
-		int len = COMMAND_SIZE(scsi_op);
-
-		if (unlikely(len > scmd->cmd_len ||
-			     len > dev->cdb_len ||
-			     scmd->cmd_len > ATAPI_CDB_LEN))
-			goto bad_cdb_len;
-
-		xlat_func = atapi_xlat;
-	} else {
-		/* ATA_16 passthru, treat as an ATA command */
-		if (unlikely(scmd->cmd_len > 16))
-			goto bad_cdb_len;
-
-		xlat_func = ata_get_xlat_func(dev, scsi_op);
-	}
-
-	if (xlat_func)
-		return ata_scsi_translate(dev, scmd, xlat_func);
-
-	ata_scsi_simulate(dev, scmd);
-
-	return 0;
-
- bad_cdb_len:
-	scmd->result = DID_ERROR << 16;
-	scsi_done(scmd);
-	return 0;
-}
-
-/**
- *	ata_scsi_queuecmd - Issue SCSI cdb to libata-managed device
- *	@shost: SCSI host of command to be sent
- *	@cmd: SCSI command to be sent
- *
- *	In some cases, this function translates SCSI commands into
- *	ATA taskfiles, and queues the taskfiles to be sent to
- *	hardware.  In other cases, this function simulates a
- *	SCSI device by evaluating and responding to certain
- *	SCSI commands.  This creates the overall effect of
- *	ATA and ATAPI devices appearing as SCSI devices.
- *
- *	LOCKING:
- *	ATA host lock
- *
- *	RETURNS:
- *	Return value from __ata_scsi_queuecmd() if @cmd can be queued,
- *	0 otherwise.
- */
-int ata_scsi_queuecmd(struct Scsi_Host *shost, struct scsi_cmnd *cmd)
-{
-	struct ata_port *ap;
-	struct ata_device *dev;
-	struct scsi_device *scsidev = cmd->device;
-	int rc = 0;
-	unsigned long irq_flags;
-
-	ap = ata_shost_to_port(shost);
-
-	spin_lock_irqsave(ap->lock, irq_flags);
-
-	dev = ata_scsi_find_dev(ap, scsidev);
-	if (likely(dev))
-		rc = __ata_scsi_queuecmd(cmd, dev);
-	else {
-		cmd->result = (DID_BAD_TARGET << 16);
-		scsi_done(cmd);
-	}
-
-	spin_unlock_irqrestore(ap->lock, irq_flags);
-
-	return rc;
-}
-EXPORT_SYMBOL_GPL(ata_scsi_queuecmd);
-
 /**
  *	ata_scsi_simulate - simulate SCSI command on ATA device
  *	@dev: the target device
@@ -4412,13 +4460,12 @@ EXPORT_SYMBOL_GPL(ata_scsi_queuecmd);
  *	LOCKING:
  *	spin_lock_irqsave(host lock)
  */
-
-void ata_scsi_simulate(struct ata_device *dev, struct scsi_cmnd *cmd)
+static void ata_scsi_simulate(struct ata_device *dev, struct scsi_cmnd *cmd)
 {
 	const u8 *scsicmd = cmd->cmnd;
 	u8 tmp8;
 
-	switch(scsicmd[0]) {
+	switch (scsicmd[0]) {
 	case INQUIRY:
 		ata_scsi_rbuf_fill(dev, cmd, ata_scsiop_inquiry);
 		break;
@@ -4475,6 +4522,109 @@ void ata_scsi_simulate(struct ata_device *dev, struct scsi_cmnd *cmd)
 	scsi_done(cmd);
 }
 
+enum scsi_qc_status __ata_scsi_queuecmd(struct scsi_cmnd *scmd,
+					struct ata_device *dev,
+					struct ata_port *ap)
+	__must_hold(ap->lock)
+{
+	u8 scsi_op = scmd->cmnd[0];
+	ata_xlat_func_t xlat_func;
+
+	/*
+	 * scsi_queue_rq() will defer commands if scsi_host_in_recovery().
+	 * However, this check is done without holding the ap->lock (a libata
+	 * specific lock), so we can have received an error irq since then,
+	 * therefore we must check if EH is pending or running, while holding
+	 * ap->lock.
+	 */
+	if (ata_port_eh_scheduled(ap))
+		return SCSI_MLQUEUE_DEVICE_BUSY;
+
+	if (unlikely(!scmd->cmd_len))
+		goto bad_cdb_len;
+
+	if (dev->class == ATA_DEV_ATA || dev->class == ATA_DEV_ZAC) {
+		if (unlikely(scmd->cmd_len > dev->cdb_len))
+			goto bad_cdb_len;
+
+		xlat_func = ata_get_xlat_func(dev, scsi_op);
+	} else if (likely((scsi_op != ATA_16) || !atapi_passthru16)) {
+		/* relay SCSI command to ATAPI device */
+		int len = COMMAND_SIZE(scsi_op);
+
+		if (unlikely(len > scmd->cmd_len ||
+			     len > dev->cdb_len ||
+			     scmd->cmd_len > ATAPI_CDB_LEN))
+			goto bad_cdb_len;
+
+		xlat_func = atapi_xlat;
+	} else {
+		/* ATA_16 passthru, treat as an ATA command */
+		if (unlikely(scmd->cmd_len > 16))
+			goto bad_cdb_len;
+
+		xlat_func = ata_get_xlat_func(dev, scsi_op);
+	}
+
+	if (xlat_func)
+		return ata_scsi_translate(dev, scmd, xlat_func, ap);
+
+	ata_scsi_simulate(dev, scmd);
+
+	return 0;
+
+ bad_cdb_len:
+	scmd->result = DID_ERROR << 16;
+	scsi_done(scmd);
+	return 0;
+}
+
+/**
+ *	ata_scsi_queuecmd - Issue SCSI cdb to libata-managed device
+ *	@shost: SCSI host of command to be sent
+ *	@cmd: SCSI command to be sent
+ *
+ *	In some cases, this function translates SCSI commands into
+ *	ATA taskfiles, and queues the taskfiles to be sent to
+ *	hardware.  In other cases, this function simulates a
+ *	SCSI device by evaluating and responding to certain
+ *	SCSI commands.  This creates the overall effect of
+ *	ATA and ATAPI devices appearing as SCSI devices.
+ *
+ *	LOCKING:
+ *	ATA host lock
+ *
+ *	RETURNS:
+ *	Return value from __ata_scsi_queuecmd() if @cmd can be queued,
+ *	0 otherwise.
+ */
+enum scsi_qc_status ata_scsi_queuecmd(struct Scsi_Host *shost,
+				      struct scsi_cmnd *cmd)
+{
+	struct ata_port *ap;
+	struct ata_device *dev;
+	struct scsi_device *scsidev = cmd->device;
+	enum scsi_qc_status rc = 0;
+	unsigned long irq_flags;
+
+	ap = ata_shost_to_port(shost);
+
+	spin_lock_irqsave(ap->lock, irq_flags);
+
+	dev = ata_scsi_find_dev(ap, scsidev);
+	if (likely(dev))
+		rc = __ata_scsi_queuecmd(cmd, dev, ap);
+	else {
+		cmd->result = (DID_BAD_TARGET << 16);
+		scsi_done(cmd);
+	}
+
+	spin_unlock_irqrestore(ap->lock, irq_flags);
+
+	return rc;
+}
+EXPORT_SYMBOL_GPL(ata_scsi_queuecmd);
+
 int ata_scsi_add_hosts(struct ata_host *host, const struct scsi_host_template *sht)
 {
 	int i, rc;
@@ -4492,7 +4642,7 @@ int ata_scsi_add_hosts(struct ata_host *host, const struct scsi_host_template *s
 		*(struct ata_port **)&shost->hostdata[0] = ap;
 		ap->scsi_host = shost;
 
-		shost->transportt = ata_scsi_transport_template;
+		shost->transportt = &ata_scsi_transportt;
 		shost->unique_id = ap->print_id;
 		shost->max_id = 16;
 		shost->max_lun = 1;
@@ -4621,7 +4771,7 @@ void ata_scsi_scan_host(struct ata_port *ap, int sync)
 			     "WARNING: synchronous SCSI scan failed without making any progress, switching to async\n");
 	}
 
-	queue_delayed_work(system_long_wq, &ap->hotplug_task,
+	queue_delayed_work(system_dfl_long_wq, &ap->hotplug_task,
 			   round_jiffies_relative(HZ));
 }
 
@@ -4894,8 +5044,10 @@ void ata_scsi_dev_rescan(struct work_struct *work)
 			spin_unlock_irqrestore(ap->lock, flags);
 			if (do_resume) {
 				ret = scsi_resume_device(sdev);
-				if (ret == -EWOULDBLOCK)
+				if (ret == -EWOULDBLOCK) {
+					scsi_device_put(sdev);
 					goto unlock_scan;
+				}
 				dev->flags &= ~ATA_DFLAG_RESUMING;
 			}
 			ret = scsi_rescan_device(sdev);

@@ -6,6 +6,7 @@
 #ifndef __DRM_GPUSVM_H__
 #define __DRM_GPUSVM_H__
 
+#include <linux/dma-mapping.h>
 #include <linux/kref.h>
 #include <linux/interval_tree.h>
 #include <linux/mmu_notifier.h>
@@ -136,17 +137,16 @@ struct drm_gpusvm_pages_flags {
  * @dma_addr: Device address array
  * @dpagemap: The struct drm_pagemap of the device pages we're dma-mapping.
  *            Note this is assuming only one drm_pagemap per range is allowed.
+ * @state: DMA IOVA state for mapping.
+ * @state_offset: DMA IOVA offset for mapping.
  * @notifier_seq: Notifier sequence number of the range's pages
- * @flags: Flags for range
- * @flags.migrate_devmem: Flag indicating whether the range can be migrated to device memory
- * @flags.unmapped: Flag indicating if the range has been unmapped
- * @flags.partial_unmap: Flag indicating if the range has been partially unmapped
- * @flags.has_devmem_pages: Flag indicating if the range has devmem pages
- * @flags.has_dma_mapping: Flag indicating if the range has a DMA mapping
+ * @flags: Flags for the range; see &struct drm_gpusvm_pages_flags
  */
 struct drm_gpusvm_pages {
 	struct drm_pagemap_addr *dma_addr;
 	struct drm_pagemap *dpagemap;
+	struct dma_iova_state state;
+	unsigned long state_offset;
 	unsigned long notifier_seq;
 	struct drm_gpusvm_pages_flags flags;
 };
@@ -235,6 +235,9 @@ struct drm_gpusvm {
  * @read_only: operating on read-only memory
  * @devmem_possible: possible to use device memory
  * @devmem_only: use only device memory
+ * @allow_mixed: Allow mixed mappings in get pages. Mixing between system and
+ *               single dpagemap is supported, mixing between multiple dpagemap
+ *               is unsupported.
  *
  * Context that is DRM GPUSVM is operating in (i.e. user arguments).
  */
@@ -246,6 +249,7 @@ struct drm_gpusvm_ctx {
 	unsigned int read_only :1;
 	unsigned int devmem_possible :1;
 	unsigned int devmem_only :1;
+	unsigned int allow_mixed :1;
 };
 
 int drm_gpusvm_init(struct drm_gpusvm *gpusvm,
@@ -323,6 +327,35 @@ void drm_gpusvm_unmap_pages(struct drm_gpusvm *gpusvm,
 void drm_gpusvm_free_pages(struct drm_gpusvm *gpusvm,
 			   struct drm_gpusvm_pages *svm_pages,
 			   unsigned long npages);
+
+/**
+ * enum drm_gpusvm_scan_result - Scan result from the drm_gpusvm_scan_mm() function.
+ * @DRM_GPUSVM_SCAN_UNPOPULATED: At least one page was not present or inaccessible.
+ * @DRM_GPUSVM_SCAN_EQUAL: All pages belong to the struct dev_pagemap indicated as
+ * the @pagemap argument to the drm_gpusvm_scan_mm() function.
+ * @DRM_GPUSVM_SCAN_OTHER: All pages belong to exactly one dev_pagemap, which is
+ * *NOT* the @pagemap argument to the drm_gpusvm_scan_mm(). All pages belong to
+ * the same device private owner.
+ * @DRM_GPUSVM_SCAN_SYSTEM: All pages are present and system pages.
+ * @DRM_GPUSVM_SCAN_MIXED_DEVICE: All pages are device pages and belong to at least
+ * two different struct dev_pagemaps. All pages belong to the same device private
+ * owner.
+ * @DRM_GPUSVM_SCAN_MIXED: Pages are present and are a mix of system pages
+ * and device-private pages. All device-private pages belong to the same device
+ * private owner.
+ */
+enum drm_gpusvm_scan_result {
+	DRM_GPUSVM_SCAN_UNPOPULATED,
+	DRM_GPUSVM_SCAN_EQUAL,
+	DRM_GPUSVM_SCAN_OTHER,
+	DRM_GPUSVM_SCAN_SYSTEM,
+	DRM_GPUSVM_SCAN_MIXED_DEVICE,
+	DRM_GPUSVM_SCAN_MIXED,
+};
+
+enum drm_gpusvm_scan_result drm_gpusvm_scan_mm(struct drm_gpusvm_range *range,
+					       void *dev_private_owner,
+					       const struct dev_pagemap *pagemap);
 
 #ifdef CONFIG_LOCKDEP
 /**

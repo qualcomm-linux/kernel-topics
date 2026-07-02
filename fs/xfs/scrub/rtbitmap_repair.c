@@ -3,7 +3,7 @@
  * Copyright (C) 2020-2023 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -43,7 +43,6 @@ xrep_setup_rtbitmap(
 	struct xchk_rtbitmap	*rtb)
 {
 	struct xfs_mount	*mp = sc->mp;
-	char			*descr;
 	unsigned long long	blocks = mp->m_sb.sb_rbmblocks;
 	int			error;
 
@@ -52,9 +51,8 @@ xrep_setup_rtbitmap(
 		return error;
 
 	/* Create an xfile to hold our reconstructed bitmap. */
-	descr = xchk_xfile_rtgroup_descr(sc, "bitmap file");
-	error = xfile_create(descr, blocks * mp->m_sb.sb_blocksize, &sc->xfile);
-	kfree(descr);
+	error = xfile_create("realtime bitmap file",
+			blocks * mp->m_sb.sb_blocksize, &sc->xfile);
 	if (error)
 		return error;
 
@@ -384,7 +382,7 @@ xrep_rtbitmap_prep_buf(
 		struct xfs_rtbuf_blkinfo	*hdr = bp->b_addr;
 
 		hdr->rt_magic = cpu_to_be32(XFS_RTBITMAP_MAGIC);
-		hdr->rt_owner = cpu_to_be64(sc->ip->i_ino);
+		hdr->rt_owner = cpu_to_be64(I_INO(sc->ip));
 		hdr->rt_blkno = cpu_to_be64(xfs_buf_daddr(bp));
 		hdr->rt_lsn = 0;
 		uuid_copy(&hdr->rt_uuid, &sc->mp->m_sb.sb_meta_uuid);

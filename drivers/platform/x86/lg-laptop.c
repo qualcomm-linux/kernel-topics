@@ -19,6 +19,7 @@
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/string_choices.h>
 #include <linux/types.h>
 
 #include <acpi/battery.h>
@@ -42,6 +43,7 @@ MODULE_PARM_DESC(fw_debug, "Enable printing of firmware debug messages");
 #define LG_ADDRESS_SPACE_ID			0x8F
 
 #define LG_ADDRESS_SPACE_DEBUG_FLAG_ADR		0x00
+#define LG_ADDRESS_SPACE_HD_AUDIO_POWER_ADDR	0x01
 #define LG_ADDRESS_SPACE_FAN_MODE_ADR		0x03
 
 #define LG_ADDRESS_SPACE_DTTM_FLAG_ADR		0x20
@@ -267,11 +269,6 @@ static void wmi_input_setup(void)
 	} else {
 		pr_info("Cannot allocate input device");
 	}
-}
-
-static void acpi_notify(struct acpi_device *device, u32 event)
-{
-	acpi_handle_debug(device->handle, "notify: %d\n", event);
 }
 
 static ssize_t fan_mode_store(struct device *dev,
@@ -668,6 +665,15 @@ static acpi_status lg_laptop_address_space_write(struct device *dev, acpi_physic
 	byte = value & 0xFF;
 
 	switch (address) {
+	case LG_ADDRESS_SPACE_HD_AUDIO_POWER_ADDR:
+		/*
+		 * The HD audio power field is not affected by the DTTM flag,
+		 * so we have to manually check fw_debug.
+		 */
+		if (fw_debug)
+			dev_dbg(dev, "HD audio power %s\n", str_enabled_disabled(byte));
+
+		return AE_OK;
 	case LG_ADDRESS_SPACE_FAN_MODE_ADR:
 		/*
 		 * The fan mode field is not affected by the DTTM flag, so we
@@ -753,13 +759,13 @@ static void lg_laptop_remove_address_space_handler(void *data)
 					  &lg_laptop_address_space_handler);
 }
 
-static int acpi_add(struct acpi_device *device)
+static int acpi_probe(struct platform_device *pdev)
 {
 	struct platform_device_info pdev_info = {
-		.fwnode = acpi_fwnode_handle(device),
 		.name = PLATFORM_NAME,
 		.id = PLATFORM_DEVID_NONE,
 	};
+	struct acpi_device *device;
 	acpi_status status;
 	int ret;
 	const char *product;
@@ -768,13 +774,19 @@ static int acpi_add(struct acpi_device *device)
 	if (pf_device)
 		return 0;
 
+	device = ACPI_COMPANION(&pdev->dev);
+	if (!device)
+		return -ENODEV;
+
+	pdev_info.fwnode = acpi_fwnode_handle(device),
+
 	status = acpi_install_address_space_handler(device->handle, LG_ADDRESS_SPACE_ID,
 						    &lg_laptop_address_space_handler,
-						    NULL, &device->dev);
+						    NULL, &pdev->dev);
 	if (ACPI_FAILURE(status))
 		return -ENODEV;
 
-	ret = devm_add_action_or_reset(&device->dev, lg_laptop_remove_address_space_handler,
+	ret = devm_add_action_or_reset(&pdev->dev, lg_laptop_remove_address_space_handler,
 				       device);
 	if (ret < 0)
 		return ret;
@@ -827,8 +839,17 @@ static int acpi_add(struct acpi_device *device)
 				case 'P':
 					year = 2021;
 					break;
-				default:
+				case 'Q':
 					year = 2022;
+					break;
+				case 'R':
+					year = 2023;
+					break;
+				case 'S':
+					year = 2024;
+					break;
+				default:
+					year = 2025;
 				}
 			break;
 		default:
@@ -859,7 +880,7 @@ out_platform_registered:
 	return ret;
 }
 
-static void acpi_remove(struct acpi_device *device)
+static void acpi_remove(struct platform_device *pdev)
 {
 	sysfs_remove_group(&pf_device->dev.kobj, &dev_attribute_group);
 
@@ -879,34 +900,13 @@ static const struct acpi_device_id device_ids[] = {
 };
 MODULE_DEVICE_TABLE(acpi, device_ids);
 
-static struct acpi_driver acpi_driver = {
-	.name = "LG Gram Laptop Support",
-	.class = "lg-laptop",
-	.ids = device_ids,
-	.ops = {
-		.add = acpi_add,
-		.remove = acpi_remove,
-		.notify = acpi_notify,
-		},
+static struct platform_driver acpi_driver = {
+	.probe = acpi_probe,
+	.remove = acpi_remove,
+	.driver = {
+		.name = "LG Gram Laptop Support",
+		.acpi_match_table = device_ids,
+	},
 };
 
-static int __init acpi_init(void)
-{
-	int result;
-
-	result = acpi_bus_register_driver(&acpi_driver);
-	if (result < 0) {
-		pr_debug("Error registering driver\n");
-		return -ENODEV;
-	}
-
-	return 0;
-}
-
-static void __exit acpi_exit(void)
-{
-	acpi_bus_unregister_driver(&acpi_driver);
-}
-
-module_init(acpi_init);
-module_exit(acpi_exit);
+module_platform_driver(acpi_driver);

@@ -95,7 +95,7 @@ static int kvm_flush_pte(kvm_pte_t *pte, phys_addr_t addr, kvm_ptw_ctx *ctx)
 	else
 		kvm->stat.pages--;
 
-	*pte = ctx->invalid_entry;
+	kvm_set_pte(pte, ctx->invalid_entry);
 
 	return 1;
 }
@@ -857,7 +857,7 @@ retry:
 
 	if (writeable) {
 		prot_bits = kvm_pte_mkwriteable(prot_bits);
-		if (write)
+		if (write || !kvm_slot_dirty_track_enabled(memslot))
 			prot_bits = kvm_pte_mkdirty(prot_bits);
 	}
 

@@ -131,7 +131,7 @@ vcs_poll_data_get(struct file *file)
 	if (poll)
 		return poll;
 
-	poll = kzalloc(sizeof(*poll), GFP_KERNEL);
+	poll = kzalloc_obj(*poll);
 	if (!poll)
 		return NULL;
 	poll->cons_num = console(file_inode(file));
@@ -686,7 +686,7 @@ vcs_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 	}
 	*ppos += written;
 	ret = written;
-	if (written)
+	if (written && vc)
 		vcs_scr_updated(vc);
 
 	return ret;

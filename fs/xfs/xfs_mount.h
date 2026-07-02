@@ -13,6 +13,7 @@ struct xfs_ail;
 struct xfs_quotainfo;
 struct xfs_da_geometry;
 struct xfs_perag;
+struct xfs_healthmon;
 
 /* dynamic preallocation free space thresholds, 5% down to 1% */
 enum {
@@ -342,6 +343,12 @@ typedef struct xfs_mount {
 
 	/* Hook to feed dirent updates to an active online repair. */
 	struct xfs_hooks	m_dir_update_hooks;
+
+	/* Private data referring to a health monitor object. */
+	struct xfs_healthmon __rcu	*m_healthmon;
+
+	/* Index of uuid record in the uuid xarray. */
+	unsigned int		m_uuid_table_index;
 } xfs_mount_t;
 
 #define M_IGEO(mp)		(&(mp)->m_ino_geo)
@@ -573,8 +580,6 @@ __XFS_HAS_FEAT(nouuid, NOUUID)
 #define XFS_OPSTATE_WARNED_METADIR	17
 /* Filesystem should use qflags to determine quotaon status */
 #define XFS_OPSTATE_RESUMING_QUOTAON	18
-/* Kernel has logged a warning about zoned RT device being used on this fs. */
-#define XFS_OPSTATE_WARNED_ZONED	19
 /* (Zoned) GC is in progress */
 #define XFS_OPSTATE_ZONEGC_RUNNING	20
 

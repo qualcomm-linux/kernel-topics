@@ -21,7 +21,7 @@ static int tb_eeprom_ctl_write(struct tb_switch *sw, struct tb_eeprom_ctl *ctl)
 }
 
 /*
- * tb_eeprom_ctl_write() - read control word
+ * tb_eeprom_ctl_read() - read control word
  */
 static int tb_eeprom_ctl_read(struct tb_switch *sw, struct tb_eeprom_ctl *ctl)
 {
@@ -465,7 +465,7 @@ static void tb_switch_drom_free(struct tb_switch *sw)
  */
 static int tb_drom_copy_efi(struct tb_switch *sw, u16 *size)
 {
-	struct device *dev = &sw->tb->nhi->pdev->dev;
+	struct device *dev = sw->tb->nhi->dev;
 	int len, res;
 
 	len = device_property_count_u8(dev, "ThunderboltDROM");

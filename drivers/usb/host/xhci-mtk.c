@@ -185,9 +185,9 @@ static void xhci_mtk_rxfifo_depth_set(struct xhci_hcd_mtk *mtk)
 		return;
 
 	value = readl(hcd->regs + HSCH_CFG1);
-	value &= ~SCH3_RXFIFO_DEPTH_MASK;
-	value |= FIELD_PREP(SCH3_RXFIFO_DEPTH_MASK,
-			    SCH_FIFO_TO_KB(mtk->rxfifo_depth) - 1);
+	FIELD_MODIFY(SCH3_RXFIFO_DEPTH_MASK, &value,
+		     SCH_FIFO_TO_KB(mtk->rxfifo_depth) - 1);
+
 	writel(value, hcd->regs + HSCH_CFG1);
 }
 
@@ -670,7 +670,6 @@ static int xhci_mtk_probe(struct platform_device *pdev)
 	}
 
 	device_enable_async_suspend(dev);
-	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_autosuspend(dev);
 	pm_runtime_forbid(dev);
 

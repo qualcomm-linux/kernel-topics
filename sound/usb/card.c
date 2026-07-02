@@ -631,9 +631,9 @@ static void usb_audio_make_shortname(struct usb_device *dev,
 	}
 
 	/* retrieve the device string as shortname */
-	if (!dev->descriptor.iProduct ||
-	    usb_string(dev, dev->descriptor.iProduct,
-		       card->shortname, sizeof(card->shortname)) <= 0) {
+	if (dev->product && *dev->product) {
+		strscpy(card->shortname, dev->product);
+	} else {
 		/* no name available from anywhere, so use ID */
 		scnprintf(card->shortname, sizeof(card->shortname),
 			  "USB Device %#04x:%#04x",
@@ -668,15 +668,11 @@ static void usb_audio_make_longname(struct usb_device *dev,
 	else if (quirk && quirk->vendor_name)
 		s = quirk->vendor_name;
 	*card->longname = 0;
-	if (s && *s) {
-		strscpy(card->longname, s, sizeof(card->longname));
-	} else {
-		/* retrieve the vendor and device strings as longname */
-		if (dev->descriptor.iManufacturer)
-			usb_string(dev, dev->descriptor.iManufacturer,
-				   card->longname, sizeof(card->longname));
-		/* we don't really care if there isn't any vendor string */
-	}
+	if (s && *s)
+		strscpy(card->longname, s);
+	else if (dev->manufacturer && *dev->manufacturer)
+		strscpy(card->longname, dev->manufacturer);
+
 	if (*card->longname) {
 		strim(card->longname);
 		if (*card->longname)
@@ -773,7 +769,6 @@ static int snd_usb_audio_create(struct usb_interface *intf,
 
 	chip = card->private_data;
 	mutex_init(&chip->mutex);
-	init_waitqueue_head(&chip->shutdown_wait);
 	chip->index = idx;
 	chip->dev = dev;
 	chip->card = card;
@@ -782,7 +777,7 @@ static int snd_usb_audio_create(struct usb_interface *intf,
 	chip->autoclock = autoclock;
 	chip->lowlatency = lowlatency;
 	atomic_set(&chip->active, 1); /* avoid autopm during probing */
-	atomic_set(&chip->usage_count, 0);
+	snd_refcount_init(&chip->usage_count);
 	atomic_set(&chip->shutdown, 0);
 
 	chip->usb_id = usb_id;
@@ -870,19 +865,25 @@ static void find_last_interface(struct snd_usb_audio *chip)
 
 /* look for the corresponding quirk */
 static const struct snd_usb_audio_quirk *
-get_alias_quirk(struct usb_device *dev, unsigned int id)
+get_alias_quirk(struct usb_interface *intf, unsigned int id)
 {
 	const struct usb_device_id *p;
+	struct usb_device_id match_id;
 
 	for (p = usb_audio_ids; p->match_flags; p++) {
-		/* FIXME: this checks only vendor:product pair in the list */
-		if ((p->match_flags & USB_DEVICE_ID_MATCH_DEVICE) ==
-		    USB_DEVICE_ID_MATCH_DEVICE &&
-		    p->idVendor == USB_ID_VENDOR(id) &&
-		    p->idProduct == USB_ID_PRODUCT(id))
-			return (const struct snd_usb_audio_quirk *)p->driver_info;
-	}
+		if ((p->match_flags & USB_DEVICE_ID_MATCH_DEVICE) !=
+		     USB_DEVICE_ID_MATCH_DEVICE)
+			continue;
+		if (p->idVendor != USB_ID_VENDOR(id) ||
+		    p->idProduct != USB_ID_PRODUCT(id))
+			continue;
 
+		match_id = *p;
+		match_id.match_flags &= ~USB_DEVICE_ID_MATCH_DEVICE;
+		if (!match_id.match_flags || usb_match_one_id(intf, &match_id))
+			return (const struct snd_usb_audio_quirk *)
+				p->driver_info;
+	}
 	return NULL;
 }
 
@@ -931,7 +932,7 @@ static int usb_audio_probe(struct usb_interface *intf,
 	id = USB_ID(le16_to_cpu(dev->descriptor.idVendor),
 		    le16_to_cpu(dev->descriptor.idProduct));
 	if (get_alias_id(dev, &id))
-		quirk = get_alias_quirk(dev, id);
+		quirk = get_alias_quirk(intf, id);
 	if (quirk && quirk->ifnum >= 0 && ifnum != quirk->ifnum)
 		return -ENXIO;
 	if (quirk && quirk->ifnum == QUIRK_NODEV_INTERFACE)
@@ -1105,8 +1106,7 @@ static bool __usb_audio_disconnect(struct usb_interface *intf,
 		/* wait until all pending tasks done;
 		 * they are protected by snd_usb_lock_shutdown()
 		 */
-		wait_event(chip->shutdown_wait,
-			   !atomic_read(&chip->usage_count));
+		snd_refcount_sync(&chip->usage_count);
 		snd_card_disconnect(card);
 		/* release the pcm resources */
 		list_for_each_entry(as, &chip->pcm_list, list) {
@@ -1164,7 +1164,7 @@ int snd_usb_lock_shutdown(struct snd_usb_audio *chip)
 {
 	int err;
 
-	atomic_inc(&chip->usage_count);
+	snd_refcount_get(&chip->usage_count);
 	if (atomic_read(&chip->shutdown)) {
 		err = -EIO;
 		goto error;
@@ -1175,8 +1175,7 @@ int snd_usb_lock_shutdown(struct snd_usb_audio *chip)
 	return 0;
 
  error:
-	if (atomic_dec_and_test(&chip->usage_count))
-		wake_up(&chip->shutdown_wait);
+	snd_refcount_put(&chip->usage_count);
 	return err;
 }
 EXPORT_SYMBOL_GPL(snd_usb_lock_shutdown);
@@ -1185,8 +1184,7 @@ EXPORT_SYMBOL_GPL(snd_usb_lock_shutdown);
 void snd_usb_unlock_shutdown(struct snd_usb_audio *chip)
 {
 	snd_usb_autosuspend(chip);
-	if (atomic_dec_and_test(&chip->usage_count))
-		wake_up(&chip->shutdown_wait);
+	snd_refcount_put(&chip->usage_count);
 }
 EXPORT_SYMBOL_GPL(snd_usb_unlock_shutdown);
 

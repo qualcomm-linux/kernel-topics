@@ -19,7 +19,6 @@ Contents:
    amd/pds_vfio_pci
    aquantia/atlantic
    chelsio/cxgb
-   cirrus/cs89x0
    dlink/dl2k
    davicom/dm9000
    dec/dmfe
@@ -47,12 +46,11 @@ Contents:
    mellanox/mlx5/index
    meta/fbnic
    microsoft/netvsc
-   neterion/s2io
+   mucse/rnpgbe
    netronome/nfp
    pensando/ionic
    pensando/ionic_rdma
    qualcomm/ppe/ppe
-   smsc/smc9
    stmicro/stmmac
    ti/cpsw
    ti/cpsw_switchdev
@@ -63,10 +61,3 @@ Contents:
    wangxun/txgbevf
    wangxun/ngbe
    wangxun/ngbevf
-
-.. only::  subproject and html
-
-   Indices
-   =======
-
-   * :ref:`genindex`

@@ -402,7 +402,7 @@ static int idt821034_kctrl_gain_get(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	int min = mc->min;
 	int max = mc->max;
@@ -433,7 +433,7 @@ static int idt821034_kctrl_gain_put(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	struct idt821034_amp *amp;
 	int min = mc->min;
@@ -487,7 +487,7 @@ end:
 static int idt821034_kctrl_mute_get(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	int id = kcontrol->private_value;
 	bool is_muted;
@@ -509,7 +509,7 @@ static int idt821034_kctrl_mute_get(struct snd_kcontrol *kcontrol,
 static int idt821034_kctrl_mute_put(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct idt821034 *idt821034 = snd_soc_component_get_drvdata(component);
 	int id = kcontrol->private_value;
 	struct idt821034_amp *amp;
@@ -860,18 +860,17 @@ static int idt821034_dai_startup(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static const u64 idt821034_dai_formats[] = {
+static const u64 idt821034_dai_formats =
 	SND_SOC_POSSIBLE_DAIFMT_DSP_A	|
-	SND_SOC_POSSIBLE_DAIFMT_DSP_B,
-};
+	SND_SOC_POSSIBLE_DAIFMT_DSP_B;
 
 static const struct snd_soc_dai_ops idt821034_dai_ops = {
 	.startup      = idt821034_dai_startup,
 	.hw_params    = idt821034_dai_hw_params,
 	.set_tdm_slot = idt821034_dai_set_tdm_slot,
 	.set_fmt      = idt821034_dai_set_fmt,
-	.auto_selectable_formats     = idt821034_dai_formats,
-	.num_auto_selectable_formats = ARRAY_SIZE(idt821034_dai_formats),
+	.auto_selectable_formats     = &idt821034_dai_formats,
+	.num_auto_selectable_formats = 1,
 };
 
 static struct snd_soc_dai_driver idt821034_dai_driver = {

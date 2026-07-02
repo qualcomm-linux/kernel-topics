@@ -308,8 +308,7 @@ struct reg_setting {
 static int coeff_ram_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct tscs454 *tscs454 = snd_soc_component_get_drvdata(component);
 	struct coeff_ram_ctl *ctl =
 		(struct coeff_ram_ctl *)kcontrol->private_value;
@@ -389,8 +388,7 @@ static int write_coeff_ram(struct snd_soc_component *component, u8 *coeff_ram,
 static int coeff_ram_put(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_component *component =
-		snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct tscs454 *tscs454 = snd_soc_component_get_drvdata(component);
 	struct coeff_ram_ctl *ctl =
 		(struct coeff_ram_ctl *)kcontrol->private_value;
@@ -3456,7 +3454,7 @@ static int tscs454_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id tscs454_i2c_id[] = {
-	{ "tscs454" },
+	{ .name = "tscs454" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tscs454_i2c_id);

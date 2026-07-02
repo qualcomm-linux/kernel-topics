@@ -1062,7 +1062,7 @@ static int cs43130_pcm_ch_put(struct snd_kcontrol *kcontrol,
 {
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *item = ucontrol->value.enumerated.item;
-	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct cs43130_private *cs43130 = snd_soc_component_get_drvdata(component);
 	unsigned int val;
 
@@ -2753,11 +2753,11 @@ MODULE_DEVICE_TABLE(acpi, cs43130_acpi_match);
 
 
 static const struct i2c_device_id cs43130_i2c_id[] = {
-	{"cs43130"},
-	{"cs4399"},
-	{"cs43131"},
-	{"cs43198"},
-	{}
+	{ .name = "cs43130" },
+	{ .name = "cs4399" },
+	{ .name = "cs43131" },
+	{ .name = "cs43198" },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(i2c, cs43130_i2c_id);

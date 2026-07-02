@@ -49,6 +49,7 @@ properties:
               - qcom,qcs615-apss-shared
               - qcom,sc7180-apss-shared
               - qcom,sc8180x-apss-shared
+              - qcom,shikra-apss-shared
               - qcom,sm7150-apss-shared
               - qcom,sm8150-apss-shared
           - const: qcom,sdm845-apss-shared
@@ -187,10 +188,10 @@ allOf:
             enum:
               - qcom,msm8916-apcs-kpss-global
     then:
-      $ref: "#/$defs/msm8916-apcs-clock-controller"
+      $ref: '#/$defs/msm8916-apcs-clock-controller'
       properties:
         clock-controller:
-          $ref: "#/$defs/msm8916-apcs-clock-controller"
+          $ref: '#/$defs/msm8916-apcs-clock-controller'
 
   - if:
       properties:
@@ -199,10 +200,10 @@ allOf:
             enum:
               - qcom,msm8939-apcs-kpss-global
     then:
-      $ref: "#/$defs/msm8939-apcs-clock-controller"
+      $ref: '#/$defs/msm8939-apcs-clock-controller'
       properties:
         clock-controller:
-          $ref: "#/$defs/msm8939-apcs-clock-controller"
+          $ref: '#/$defs/msm8939-apcs-clock-controller'
 
   - if:
       properties:
@@ -211,10 +212,10 @@ allOf:
             enum:
               - qcom,sdx55-apcs-gcc
     then:
-      $ref: "#/$defs/sdx55-apcs-clock-controller"
+      $ref: '#/$defs/sdx55-apcs-clock-controller'
       properties:
         clock-controller:
-          $ref: "#/$defs/sdx55-apcs-clock-controller"
+          $ref: '#/$defs/sdx55-apcs-clock-controller'
 
   - if:
       properties:
@@ -223,10 +224,10 @@ allOf:
             enum:
               - qcom,ipq6018-apcs-apps-global
     then:
-      $ref: "#/$defs/ipq6018-apcs-clock-controller"
+      $ref: '#/$defs/ipq6018-apcs-clock-controller'
       properties:
         clock-controller:
-          $ref: "#/$defs/ipq6018-apcs-clock-controller"
+          $ref: '#/$defs/ipq6018-apcs-clock-controller'
 
   - if:
       properties:

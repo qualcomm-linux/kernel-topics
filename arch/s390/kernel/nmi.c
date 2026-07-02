@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include <linux/sched/signal.h>
 #include <linux/kvm_host.h>
+#include <asm/entry-percpu.h>
 #include <asm/lowcore.h>
 #include <asm/ctlreg.h>
 #include <asm/fpu.h>
@@ -184,7 +185,7 @@ static notrace void nmi_print_info(void)
 	sclp_emergency_printk(message);
 }
 
-static notrace void s390_handle_damage(void)
+static notrace void __noreturn s390_handle_damage(void)
 {
 	struct lowcore *lc = get_lowcore();
 	union ctlreg0 cr0, cr0_new;
@@ -214,7 +215,6 @@ static notrace void s390_handle_damage(void)
 	lc->mcck_new_psw = psw_save;
 	local_ctl_load(0, &cr0.reg);
 	disabled_wait();
-	while (1);
 }
 NOKPROBE_SYMBOL(s390_handle_damage);
 
@@ -364,6 +364,7 @@ NOKPROBE_SYMBOL(s390_backup_mcck_info);
  */
 void notrace s390_do_machine_check(struct pt_regs *regs)
 {
+	bool percpu_needs_fixup;
 	static int ipd_count;
 	static DEFINE_SPINLOCK(ipd_lock);
 	static unsigned long long last_ipd;
@@ -375,6 +376,7 @@ void notrace s390_do_machine_check(struct pt_regs *regs)
 	unsigned long mcck_dam_code;
 	int mcck_pending = 0;
 
+	percpu_entry(regs);
 	irq_state = irqentry_nmi_enter(regs);
 
 	if (user_mode(regs))
@@ -488,15 +490,17 @@ void notrace s390_do_machine_check(struct pt_regs *regs)
 	mcck_dam_code = (mci.val & MCIC_SUBCLASS_MASK);
 	if (test_cpu_flag(CIF_MCCK_GUEST) &&
 	(mcck_dam_code & MCCK_CODE_NO_GUEST) != mcck_dam_code) {
-		/* Set exit reason code for host's later handling */
-		*((long *)(regs->gprs[15] + __SF_SIE_REASON)) = -EINTR;
+		/* Set sie return code for host's later handling */
+		((struct stack_frame *)regs->gprs[15])->sie_return = SIE64_RETURN_MCCK;
 	}
 	clear_cpu_flag(CIF_MCCK_GUEST);
 
 	if (mcck_pending)
 		schedule_mcck_handler();
 
+	percpu_needs_fixup = percpu_code_check(regs);
 	irqentry_nmi_exit(regs, irq_state);
+	percpu_exit(regs, percpu_needs_fixup);
 }
 NOKPROBE_SYMBOL(s390_do_machine_check);
 

@@ -97,7 +97,11 @@ ivpu_ipc_tx_prepare(struct ivpu_device *vdev, struct ivpu_ipc_consumer *cons,
 
 	memset(tx_buf, 0, sizeof(*tx_buf));
 	tx_buf->ipc.data_addr = jsm_vpu_addr;
-	/* TODO: Set data_size to actual JSM message size, not union of all messages */
+	/*
+	 * Firmware expects full JSM message size regardless of the payload size.
+	 * Unused fields must be zeroed to allow future extensions of existing
+	 * commands without breaking compatibility.
+	 */
 	tx_buf->ipc.data_size = sizeof(*req);
 	tx_buf->ipc.channel = cons->channel;
 	tx_buf->ipc.src_node = 0;
@@ -142,7 +146,7 @@ ivpu_ipc_rx_msg_add(struct ivpu_device *vdev, struct ivpu_ipc_consumer *cons,
 
 	lockdep_assert_held(&ipc->cons_lock);
 
-	rx_msg = kzalloc(sizeof(*rx_msg), GFP_ATOMIC);
+	rx_msg = kzalloc_obj(*rx_msg, GFP_ATOMIC);
 	if (!rx_msg) {
 		ivpu_ipc_rx_mark_free(vdev, ipc_hdr, jsm_msg);
 		return;
@@ -276,7 +280,7 @@ int ivpu_ipc_receive(struct ivpu_device *vdev, struct ivpu_ipc_consumer *cons,
 	if (ipc_buf)
 		memcpy(ipc_buf, rx_msg->ipc_hdr, sizeof(*ipc_buf));
 	if (rx_msg->jsm_msg) {
-		u32 size = min_t(int, rx_msg->ipc_hdr->data_size, sizeof(*jsm_msg));
+		u32 size = min(rx_msg->ipc_hdr->data_size, sizeof(*jsm_msg));
 
 		if (rx_msg->jsm_msg->result != VPU_JSM_STATUS_SUCCESS) {
 			ivpu_err(vdev, "IPC resp result error: %d\n", rx_msg->jsm_msg->result);
@@ -459,7 +463,7 @@ void ivpu_ipc_irq_handler(struct ivpu_device *vdev)
 		}
 	}
 
-	queue_work(system_wq, &vdev->irq_ipc_work);
+	queue_work(system_percpu_wq, &vdev->irq_ipc_work);
 }
 
 void ivpu_ipc_irq_work_fn(struct work_struct *work)

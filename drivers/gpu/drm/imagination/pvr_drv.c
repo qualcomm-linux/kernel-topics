@@ -14,6 +14,7 @@
 #include "pvr_rogue_defs.h"
 #include "pvr_rogue_fwif_client.h"
 #include "pvr_rogue_fwif_shared.h"
+#include "pvr_trace.h"
 #include "pvr_vm.h"
 
 #include <uapi/drm/pvr_drm.h>
@@ -1150,6 +1151,8 @@ pvr_ioctl_submit_jobs(struct drm_device *drm_dev, void *raw_args,
 	int idx;
 	int err;
 
+	trace_pvr_job_submit_ioctl(pvr_dev, args->jobs.count);
+
 	if (!drm_dev_enter(drm_dev, &idx))
 		return -EIO;
 
@@ -1312,7 +1315,7 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
 	struct pvr_file *pvr_file;
 
-	pvr_file = kzalloc(sizeof(*pvr_file), GFP_KERNEL);
+	pvr_file = kzalloc_obj(*pvr_file);
 	if (!pvr_file)
 		return -ENOMEM;
 

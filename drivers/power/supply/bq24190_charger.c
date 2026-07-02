@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
+#include <linux/devm-helpers.h>
 #include <linux/pm_runtime.h>
 #include <linux/power_supply.h>
 #include <linux/power/bq24190_charger.h>
@@ -2087,8 +2088,11 @@ static int bq24190_probe(struct i2c_client *client)
 	bdi->charge_type = POWER_SUPPLY_CHARGE_TYPE_FAST;
 	bdi->f_reg = 0;
 	bdi->ss_reg = BQ24190_REG_SS_VBUS_STAT_MASK; /* impossible state */
-	INIT_DELAYED_WORK(&bdi->input_current_limit_work,
-			  bq24190_input_current_limit_work);
+
+	ret = devm_delayed_work_autocancel(dev, &bdi->input_current_limit_work,
+					   bq24190_input_current_limit_work);
+	if (ret)
+		return ret;
 
 	i2c_set_clientdata(client, bdi);
 
@@ -2198,7 +2202,6 @@ static void bq24190_remove(struct i2c_client *client)
 	struct bq24190_dev_info *bdi = i2c_get_clientdata(client);
 	int error;
 
-	cancel_delayed_work_sync(&bdi->input_current_limit_work);
 	error = pm_runtime_resume_and_get(bdi->dev);
 	if (error < 0)
 		dev_warn(bdi->dev, "pm_runtime_get failed: %i\n", error);
@@ -2305,14 +2308,14 @@ static const struct dev_pm_ops bq24190_pm_ops = {
 };
 
 static const struct i2c_device_id bq24190_i2c_ids[] = {
-	{ "bq24190", (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24190] },
-	{ "bq24192", (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24192] },
-	{ "bq24192i", (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24192i] },
-	{ "bq24193", (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24193] },
-	{ "bq24196", (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24196] },
-	{ "bq24296", (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24296] },
-	{ "bq24297", (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24297] },
-	{ },
+	{ .name = "bq24190", .driver_data = (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24190] },
+	{ .name = "bq24192", .driver_data = (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24192] },
+	{ .name = "bq24192i", .driver_data = (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24192i] },
+	{ .name = "bq24193", .driver_data = (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24193] },
+	{ .name = "bq24196", .driver_data = (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24196] },
+	{ .name = "bq24296", .driver_data = (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24296] },
+	{ .name = "bq24297", .driver_data = (kernel_ulong_t)&bq24190_chip_info_tbl[BQ24297] },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bq24190_i2c_ids);
 

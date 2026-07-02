@@ -53,7 +53,8 @@ v1 is available under :ref:`Documentation/admin-guide/cgroup-v1/index.rst <cgrou
      5-2. Memory
        5-2-1. Memory Interface Files
        5-2-2. Usage Guidelines
-       5-2-3. Memory Ownership
+       5-2-3. Reclaim Protection
+       5-2-4. Memory Ownership
      5-3. IO
        5-3-1. IO Interface Files
        5-3-2. Writeback
@@ -219,7 +220,7 @@ cgroup v2 currently supports the following mount options.
   memory_hugetlb_accounting
         Count HugeTLB memory usage towards the cgroup's overall
         memory usage for the memory controller (for the purpose of
-        statistics reporting and memory protetion). This is a new
+        statistics reporting and memory protection). This is a new
         behavior that could regress existing setups, so it must be
         explicitly opted in with this mount option.
 
@@ -735,9 +736,6 @@ As allocations can't be over-committed, some configuration
 combinations are invalid and should be rejected.  Also, if the
 resource is mandatory for execution of processes, process migrations
 may be rejected.
-
-"cpu.rt.max" hard-allocates realtime slices and is an example of this
-type.
 
 
 Interface Files
@@ -1317,7 +1315,7 @@ PAGE_SIZE multiple when read back.
 	smaller overages.
 
 	Effective min boundary is limited by memory.min values of
-	all ancestor cgroups. If there is memory.min overcommitment
+	ancestor cgroups. If there is memory.min overcommitment
 	(child cgroup or cgroups are requiring more protected memory
 	than parent will allow), then each child cgroup will get
 	the part of parent's protection proportional to its
@@ -1325,9 +1323,6 @@ PAGE_SIZE multiple when read back.
 
 	Putting more memory than generally available under this
 	protection is discouraged and may lead to constant OOMs.
-
-	If a memory cgroup is not populated with processes,
-	its memory.min is ignored.
 
   memory.low
 	A read-write single value file which exists on non-root
@@ -1343,7 +1338,7 @@ PAGE_SIZE multiple when read back.
 	smaller overages.
 
 	Effective low boundary is limited by memory.low values of
-	all ancestor cgroups. If there is memory.low overcommitment
+	ancestor cgroups. If there is memory.low overcommitment
 	(child cgroup or cgroups are requiring more protected memory
 	than parent will allow), then each child cgroup will get
 	the part of parent's protection proportional to its
@@ -1514,6 +1509,10 @@ The following nested keys are defined.
 
           oom_group_kill
                 The number of times a group OOM has occurred.
+
+          sock_throttled
+                The number of times network sockets associated with
+                this cgroup are throttled.
 
   memory.events.local
 	Similar to memory.events but the fields in the file are local
@@ -1735,6 +1734,11 @@ The following nested keys are defined.
 	  zswpwb
 		Number of pages written from zswap to swap.
 
+	  zswap_incomp
+		Number of incompressible pages currently stored in zswap
+		without compression. These pages could not be compressed to
+		a size smaller than PAGE_SIZE, so they are stored as-is.
+
 	  thp_fault_alloc (npn)
 		Number of transparent hugepages which were allocated to satisfy
 		a page fault. This counter is not present when CONFIG_TRANSPARENT_HUGEPAGE
@@ -1934,6 +1938,27 @@ memory - is necessary to determine whether a workload needs more
 memory; unfortunately, memory pressure monitoring mechanism isn't
 implemented yet.
 
+Reclaim Protection
+~~~~~~~~~~~~~~~~~~
+
+The protection configured with "memory.low" or "memory.min" applies relatively
+to the target of the reclaim (i.e. any of memory cgroup limits, proactive
+memory.reclaim or global reclaim apparently located in the root cgroup).
+The protection value configured for B applies unchanged to the reclaim
+targeting A (i.e. caused by competition with the sibling E)::
+
+		root - ... - A - B - C
+		              \    ` D
+		               ` E
+
+When the reclaim targets ancestors of A, the effective protection of B is
+capped by the protection value configured for A (and any other intermediate
+ancestors between A and the target).
+
+To express indifference about relative sibling protection, it is suggested to
+use memory_recursiveprot. Configuring all descendants of a parent with finite
+protection to "max" works but it may unnecessarily skew memory.events:low
+field.
 
 Memory Ownership
 ~~~~~~~~~~~~~~~~
@@ -2538,10 +2563,10 @@ Cpuset Interface Files
 	Users can manually set it to a value that is different from
 	"cpuset.cpus".	One constraint in setting it is that the list of
 	CPUs must be exclusive with respect to "cpuset.cpus.exclusive"
-	of its sibling.  If "cpuset.cpus.exclusive" of a sibling cgroup
-	isn't set, its "cpuset.cpus" value, if set, cannot be a subset
-	of it to leave at least one CPU available when the exclusive
-	CPUs are taken away.
+	and "cpuset.cpus.exclusive.effective" of its siblings.	Another
+	constraint is that it cannot be a superset of "cpuset.cpus"
+	of its sibling in order to leave at least one CPU available to
+	that sibling when the exclusive CPUs are taken away.
 
 	For a parent cgroup, any one of its exclusive CPUs can only
 	be distributed to at most one of its child cgroups.  Having an
@@ -2561,9 +2586,9 @@ Cpuset Interface Files
 	of this file will always be a subset of its parent's
 	"cpuset.cpus.exclusive.effective" if its parent is not the root
 	cgroup.  It will also be a subset of "cpuset.cpus.exclusive"
-	if it is set.  If "cpuset.cpus.exclusive" is not set, it is
-	treated to have an implicit value of "cpuset.cpus" in the
-	formation of local partition.
+	if it is set.  This file should only be non-empty if either
+	"cpuset.cpus.exclusive" is set or when the current cpuset is
+	a valid partition root.
 
   cpuset.cpus.isolated
 	A read-only and root cgroup only multiple values file.
@@ -2595,13 +2620,22 @@ Cpuset Interface Files
 	There are two types of partitions - local and remote.  A local
 	partition is one whose parent cgroup is also a valid partition
 	root.  A remote partition is one whose parent cgroup is not a
-	valid partition root itself.  Writing to "cpuset.cpus.exclusive"
-	is optional for the creation of a local partition as its
-	"cpuset.cpus.exclusive" file will assume an implicit value that
-	is the same as "cpuset.cpus" if it is not set.	Writing the
-	proper "cpuset.cpus.exclusive" values down the cgroup hierarchy
-	before the target partition root is mandatory for the creation
-	of a remote partition.
+	valid partition root itself.
+
+	Writing to "cpuset.cpus.exclusive" is optional for the creation
+	of a local partition as its "cpuset.cpus.exclusive" file will
+	assume an implicit value that is the same as "cpuset.cpus" if it
+	is not set.  Writing the proper "cpuset.cpus.exclusive" values
+	down the cgroup hierarchy before the target partition root is
+	mandatory for the creation of a remote partition.
+
+	Not all the CPUs requested in "cpuset.cpus.exclusive" can be
+	used to form a new partition.  Only those that were present
+	in its parent's "cpuset.cpus.exclusive.effective" control
+	file can be used.  For partitions created without setting
+	"cpuset.cpus.exclusive", exclusive CPUs specified in sibling's
+	"cpuset.cpus.exclusive" or "cpuset.cpus.exclusive.effective"
+	also cannot be used.
 
 	Currently, a remote partition cannot be created under a local
 	partition.  All the ancestors of a remote partition root except
@@ -2609,6 +2643,10 @@ Cpuset Interface Files
 
 	The root cgroup is always a partition root and its state cannot
 	be changed.  All other non-root cgroups start out as "member".
+	Even though the "cpuset.cpus.exclusive*" and "cpuset.cpus"
+	control files are not present in the root cgroup, they are
+	implicitly the same as the "/sys/devices/system/cpu/possible"
+	sysfs file.
 
 	When set to "root", the current cgroup is the root of a new
 	partition or scheduling domain.  The set of exclusive CPUs is
@@ -2747,6 +2785,59 @@ RDMA Interface Files
 	  mlx4_0 hca_handle=1 hca_object=20
 	  ocrdma1 hca_handle=1 hca_object=23
 
+  rdma.peak
+	A read-only nested-keyed file that exists for all the cgroups
+	except root.  It shows the historical high watermark of
+	resource usage per device since the cgroup was created.
+
+	An example for mlx4 and ocrdma device follows::
+
+	  mlx4_0 hca_handle=1 hca_object=20
+	  ocrdma1 hca_handle=0 hca_object=23
+
+  rdma.events
+	A read-only nested-keyed file which exists on non-root
+	cgroups.  The following nested keys are defined.
+
+	  max
+		The number of times a process in this cgroup or its
+		descendants attempted an RDMA resource allocation that
+		was rejected because a rdma.max limit in the subtree
+		was reached.  This is a hierarchical counter: the event
+		is propagated upward to all ancestor cgroups.  A value
+		change in this file generates a file modified event.
+
+	  alloc_fail
+		The number of RDMA resource allocation attempts that
+		originated in this cgroup or its descendants and failed
+		due to a rdma.max limit being reached.  This is a
+		hierarchical counter propagated upward.
+
+	An example for mlx4 device follows::
+
+	  mlx4_0 hca_handle.max=5 hca_handle.alloc_fail=3 hca_object.max=0 hca_object.alloc_fail=0
+
+  rdma.events.local
+	Similar to rdma.events but the fields in the file are local
+	to the cgroup i.e. not hierarchical.  The file modified event
+	generated on this file reflects only the local events.
+
+	The following nested keys are defined.
+
+	  max
+		The number of times a process in this cgroup or its
+		descendants attempted an RDMA resource allocation that
+		was rejected because this cgroup's own rdma.max limit
+		was reached.
+	  alloc_fail
+		The number of RDMA resource allocation attempts
+		originating from this cgroup that failed due to this
+		cgroup's or an ancestor's rdma.max limit.
+
+	An example for mlx4 device follows::
+
+	  mlx4_0 hca_handle.max=5 hca_handle.alloc_fail=0 hca_object.max=0 hca_object.alloc_fail=0
+
 DMEM
 ----
 
@@ -2793,7 +2884,7 @@ DMEM Interface Files
 HugeTLB
 -------
 
-The HugeTLB controller allows to limit the HugeTLB usage per control group and
+The HugeTLB controller allows limiting the HugeTLB usage per control group and
 enforces the controller limit during page fault.
 
 HugeTLB Interface Files

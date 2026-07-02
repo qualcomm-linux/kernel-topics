@@ -15,8 +15,7 @@
  *	      Michael Holzheu <holzheu@linux.vnet.ibm.com>
  */
 
-#define KMSG_COMPONENT "bpf_jit"
-#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "bpf_jit: " fmt
 
 #include <linux/netdevice.h>
 #include <linux/filter.h>
@@ -28,6 +27,7 @@
 #include <asm/extable.h>
 #include <asm/dis.h>
 #include <asm/facility.h>
+#include <asm/lowcore.h>
 #include <asm/nospec-branch.h>
 #include <asm/set_memory.h>
 #include <asm/text-patching.h>
@@ -831,25 +831,34 @@ static int bpf_jit_probe_post(struct bpf_jit *jit, struct bpf_prog *fp,
 }
 
 /*
- * Sign-extend the register if necessary
+ * Sign- or zero-extend the register if necessary
  */
-static int sign_extend(struct bpf_jit *jit, int r, u8 size, u8 flags)
+static int sign_zero_extend(struct bpf_jit *jit, int r, u8 size, u8 flags)
 {
-	if (!(flags & BTF_FMODEL_SIGNED_ARG))
-		return 0;
-
 	switch (size) {
 	case 1:
-		/* lgbr %r,%r */
-		EMIT4(0xb9060000, r, r);
+		if (flags & BTF_FMODEL_SIGNED_ARG)
+			/* lgbr %r,%r */
+			EMIT4(0xb9060000, r, r);
+		else
+			/* llgcr %r,%r */
+			EMIT4(0xb9840000, r, r);
 		return 0;
 	case 2:
-		/* lghr %r,%r */
-		EMIT4(0xb9070000, r, r);
+		if (flags & BTF_FMODEL_SIGNED_ARG)
+			/* lghr %r,%r */
+			EMIT4(0xb9070000, r, r);
+		else
+			/* llghr %r,%r */
+			EMIT4(0xb9850000, r, r);
 		return 0;
 	case 4:
-		/* lgfr %r,%r */
-		EMIT4(0xb9140000, r, r);
+		if (flags & BTF_FMODEL_SIGNED_ARG)
+			/* lgfr %r,%r */
+			EMIT4(0xb9140000, r, r);
+		else
+			/* llgfr %r,%r */
+			EMIT4(0xb9160000, r, r);
 		return 0;
 	case 8:
 		return 0;
@@ -1769,6 +1778,30 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 		int j, ret;
 		u64 func;
 
+		/* Implement helper call to bpf_get_smp_processor_id() inline */
+		if (insn->src_reg == 0 &&
+		    insn->imm == BPF_FUNC_get_smp_processor_id) {
+			const u32 *cpu_nr = &get_lowcore()->cpu_nr;
+
+			/* ly %b0, cpu_nr */
+			EMIT6_DISP_LH(0xe3000000, 0x0058, BPF_REG_0, REG_0, REG_0,
+				      (unsigned long)cpu_nr);
+			break;
+		}
+
+		/* Implement helper call to bpf_get_current_task/_btf() inline */
+		if (insn->src_reg == 0 &&
+		    (insn->imm == BPF_FUNC_get_current_task ||
+		     insn->imm == BPF_FUNC_get_current_task_btf)) {
+			const u64 *current_task =
+				&get_lowcore()->current_task;
+
+			/* lg %b0, current_task */
+			EMIT6_DISP_LH(0xe3000000, 0x0004, BPF_REG_0, REG_0, REG_0,
+				      (unsigned long)current_task);
+			break;
+		}
+
 		ret = bpf_jit_get_func_addr(fp, insn, extra_pass,
 					    &func, &func_addr_fixed);
 		if (ret < 0)
@@ -1799,9 +1832,9 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 				return -1;
 
 			for (j = 0; j < m->nr_args; j++) {
-				if (sign_extend(jit, BPF_REG_1 + j,
-						m->arg_size[j],
-						m->arg_flags[j]))
+				if (sign_zero_extend(jit, BPF_REG_1 + j,
+						     m->arg_size[j],
+						     m->arg_flags[j]))
 					return -1;
 			}
 		}
@@ -1863,20 +1896,21 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 				 jit->prg);
 
 		/*
-		 * if (tail_call_cnt++ >= MAX_TAIL_CALL_CNT)
+		 * if (tail_call_cnt >= MAX_TAIL_CALL_CNT)
 		 *         goto out;
+		 *
+		 * tail_call_cnt is read into %w0, which needs to be preserved
+		 * until it's incremented and flushed.
 		 */
 
 		off = jit->frame_off +
 		      offsetof(struct prog_frame, tail_call_cnt);
-		/* lhi %w0,1 */
-		EMIT4_IMM(0xa7080000, REG_W0, 1);
-		/* laal %w1,%w0,off(%r15) */
-		EMIT6_DISP_LH(0xeb000000, 0x00fa, REG_W1, REG_W0, REG_15, off);
-		/* clij %w1,MAX_TAIL_CALL_CNT-1,0x2,out */
+		/* ly %w0,off(%r15) */
+		EMIT6_DISP_LH(0xe3000000, 0x0058, REG_W0, REG_0, REG_15, off);
+		/* clij %w0,MAX_TAIL_CALL_CNT,0xa,out */
 		patch_2_clij = jit->prg;
-		EMIT6_PCREL_RIEC(0xec000000, 0x007f, REG_W1, MAX_TAIL_CALL_CNT - 1,
-				 2, jit->prg);
+		EMIT6_PCREL_RIEC(0xec000000, 0x007f, REG_W0, MAX_TAIL_CALL_CNT,
+				 0xa, jit->prg);
 
 		/*
 		 * prog = array->ptrs[index];
@@ -1894,6 +1928,12 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 		/* brc 0x8,out */
 		patch_3_brc = jit->prg;
 		EMIT4_PCREL_RIC(0xa7040000, 8, jit->prg);
+
+		/* tail_call_cnt++; */
+		/* ahi %w0,1 */
+		EMIT4_IMM(0xa70a0000, REG_W0, 1);
+		/* sty %w0,off(%r15) */
+		EMIT6_DISP_LH(0xe3000000, 0x0050, REG_W0, REG_0, REG_15, off);
 
 		/*
 		 * Restore registers before calling function
@@ -2297,38 +2337,22 @@ static struct bpf_binary_header *bpf_jit_alloc(struct bpf_jit *jit,
 /*
  * Compile eBPF program "fp"
  */
-struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
+struct bpf_prog *bpf_int_jit_compile(struct bpf_verifier_env *env, struct bpf_prog *fp)
 {
-	struct bpf_prog *tmp, *orig_fp = fp;
 	struct bpf_binary_header *header;
 	struct s390_jit_data *jit_data;
-	bool tmp_blinded = false;
 	bool extra_pass = false;
 	struct bpf_jit jit;
 	int pass;
 
 	if (!fp->jit_requested)
-		return orig_fp;
-
-	tmp = bpf_jit_blind_constants(fp);
-	/*
-	 * If blinding was requested and we failed during blinding,
-	 * we must fall back to the interpreter.
-	 */
-	if (IS_ERR(tmp))
-		return orig_fp;
-	if (tmp != fp) {
-		tmp_blinded = true;
-		fp = tmp;
-	}
+		return fp;
 
 	jit_data = fp->aux->jit_data;
 	if (!jit_data) {
-		jit_data = kzalloc(sizeof(*jit_data), GFP_KERNEL);
-		if (!jit_data) {
-			fp = orig_fp;
-			goto out;
-		}
+		jit_data = kzalloc_obj(*jit_data);
+		if (!jit_data)
+			return fp;
 		fp->aux->jit_data = jit_data;
 	}
 	if (jit_data->ctx.addrs) {
@@ -2341,34 +2365,27 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
 
 	memset(&jit, 0, sizeof(jit));
 	jit.addrs = kvcalloc(fp->len + 1, sizeof(*jit.addrs), GFP_KERNEL);
-	if (jit.addrs == NULL) {
-		fp = orig_fp;
-		goto free_addrs;
-	}
+	if (jit.addrs == NULL)
+		goto out_err;
 	/*
 	 * Three initial passes:
 	 *   - 1/2: Determine clobbered registers
 	 *   - 3:   Calculate program size and addrs array
 	 */
 	for (pass = 1; pass <= 3; pass++) {
-		if (bpf_jit_prog(&jit, fp, extra_pass)) {
-			fp = orig_fp;
-			goto free_addrs;
-		}
+		if (bpf_jit_prog(&jit, fp, extra_pass))
+			goto out_err;
 	}
 	/*
 	 * Final pass: Allocate and generate program
 	 */
 	header = bpf_jit_alloc(&jit, fp);
-	if (!header) {
-		fp = orig_fp;
-		goto free_addrs;
-	}
+	if (!header)
+		goto out_err;
 skip_init_ctx:
 	if (bpf_jit_prog(&jit, fp, extra_pass)) {
 		bpf_jit_binary_free(header);
-		fp = orig_fp;
-		goto free_addrs;
+		goto out_err;
 	}
 	if (bpf_jit_enable > 1) {
 		bpf_jit_dump(fp->len, jit.size, pass, jit.prg_buf);
@@ -2377,8 +2394,7 @@ skip_init_ctx:
 	if (!fp->is_func || extra_pass) {
 		if (bpf_jit_binary_lock_ro(header)) {
 			bpf_jit_binary_free(header);
-			fp = orig_fp;
-			goto free_addrs;
+			goto out_err;
 		}
 	} else {
 		jit_data->header = header;
@@ -2396,11 +2412,16 @@ free_addrs:
 		kfree(jit_data);
 		fp->aux->jit_data = NULL;
 	}
-out:
-	if (tmp_blinded)
-		bpf_jit_prog_release_other(fp, fp == orig_fp ?
-					   tmp : orig_fp);
+
 	return fp;
+
+out_err:
+	if (extra_pass) {
+		fp->bpf_func = NULL;
+		fp->jited = 0;
+		fp->jited_len = 0;
+	}
+	goto free_addrs;
 }
 
 bool bpf_jit_supports_kfunc_call(void)
@@ -2413,8 +2434,9 @@ bool bpf_jit_supports_far_kfunc_call(void)
 	return true;
 }
 
-int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
-		       void *old_addr, void *new_addr)
+int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type old_t,
+		       enum bpf_text_poke_type new_t, void *old_addr,
+		       void *new_addr)
 {
 	struct bpf_plt expected_plt, current_plt, new_plt, *plt;
 	struct {
@@ -2431,7 +2453,7 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
 	if (insn.opc != (0xc004 | (old_addr ? 0xf0 : 0)))
 		return -EINVAL;
 
-	if (t == BPF_MOD_JUMP &&
+	if ((new_t == BPF_MOD_JUMP || old_t == BPF_MOD_JUMP) &&
 	    insn.disp == ((char *)new_addr - (char *)ip) >> 1) {
 		/*
 		 * The branch already points to the destination,
@@ -2480,8 +2502,8 @@ struct bpf_tramp_jit {
 	int ip_off;		/* For bpf_get_func_ip(), has to be at
 				 * (ctx - 16)
 				 */
-	int arg_cnt_off;	/* For bpf_get_func_arg_cnt(), has to be at
-				 * (ctx - 8)
+	int func_meta_off;	/* For bpf_get_func_arg_cnt()/fsession, has
+				 * to be at (ctx - 8)
 				 */
 	int bpf_args_off;	/* Offset of BPF_PROG context, which consists
 				 * of BPF arguments followed by return value
@@ -2506,24 +2528,28 @@ static void load_imm64(struct bpf_jit *jit, int dst_reg, u64 val)
 	EMIT6_IMM(0xc00d0000, dst_reg, val);
 }
 
+static void emit_store_stack_imm64(struct bpf_jit *jit, int tmp_reg, int stack_off, u64 imm)
+{
+	load_imm64(jit, tmp_reg, imm);
+	/* stg %tmp_reg,stack_off(%r15) */
+	EMIT6_DISP_LH(0xe3000000, 0x0024, tmp_reg, REG_0, REG_15, stack_off);
+}
+
 static int invoke_bpf_prog(struct bpf_tramp_jit *tjit,
 			   const struct btf_func_model *m,
-			   struct bpf_tramp_link *tlink, bool save_ret)
+			   struct bpf_tramp_node *node, bool save_ret)
 {
 	struct bpf_jit *jit = &tjit->common;
 	int cookie_off = tjit->run_ctx_off +
 			 offsetof(struct bpf_tramp_run_ctx, bpf_cookie);
-	struct bpf_prog *p = tlink->link.prog;
+	struct bpf_prog *p = node->link->prog;
 	int patch;
 
 	/*
-	 * run_ctx.cookie = tlink->cookie;
+	 * run_ctx.cookie = node->cookie;
 	 */
 
-	/* %r0 = tlink->cookie */
-	load_imm64(jit, REG_W0, tlink->cookie);
-	/* stg %r0,cookie_off(%r15) */
-	EMIT6_DISP_LH(0xe3000000, 0x0024, REG_W0, REG_0, REG_15, cookie_off);
+	emit_store_stack_imm64(jit, REG_W0, cookie_off, node->cookie);
 
 	/*
 	 * if ((start = __bpf_prog_enter(p, &run_ctx)) == 0)
@@ -2555,7 +2581,7 @@ static int invoke_bpf_prog(struct bpf_tramp_jit *tjit,
 	EMIT6_PCREL_RILB_PTR(0xc0050000, REG_14, p->bpf_func);
 	/* stg %r2,retval_off(%r15) */
 	if (save_ret) {
-		if (sign_extend(jit, REG_2, m->ret_size, m->ret_flags))
+		if (sign_zero_extend(jit, REG_2, m->ret_size, m->ret_flags))
 			return -1;
 		EMIT6_DISP_LH(0xe3000000, 0x0024, REG_2, REG_0, REG_15,
 			      tjit->retval_off);
@@ -2577,6 +2603,28 @@ static int invoke_bpf_prog(struct bpf_tramp_jit *tjit,
 	EMIT4_DISP(0x41000000, REG_4, REG_15, tjit->run_ctx_off);
 	/* brasl %r14,__bpf_prog_exit */
 	EMIT6_PCREL_RILB_PTR(0xc0050000, REG_14, bpf_trampoline_exit(p));
+
+	return 0;
+}
+
+static int invoke_bpf(struct bpf_tramp_jit *tjit,
+		      const struct btf_func_model *m,
+		      struct bpf_tramp_nodes *tn, bool save_ret,
+		      u64 func_meta, int cookie_off)
+{
+	int i, cur_cookie = (tjit->bpf_args_off - cookie_off) / sizeof(u64);
+	struct bpf_jit *jit = &tjit->common;
+
+	for (i = 0; i < tn->nr_nodes; i++) {
+		if (bpf_prog_calls_session_cookie(tn->nodes[i])) {
+			u64 meta = func_meta | ((u64)cur_cookie << BPF_TRAMP_COOKIE_INDEX_SHIFT);
+
+			emit_store_stack_imm64(jit, REG_0, tjit->func_meta_off, meta);
+			cur_cookie--;
+		}
+		if (invoke_bpf_prog(tjit, m, tn->nodes[i], save_ret))
+			return -EINVAL;
+	}
 
 	return 0;
 }
@@ -2603,15 +2651,17 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 					 struct bpf_tramp_jit *tjit,
 					 const struct btf_func_model *m,
 					 u32 flags,
-					 struct bpf_tramp_links *tlinks,
+					 struct bpf_tramp_nodes *tnodes,
 					 void *func_addr)
 {
-	struct bpf_tramp_links *fmod_ret = &tlinks[BPF_TRAMP_MODIFY_RETURN];
-	struct bpf_tramp_links *fentry = &tlinks[BPF_TRAMP_FENTRY];
-	struct bpf_tramp_links *fexit = &tlinks[BPF_TRAMP_FEXIT];
+	struct bpf_tramp_nodes *fmod_ret = &tnodes[BPF_TRAMP_MODIFY_RETURN];
+	struct bpf_tramp_nodes *fentry = &tnodes[BPF_TRAMP_FENTRY];
+	struct bpf_tramp_nodes *fexit = &tnodes[BPF_TRAMP_FEXIT];
 	int nr_bpf_args, nr_reg_args, nr_stack_args;
+	int cookie_cnt, cookie_off, fsession_cnt;
 	struct bpf_jit *jit = &tjit->common;
 	int arg, bpf_arg_off;
+	u64 func_meta;
 	int i, j;
 
 	/* Support as many stack arguments as "mvc" instruction can handle. */
@@ -2643,6 +2693,9 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 			return -ENOTSUPP;
 	}
 
+	cookie_cnt = bpf_fsession_cookie_cnt(tnodes);
+	fsession_cnt = bpf_fsession_cnt(tnodes);
+
 	/*
 	 * Calculate the stack layout.
 	 */
@@ -2655,8 +2708,9 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	tjit->backchain_off = tjit->stack_size - sizeof(u64);
 	tjit->stack_args_off = alloc_stack(tjit, nr_stack_args * sizeof(u64));
 	tjit->reg_args_off = alloc_stack(tjit, nr_reg_args * sizeof(u64));
+	cookie_off = alloc_stack(tjit, cookie_cnt * sizeof(u64));
 	tjit->ip_off = alloc_stack(tjit, sizeof(u64));
-	tjit->arg_cnt_off = alloc_stack(tjit, sizeof(u64));
+	tjit->func_meta_off = alloc_stack(tjit, sizeof(u64));
 	tjit->bpf_args_off = alloc_stack(tjit, nr_bpf_args * sizeof(u64));
 	tjit->retval_off = alloc_stack(tjit, sizeof(u64));
 	tjit->r7_r8_off = alloc_stack(tjit, 2 * sizeof(u64));
@@ -2743,18 +2797,14 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	 * arg_cnt = m->nr_args;
 	 */
 
-	if (flags & BPF_TRAMP_F_IP_ARG) {
-		/* %r0 = func_addr */
-		load_imm64(jit, REG_0, (u64)func_addr);
-		/* stg %r0,ip_off(%r15) */
-		EMIT6_DISP_LH(0xe3000000, 0x0024, REG_0, REG_0, REG_15,
-			      tjit->ip_off);
-	}
-	/* lghi %r0,nr_bpf_args */
-	EMIT4_IMM(0xa7090000, REG_0, nr_bpf_args);
-	/* stg %r0,arg_cnt_off(%r15) */
+	if (flags & BPF_TRAMP_F_IP_ARG)
+		emit_store_stack_imm64(jit, REG_0, tjit->ip_off, (u64)func_addr);
+	func_meta = nr_bpf_args;
+	/* lghi %r0,func_meta */
+	EMIT4_IMM(0xa7090000, REG_0, func_meta);
+	/* stg %r0,func_meta_off(%r15) */
 	EMIT6_DISP_LH(0xe3000000, 0x0024, REG_0, REG_0, REG_15,
-		      tjit->arg_cnt_off);
+		      tjit->func_meta_off);
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		/*
@@ -2767,12 +2817,19 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 		EMIT6_PCREL_RILB_PTR(0xc0050000, REG_14, __bpf_tramp_enter);
 	}
 
-	for (i = 0; i < fentry->nr_links; i++)
-		if (invoke_bpf_prog(tjit, m, fentry->links[i],
-				    flags & BPF_TRAMP_F_RET_FENTRY_RET))
-			return -EINVAL;
+	if (fsession_cnt) {
+		/* Clear all the session cookies' value. */
+		for (i = 0; i < cookie_cnt; i++)
+			emit_store_stack_imm64(jit, REG_0, cookie_off + 8 * i, 0);
+		/* Clear the return value to make sure fentry always gets 0. */
+		emit_store_stack_imm64(jit, REG_0, tjit->retval_off, 0);
+	}
 
-	if (fmod_ret->nr_links) {
+	if (invoke_bpf(tjit, m, fentry, flags & BPF_TRAMP_F_RET_FENTRY_RET,
+		       func_meta, cookie_off))
+		return -EINVAL;
+
+	if (fmod_ret->nr_nodes) {
 		/*
 		 * retval = 0;
 		 */
@@ -2781,8 +2838,8 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 		_EMIT6(0xd707f000 | tjit->retval_off,
 		       0xf000 | tjit->retval_off);
 
-		for (i = 0; i < fmod_ret->nr_links; i++) {
-			if (invoke_bpf_prog(tjit, m, fmod_ret->links[i], true))
+		for (i = 0; i < fmod_ret->nr_nodes; i++) {
+			if (invoke_bpf_prog(tjit, m, fmod_ret->nodes[i], true))
 				return -EINVAL;
 
 			/*
@@ -2847,11 +2904,16 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 		EMIT6_PCREL_RILC(0xc0040000, 0, (u64)im->ip_epilogue);
 	}
 
+	/* Set the "is_return" flag for fsession. */
+	func_meta |= (1ULL << BPF_TRAMP_IS_RETURN_SHIFT);
+	if (fsession_cnt)
+		emit_store_stack_imm64(jit, REG_W0, tjit->func_meta_off,
+				       func_meta);
+
 	/* do_fexit: */
 	tjit->do_fexit = jit->prg;
-	for (i = 0; i < fexit->nr_links; i++)
-		if (invoke_bpf_prog(tjit, m, fexit->links[i], false))
-			return -EINVAL;
+	if (invoke_bpf(tjit, m, fexit, false, func_meta, cookie_off))
+		return -EINVAL;
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		im->ip_epilogue = jit->prg_buf + jit->prg;
@@ -2902,7 +2964,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 }
 
 int arch_bpf_trampoline_size(const struct btf_func_model *m, u32 flags,
-			     struct bpf_tramp_links *tlinks, void *orig_call)
+			     struct bpf_tramp_nodes *tnodes, void *orig_call)
 {
 	struct bpf_tramp_image im;
 	struct bpf_tramp_jit tjit;
@@ -2911,14 +2973,14 @@ int arch_bpf_trampoline_size(const struct btf_func_model *m, u32 flags,
 	memset(&tjit, 0, sizeof(tjit));
 
 	ret = __arch_prepare_bpf_trampoline(&im, &tjit, m, flags,
-					    tlinks, orig_call);
+					    tnodes, orig_call);
 
 	return ret < 0 ? ret : tjit.common.prg;
 }
 
 int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 				void *image_end, const struct btf_func_model *m,
-				u32 flags, struct bpf_tramp_links *tlinks,
+				u32 flags, struct bpf_tramp_nodes *tnodes,
 				void *func_addr)
 {
 	struct bpf_tramp_jit tjit;
@@ -2927,7 +2989,7 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 	/* Compute offsets, check whether the code fits. */
 	memset(&tjit, 0, sizeof(tjit));
 	ret = __arch_prepare_bpf_trampoline(im, &tjit, m, flags,
-					    tlinks, func_addr);
+					    tnodes, func_addr);
 
 	if (ret < 0)
 		return ret;
@@ -2941,7 +3003,7 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 	tjit.common.prg = 0;
 	tjit.common.prg_buf = image;
 	ret = __arch_prepare_bpf_trampoline(im, &tjit, m, flags,
-					    tlinks, func_addr);
+					    tnodes, func_addr);
 
 	return ret < 0 ? ret : tjit.common.prg;
 }
@@ -2952,6 +3014,11 @@ bool bpf_jit_supports_subprog_tailcalls(void)
 }
 
 bool bpf_jit_supports_arena(void)
+{
+	return true;
+}
+
+bool bpf_jit_supports_fsession(void)
 {
 	return true;
 }
@@ -3014,4 +3081,16 @@ void arch_bpf_stack_walk(bool (*consume_fn)(void *, u64, u64, u64),
 bool bpf_jit_supports_timed_may_goto(void)
 {
 	return true;
+}
+
+bool bpf_jit_inlines_helper_call(s32 imm)
+{
+	switch (imm) {
+	case BPF_FUNC_get_smp_processor_id:
+	case BPF_FUNC_get_current_task:
+	case BPF_FUNC_get_current_task_btf:
+		return true;
+	default:
+		return false;
+	}
 }

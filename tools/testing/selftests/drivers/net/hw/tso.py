@@ -36,8 +36,11 @@ def tcp_sock_get_retrans(sock):
 def run_one_stream(cfg, ipver, remote_v4, remote_v6, should_lso):
     cfg.require_cmd("socat", local=False, remote=True)
 
+    # Set recv window clamp to avoid overwhelming receiver on debug kernels
+    # the 200k clamp should still let use reach > 15Gbps on real HW
     port = rand_port()
-    listen_cmd = f"socat -{ipver} -t 2 -u TCP-LISTEN:{port},reuseport /dev/null,ignoreeof"
+    listen_opts = f"{port},reuseport,tcp-window-clamp=200000"
+    listen_cmd = f"socat -{ipver} -t 2 -u TCP-LISTEN:{listen_opts} /dev/null,ignoreeof"
 
     with bkg(listen_cmd, host=cfg.remote, exit_wait=True) as nc:
         wait_port_listen(port, host=cfg.remote)
@@ -68,7 +71,7 @@ def run_one_stream(cfg, ipver, remote_v4, remote_v6, should_lso):
 
         # Make sure we have order of magnitude more LSO packets than
         # retransmits, in case TCP retransmitted all the LSO packets.
-        ksft_lt(tcp_sock_get_retrans(sock), total_lso_wire / 4)
+        ksft_lt(tcp_sock_get_retrans(sock), total_lso_wire / 16)
         sock.close()
 
         if should_lso:
@@ -236,6 +239,9 @@ def main() -> None:
             ("vxlan_csum", "", "tx-udp_tnl-csum-segmentation", ("vxlan", "id 100 dstport 4789 udpcsum", ("4", "6"))),
             ("gre",        "4", "tx-gre-segmentation",         ("gre",   "", ("4", "6"))),
             ("gre",        "6", "tx-gre-segmentation",         ("ip6gre","", ("4", "6"))),
+            ("ip",         "6", "tx-ipxip6-segmentation",      ("ip6tnl","mode any", ("4", "6"))),
+            ("ip",         "4", "tx-ipxip4-segmentation",      ("sit","", ("6", ))),
+            ("ip",         "4", "tx-ipxip4-segmentation",      ("ipip","", ("4", ))),
         )
 
         cases = []

@@ -554,11 +554,10 @@
 
 &gpu {
 	status = "okay";
+};
 
-	zap-shader {
-		memory-region = <&gpu_mem>;
-		firmware-name = "qcom/sm8250/xiaomi/elish/a650_zap.mbn";
-	};
+&gpu_zap_shader {
+	firmware-name = "qcom/sm8250/xiaomi/elish/a650_zap.mbn";
 };
 
 &i2c0 {
@@ -725,6 +724,8 @@
 		power-role = "dual";
 		data-role = "dual";
 		self-powered;
+
+		vbus-supply = <&pm8150b_vbus>;
 
 		source-pdos = <PDO_FIXED(5000, 3000,
 					 PDO_FIXED_DUAL_ROLE |

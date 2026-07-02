@@ -219,6 +219,7 @@ static void gscps2_read_data(struct gscps2port *ps2port)
 		ps2port->buffer[ps2port->append].str = status;
 		ps2port->buffer[ps2port->append].data =
 				gscps2_readb_input(ps2port->addr);
+		ps2port->append = (ps2port->append + 1) & BUFFER_SIZE;
 	} while (true);
 }
 
@@ -350,8 +351,8 @@ static int __init gscps2_probe(struct parisc_device *dev)
 	if (dev->id.sversion == 0x96)
 		hpa += GSC_DINO_OFFSET;
 
-	ps2port = kzalloc(sizeof(*ps2port), GFP_KERNEL);
-	serio = kzalloc(sizeof(*serio), GFP_KERNEL);
+	ps2port = kzalloc_obj(*ps2port);
+	serio = kzalloc_obj(*serio);
 	if (!ps2port || !serio) {
 		ret = -ENOMEM;
 		goto fail_nomem;

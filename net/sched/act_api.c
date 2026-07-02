@@ -112,11 +112,6 @@ struct tcf_chain *tcf_action_set_ctrlact(struct tc_action *a, int action,
 }
 EXPORT_SYMBOL(tcf_action_set_ctrlact);
 
-/* XXX: For standalone actions, we don't need a RCU grace period either, because
- * actions are always connected to filters and filters are already destroyed in
- * RCU callbacks, so after a RCU grace period actions are already disconnected
- * from filters. Readers later can not find us.
- */
 static void free_tcf(struct tc_action *p)
 {
 	struct tcf_chain *chain = rcu_dereference_protected(p->goto_chain, 1);
@@ -129,7 +124,7 @@ static void free_tcf(struct tc_action *p)
 	if (chain)
 		tcf_chain_put_by_act(chain);
 
-	kfree(p);
+	kfree_rcu(p, tcfa_rcu);
 }
 
 static void offload_action_hw_count_set(struct tc_action *act,
@@ -940,6 +935,8 @@ void tcf_idrinfo_destroy(const struct tc_action_ops *ops,
 	int ret;
 
 	idr_for_each_entry_ul(idr, p, tmp, id) {
+		if (IS_ERR(p))
+			continue;
 		if (tc_act_in_hw(p) && !mutex_taken) {
 			rtnl_lock();
 			mutex_taken = true;
@@ -983,7 +980,7 @@ static int tcf_pernet_add_id_list(unsigned int id)
 		}
 	}
 
-	id_ptr = kzalloc(sizeof(*id_ptr), GFP_KERNEL);
+	id_ptr = kzalloc_obj(*id_ptr);
 	if (!id_ptr) {
 		ret = -ENOMEM;
 		goto err_out;
@@ -1270,7 +1267,7 @@ errout:
 
 static struct tc_cookie *nla_memdup_cookie(struct nlattr **tb)
 {
-	struct tc_cookie *c = kzalloc(sizeof(*c), GFP_KERNEL);
+	struct tc_cookie *c = kzalloc_obj(*c);
 	if (!c)
 		return NULL;
 
@@ -1576,7 +1573,7 @@ void tcf_action_update_stats(struct tc_action *a, u64 bytes, u64 packets,
 	if (a->cpu_bstats) {
 		_bstats_update(this_cpu_ptr(a->cpu_bstats), bytes, packets);
 
-		this_cpu_ptr(a->cpu_qstats)->drops += drops;
+		this_cpu_add(a->cpu_qstats->drops, drops);
 
 		if (hw)
 			_bstats_update(this_cpu_ptr(a->cpu_bstats_hw),

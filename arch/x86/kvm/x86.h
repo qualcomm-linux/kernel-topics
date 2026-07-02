@@ -6,7 +6,7 @@
 #include <asm/fpu/xstate.h>
 #include <asm/mce.h>
 #include <asm/pvclock.h>
-#include "kvm_cache_regs.h"
+#include "regs.h"
 #include "kvm_emulate.h"
 #include "cpuid.h"
 
@@ -172,9 +172,30 @@ static inline void kvm_nested_vmexit_handle_ibrs(struct kvm_vcpu *vcpu)
 		indirect_branch_prediction_barrier();
 }
 
-static inline bool kvm_vcpu_has_run(struct kvm_vcpu *vcpu)
+/*
+ * Disallow modifying CPUID and feature MSRs, which affect the core virtual CPU
+ * model exposed to the guest and virtualized by KVM, if the vCPU has already
+ * run or is in guest mode (L2).  In both cases, KVM has already consumed the
+ * current virtual CPU model, and doesn't support "unwinding" to react to the
+ * new model.
+ *
+ * Note, the only way is_guest_mode() can be true with 'last_vmentry_cpu == -1'
+ * is if userspace sets CPUID and feature MSRs (to enable VMX/SVM), then sets
+ * nested state, and then attempts to set CPUID and/or feature MSRs *again*.
+ */
+static inline bool kvm_can_set_cpuid_and_feature_msrs(struct kvm_vcpu *vcpu)
 {
-	return vcpu->arch.last_vmentry_cpu != -1;
+	return vcpu->arch.last_vmentry_cpu == -1 && !is_guest_mode(vcpu);
+}
+
+/*
+ * WARN if a nested VM-Enter is pending completion, and userspace hasn't gained
+ * control since the nested VM-Enter was initiated (in which case, userspace
+ * may have modified vCPU state to induce an architecturally invalid VM-Exit).
+ */
+static inline void kvm_warn_on_nested_run_pending(struct kvm_vcpu *vcpu)
+{
+	WARN_ON_ONCE(vcpu->arch.nested_run_pending == KVM_NESTED_RUN_PENDING);
 }
 
 static inline void kvm_set_mp_state(struct kvm_vcpu *vcpu, int mp_state)
@@ -222,42 +243,6 @@ static inline bool kvm_exception_is_soft(unsigned int nr)
 	return (nr == BP_VECTOR) || (nr == OF_VECTOR);
 }
 
-static inline bool is_protmode(struct kvm_vcpu *vcpu)
-{
-	return kvm_is_cr0_bit_set(vcpu, X86_CR0_PE);
-}
-
-static inline bool is_long_mode(struct kvm_vcpu *vcpu)
-{
-#ifdef CONFIG_X86_64
-	return !!(vcpu->arch.efer & EFER_LMA);
-#else
-	return false;
-#endif
-}
-
-static inline bool is_64_bit_mode(struct kvm_vcpu *vcpu)
-{
-	int cs_db, cs_l;
-
-	WARN_ON_ONCE(vcpu->arch.guest_state_protected);
-
-	if (!is_long_mode(vcpu))
-		return false;
-	kvm_x86_call(get_cs_db_l_bits)(vcpu, &cs_db, &cs_l);
-	return cs_l;
-}
-
-static inline bool is_64_bit_hypercall(struct kvm_vcpu *vcpu)
-{
-	/*
-	 * If running with protected guest state, the CS register is not
-	 * accessible. The hypercall register values will have had to been
-	 * provided in 64-bit mode, so assume the guest is in 64-bit.
-	 */
-	return vcpu->arch.guest_state_protected || is_64_bit_mode(vcpu);
-}
-
 static inline bool x86_exception_has_error_code(unsigned int vector)
 {
 	static u32 exception_has_error_code = BIT(DF_VECTOR) | BIT(TS_VECTOR) |
@@ -269,27 +254,7 @@ static inline bool x86_exception_has_error_code(unsigned int vector)
 
 static inline bool mmu_is_nested(struct kvm_vcpu *vcpu)
 {
-	return vcpu->arch.walk_mmu == &vcpu->arch.nested_mmu;
-}
-
-static inline bool is_pae(struct kvm_vcpu *vcpu)
-{
-	return kvm_is_cr4_bit_set(vcpu, X86_CR4_PAE);
-}
-
-static inline bool is_pse(struct kvm_vcpu *vcpu)
-{
-	return kvm_is_cr4_bit_set(vcpu, X86_CR4_PSE);
-}
-
-static inline bool is_paging(struct kvm_vcpu *vcpu)
-{
-	return likely(kvm_is_cr0_bit_set(vcpu, X86_CR0_PG));
-}
-
-static inline bool is_pae_paging(struct kvm_vcpu *vcpu)
-{
-	return !is_long_mode(vcpu) && is_pae(vcpu) && is_paging(vcpu);
+	return vcpu->arch.mmu == &vcpu->arch.guest_mmu;
 }
 
 static inline u8 vcpu_virt_addr_bits(struct kvm_vcpu *vcpu)
@@ -400,24 +365,23 @@ static inline bool vcpu_match_mmio_gpa(struct kvm_vcpu *vcpu, gpa_t gpa)
 	return false;
 }
 
-static inline unsigned long kvm_register_read(struct kvm_vcpu *vcpu, int reg)
-{
-	unsigned long val = kvm_register_read_raw(vcpu, reg);
-
-	return is_64_bit_mode(vcpu) ? val : (u32)val;
-}
-
-static inline void kvm_register_write(struct kvm_vcpu *vcpu,
-				       int reg, unsigned long val)
-{
-	if (!is_64_bit_mode(vcpu))
-		val = (u32)val;
-	return kvm_register_write_raw(vcpu, reg, val);
-}
-
 static inline bool kvm_check_has_quirk(struct kvm *kvm, u64 quirk)
 {
 	return !(kvm->arch.disabled_quirks & quirk);
+}
+
+static __always_inline void kvm_request_l1tf_flush_l1d(void)
+{
+#if IS_ENABLED(CONFIG_CPU_MITIGATIONS) && IS_ENABLED(CONFIG_KVM_INTEL)
+	/*
+	 * Use a raw write to set the per-CPU flag, as KVM will ensure a flush
+	 * even if preemption is currently enabled..  If the current vCPU task
+	 * is migrated to a different CPU (or userspace runs the vCPU on a
+	 * different task) before the next VM-Entry, then kvm_arch_vcpu_load()
+	 * will request a flush on the new CPU.
+	 */
+	raw_cpu_write(irq_stat.kvm_cpu_l1tf_flush_l1d, 1);
+#endif
 }
 
 void kvm_inject_realmode_interrupt(struct kvm_vcpu *vcpu, int irq, int inc_eip);
@@ -455,7 +419,7 @@ fastpath_t handle_fastpath_invd(struct kvm_vcpu *vcpu);
 extern struct kvm_caps kvm_caps;
 extern struct kvm_host_values kvm_host;
 
-extern bool enable_pmu;
+void kvm_setup_xss_caps(void);
 
 /*
  * Get a filtered version of KVM's supported XCR0 that strips out dynamic
@@ -592,15 +556,23 @@ static inline bool kvm_pat_valid(u64 data)
 	return (data | ((data & 0x0202020202020202ull) << 1)) == data;
 }
 
-static inline bool kvm_dr7_valid(u64 data)
+static inline bool __kvm_pv_async_pf_enabled(u64 data)
 {
-	/* Bits [63:32] are reserved */
-	return !(data >> 32);
+	u64 mask = KVM_ASYNC_PF_ENABLED | KVM_ASYNC_PF_DELIVERY_AS_INT;
+
+	return (data & mask) == mask;
 }
-static inline bool kvm_dr6_valid(u64 data)
+
+static inline bool kvm_pv_async_pf_enabled(struct kvm_vcpu *vcpu)
 {
-	/* Bits [63:32] are reserved */
-	return !(data >> 32);
+	return __kvm_pv_async_pf_enabled(vcpu->arch.apf.msr_en_val);
+}
+
+static inline void kvm_async_pf_hash_reset(struct kvm_vcpu *vcpu)
+{
+	int i;
+	for (i = 0; i < ASYNC_PF_PER_VCPU; i++)
+		vcpu->arch.apf.gfns[i] = ~0;
 }
 
 /*
@@ -622,8 +594,6 @@ static inline void kvm_machine_check(void)
 #endif
 }
 
-void kvm_load_guest_xsave_state(struct kvm_vcpu *vcpu);
-void kvm_load_host_xsave_state(struct kvm_vcpu *vcpu);
 int kvm_spec_ctrl_test_value(u64 value);
 int kvm_handle_memory_failure(struct kvm_vcpu *vcpu, int r,
 			      struct x86_exception *e);
@@ -651,48 +621,43 @@ enum kvm_msr_access {
 #define  KVM_MSR_RET_UNSUPPORTED	2
 #define  KVM_MSR_RET_FILTERED		3
 
-static inline bool __kvm_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
-{
-	return !(cr4 & vcpu->arch.cr4_guest_rsvd_bits);
-}
-
-#define __cr4_reserved_bits(__cpu_has, __c)             \
-({                                                      \
-	u64 __reserved_bits = CR4_RESERVED_BITS;        \
-                                                        \
-	if (!__cpu_has(__c, X86_FEATURE_XSAVE))         \
-		__reserved_bits |= X86_CR4_OSXSAVE;     \
-	if (!__cpu_has(__c, X86_FEATURE_SMEP))          \
-		__reserved_bits |= X86_CR4_SMEP;        \
-	if (!__cpu_has(__c, X86_FEATURE_SMAP))          \
-		__reserved_bits |= X86_CR4_SMAP;        \
-	if (!__cpu_has(__c, X86_FEATURE_FSGSBASE))      \
-		__reserved_bits |= X86_CR4_FSGSBASE;    \
-	if (!__cpu_has(__c, X86_FEATURE_PKU))           \
-		__reserved_bits |= X86_CR4_PKE;         \
-	if (!__cpu_has(__c, X86_FEATURE_LA57))          \
-		__reserved_bits |= X86_CR4_LA57;        \
-	if (!__cpu_has(__c, X86_FEATURE_UMIP))          \
-		__reserved_bits |= X86_CR4_UMIP;        \
-	if (!__cpu_has(__c, X86_FEATURE_VMX))           \
-		__reserved_bits |= X86_CR4_VMXE;        \
-	if (!__cpu_has(__c, X86_FEATURE_PCID))          \
-		__reserved_bits |= X86_CR4_PCIDE;       \
-	if (!__cpu_has(__c, X86_FEATURE_LAM))           \
-		__reserved_bits |= X86_CR4_LAM_SUP;     \
-	if (!__cpu_has(__c, X86_FEATURE_SHSTK) &&       \
-	    !__cpu_has(__c, X86_FEATURE_IBT))           \
-		__reserved_bits |= X86_CR4_CET;         \
-	__reserved_bits;                                \
-})
-
-int kvm_sev_es_mmio_write(struct kvm_vcpu *vcpu, gpa_t src, unsigned int bytes,
-			  void *dst);
-int kvm_sev_es_mmio_read(struct kvm_vcpu *vcpu, gpa_t src, unsigned int bytes,
-			 void *dst);
+int kvm_sev_es_mmio(struct kvm_vcpu *vcpu, bool is_write, gpa_t gpa,
+		    unsigned int bytes, void *data);
 int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 			 unsigned int port, void *data,  unsigned int count,
 			 int in);
+
+static inline void __kvm_prepare_emulated_mmio_exit(struct kvm_vcpu *vcpu,
+						    gpa_t gpa, unsigned int len,
+						    const void *data,
+						    bool is_write)
+{
+	struct kvm_run *run = vcpu->run;
+
+	KVM_BUG_ON(len > 8, vcpu->kvm);
+
+	run->mmio.len = len;
+	run->mmio.is_write = is_write;
+	run->exit_reason = KVM_EXIT_MMIO;
+	run->mmio.phys_addr = gpa;
+	if (is_write)
+		memcpy(run->mmio.data, data, len);
+}
+
+static inline void kvm_prepare_emulated_mmio_exit(struct kvm_vcpu *vcpu,
+						  struct kvm_mmio_fragment *frag)
+{
+	WARN_ON_ONCE(!vcpu->mmio_needed || !vcpu->mmio_nr_fragments);
+
+	__kvm_prepare_emulated_mmio_exit(vcpu, frag->gpa, min(8u, frag->len),
+					 frag->data, vcpu->mmio_is_write);
+}
+
+static inline bool kvm_is_valid_map_gpa_range_ret(u64 hypercall_ret)
+{
+	return !hypercall_ret || hypercall_ret == EINVAL ||
+	       hypercall_ret == EAGAIN;
+}
 
 static inline bool user_exit_on_hypercall(struct kvm *kvm, unsigned long hc_nr)
 {

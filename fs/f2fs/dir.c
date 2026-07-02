@@ -8,8 +8,10 @@
 #include <linux/unaligned.h>
 #include <linux/fs.h>
 #include <linux/f2fs_fs.h>
+#include <linux/filelock.h>
 #include <linux/sched/signal.h>
 #include <linux/unicode.h>
+#include <linux/fserror.h>
 #include "f2fs.h"
 #include "node.h"
 #include "acl.h"
@@ -67,7 +69,7 @@ int f2fs_init_casefolded_name(const struct inode *dir,
 	int len;
 
 	if (IS_CASEFOLDED(dir) &&
-	    !is_dot_dotdot(fname->usr_fname->name, fname->usr_fname->len)) {
+	    !name_is_dot_dotdot(fname->usr_fname->name, fname->usr_fname->len)) {
 		buf = f2fs_kmem_cache_alloc(f2fs_cf_name_slab,
 					    GFP_NOFS, false, F2FS_SB(sb));
 		if (!buf)
@@ -248,6 +250,11 @@ struct f2fs_dir_entry *f2fs_find_target_dentry(const struct f2fs_dentry_ptr *d,
 			continue;
 		}
 
+		if (unlikely(le16_to_cpu(de->name_len) > F2FS_NAME_LEN ||
+			     bit_pos + GET_DENTRY_SLOTS(le16_to_cpu(de->name_len)) >
+			     d->max))
+			return ERR_PTR(-EFSCORRUPTED);
+
 		if (!use_hash || de->hash_code == fname->hash) {
 			res = f2fs_match_name(d->inode, fname,
 					      d->filename[bit_pos],
@@ -367,7 +374,7 @@ start_find_entry:
 
 	max_depth = F2FS_I(dir)->i_current_depth;
 	if (unlikely(max_depth > MAX_DIR_HASH_DEPTH)) {
-		f2fs_warn(F2FS_I_SB(dir), "Corrupted max_depth of %lu: %u",
+		f2fs_warn(F2FS_I_SB(dir), "Corrupted max_depth of %llu: %u",
 			  dir->i_ino, max_depth);
 		max_depth = MAX_DIR_HASH_DEPTH;
 		f2fs_i_depth_write(dir, max_depth);
@@ -1019,6 +1026,7 @@ int f2fs_fill_dentries(struct dir_context *ctx, struct f2fs_dentry_ptr *d,
 			set_sbi_flag(sbi, SBI_NEED_FSCK);
 			err = -EFSCORRUPTED;
 			f2fs_handle_error(sbi, ERROR_CORRUPTED_DIRENT);
+			fserror_report_file_metadata(d->inode, err, GFP_NOFS);
 			goto out;
 		}
 
@@ -1136,4 +1144,5 @@ const struct file_operations f2fs_dir_operations = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl   = f2fs_compat_ioctl,
 #endif
+	.setlease	= generic_setlease,
 };

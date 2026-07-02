@@ -4,7 +4,7 @@
  * Copyright (c) 2012 Red Hat, Inc.
  * All Rights Reserved.
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -514,7 +514,7 @@ xfs_can_free_eofblocks(
 	 * Caller must either hold the exclusive io lock; or be inactivating
 	 * the inode, which guarantees there are no other users of the inode.
 	 */
-	if (!(VFS_I(ip)->i_state & I_FREEING))
+	if (!(inode_state_read_once(VFS_I(ip)) & I_FREEING))
 		xfs_assert_ilocked(ip, XFS_IOLOCK_EXCL);
 
 	/* prealloc/delalloc exists only on regular files */
@@ -1479,7 +1479,7 @@ xfs_swap_change_owner(
 	struct xfs_trans	*tp = *tpp;
 
 	do {
-		error = xfs_bmbt_change_owner(tp, ip, XFS_DATA_FORK, ip->i_ino,
+		error = xfs_bmbt_change_owner(tp, ip, XFS_DATA_FORK, I_INO(ip),
 					      NULL);
 		/* success or fatal error */
 		if (error != -EAGAIN)
@@ -1631,7 +1631,7 @@ xfs_swap_extents(
 	if (error) {
 		xfs_notice(mp,
 		    "%s: inode 0x%llx format is incompatible for exchanging.",
-				__func__, ip->i_ino);
+				__func__, I_INO(ip));
 		goto out_trans_cancel;
 	}
 

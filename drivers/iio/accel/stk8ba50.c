@@ -428,13 +428,10 @@ static int stk8ba50_probe(struct i2c_client *client)
 	}
 
 	if (client->irq > 0) {
-		ret = devm_request_threaded_irq(&client->dev, client->irq,
-						stk8ba50_data_rdy_trig_poll,
-						NULL,
-						IRQF_TRIGGER_RISING |
-						IRQF_ONESHOT,
-						"stk8ba50_event",
-						indio_dev);
+		ret = devm_request_irq(&client->dev, client->irq,
+				       stk8ba50_data_rdy_trig_poll,
+				       IRQF_TRIGGER_RISING | IRQF_NO_THREAD,
+				       "stk8ba50_event", indio_dev);
 		if (ret < 0) {
 			dev_err(&client->dev, "request irq %d failed\n",
 				client->irq);
@@ -522,7 +519,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(stk8ba50_pm_ops, stk8ba50_suspend,
 				stk8ba50_resume);
 
 static const struct i2c_device_id stk8ba50_i2c_id[] = {
-	{ "stk8ba50" },
+	{ .name = "stk8ba50" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, stk8ba50_i2c_id);

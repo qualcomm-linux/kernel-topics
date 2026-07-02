@@ -8,12 +8,16 @@ TEST_PROGS := \
 	bond-lladdr-target.sh \
 	bond_ipsec_offload.sh \
 	bond_lacp_prio.sh \
+	bond_lacp_strict.sh \
 	bond_macvlan_ipvlan.sh \
 	bond_options.sh \
 	bond_passive_lacp.sh \
+	bond_stacked_header_parse.sh \
+	bond_vlan_real_dev.sh \
 	dev_addr_lists.sh \
 	mode-1-recovery-updelay.sh \
 	mode-2-recovery-updelay.sh \
+	netcons_over_bonding.sh \
 # end of TEST_PROGS
 
 TEST_FILES := \
@@ -24,6 +28,7 @@ TEST_FILES := \
 
 TEST_INCLUDES := \
 	../../../net/lib.sh \
+	../lib/sh/lib_netcons.sh \
 	../../../net/forwarding/lib.sh \
 # end of TEST_INCLUDES
 

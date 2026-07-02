@@ -12,38 +12,44 @@
  */
 #include <errno.h>
 #include <inttypes.h>
+
+#include <asm/bug.h>
 #include <linux/compiler.h>
 #include <linux/err.h>
 #include <linux/kernel.h>
 #include <linux/stringify.h>
 #include <linux/zalloc.h>
-#include <asm/bug.h>
 #include <sys/param.h>
-#include "debug.h"
-#include "builtin.h"
+
+#include <dwarf-regs.h>
 #include <perf/cpumap.h>
 #include <subcmd/pager.h>
 #include <subcmd/parse-options.h>
-#include "map_symbol.h"
-#include "mem-events.h"
-#include "session.h"
-#include "hist.h"
-#include "sort.h"
-#include "tool.h"
+
+#include "builtin.h"
 #include "cacheline.h"
 #include "data.h"
+#include "debug.h"
 #include "event.h"
 #include "evlist.h"
 #include "evsel.h"
-#include "ui/browsers/hists.h"
-#include "thread.h"
-#include "mem2node.h"
+#include "hist.h"
+#include "map_symbol.h"
+#include "mem-events.h"
 #include "mem-info.h"
-#include "symbol.h"
-#include "ui/ui.h"
-#include "ui/progress.h"
+#include "mem2node.h"
 #include "pmus.h"
+#include "session.h"
+#include "sort.h"
 #include "string2.h"
+#include "symbol.h"
+#include "thread.h"
+#include "tool.h"
+#include "ui/browsers/hists.h"
+#include "ui/progress.h"
+#include "ui/ui.h"
+#include "util/annotate.h"
+#include "util/symbol.h"
 #include "util/util.h"
 
 struct c2c_hists {
@@ -62,6 +68,7 @@ struct compute_stats {
 
 struct c2c_hist_entry {
 	struct c2c_hists	*hists;
+	struct evsel		*evsel;
 	struct c2c_stats	 stats;
 	unsigned long		*cpuset;
 	unsigned long		*nodeset;
@@ -152,7 +159,7 @@ static void *c2c_he_zalloc(size_t size)
 	if (!c2c_he->nodeset)
 		goto out_free;
 
-	c2c_he->node_stats = zalloc(c2c.nodes_cnt * sizeof(*c2c_he->node_stats));
+	c2c_he->node_stats = calloc(c2c.nodes_cnt, sizeof(*c2c_he->node_stats));
 	if (!c2c_he->node_stats)
 		goto out_free;
 
@@ -177,7 +184,8 @@ static void c2c_he_free(void *he)
 
 	c2c_he = container_of(he, struct c2c_hist_entry, he);
 	if (c2c_he->hists) {
-		hists__delete_entries(&c2c_he->hists->hists);
+		hists__delete_all_entries(&c2c_he->hists->hists);
+		perf_hpp__reset_output_field(&c2c_he->hists->list);
 		zfree(&c2c_he->hists);
 	}
 
@@ -218,6 +226,8 @@ he__get_c2c_hists(struct hist_entry *he,
 
 	ret = c2c_hists__init(hists, sort, nr_header_lines, env);
 	if (ret) {
+		perf_hpp__reset_output_field(&hists->list);
+		c2c_he->hists = NULL;
 		free(hists);
 		return NULL;
 	}
@@ -225,11 +235,21 @@ he__get_c2c_hists(struct hist_entry *he,
 	return hists;
 }
 
+static void c2c_he__set_evsel(struct c2c_hist_entry *c2c_he,
+				struct evsel *evsel)
+{
+	c2c_he->evsel = evsel;
+}
+
 static void c2c_he__set_cpu(struct c2c_hist_entry *c2c_he,
 			    struct perf_sample *sample)
 {
 	if (WARN_ONCE(sample->cpu == (unsigned int) -1,
 		      "WARNING: no sample cpu value"))
+		return;
+
+	/* cpuset bitmap has c2c.cpus_cnt bits from env->nr_cpus_avail */
+	if (sample->cpu >= (unsigned int)c2c.cpus_cnt)
 		return;
 
 	__set_bit(sample->cpu, c2c_he->cpuset);
@@ -247,6 +267,10 @@ static void c2c_he__set_node(struct c2c_hist_entry *c2c_he,
 
 	node = mem2node__node(&c2c.mem2node, sample->phys_addr);
 	if (WARN_ONCE(node < 0, "WARNING: failed to find node\n"))
+		return;
+
+	/* nodeset bitmap has c2c.nodes_cnt bits from env->nr_numa_nodes */
+	if (node >= c2c.nodes_cnt)
 		return;
 
 	__set_bit(node, c2c_he->nodeset);
@@ -275,25 +299,53 @@ static void compute_stats(struct c2c_hist_entry *c2c_he,
 		update_stats(&cstats->load, weight);
 }
 
+/*
+ * Return true if annotation is possible. When list is NULL,
+ * it means that we are called at the c2c_browser level,
+ * in that case we allow annotation to be initialized. When list
+ * is non-NULL, it means that we are called at the cacheline_browser
+ * level, in that case we allow annotation only if use_browser
+ * is set and symbol information is available.
+ */
+static bool perf_c2c__has_annotation(struct perf_hpp_list *list)
+{
+	if (use_browser != 1)
+		return false;
+	return !list || list->sym;
+}
+
+static void perf_c2c__evsel_hists_inc_stats(struct evsel *evsel,
+					    struct hist_entry *he,
+					    struct perf_sample *sample)
+{
+	struct hists *evsel_hists = evsel__hists(evsel);
+
+	hists__inc_nr_samples(evsel_hists, he->filtered);
+	evsel_hists->stats.total_period += sample->period;
+	if (!he->filtered)
+		evsel_hists->stats.total_non_filtered_period += sample->period;
+}
+
 static int process_sample_event(const struct perf_tool *tool __maybe_unused,
 				union perf_event *event,
 				struct perf_sample *sample,
-				struct evsel *evsel,
 				struct machine *machine)
 {
+	struct evsel *evsel = sample->evsel;
 	struct c2c_hists *c2c_hists = &c2c.hists;
 	struct c2c_hist_entry *c2c_he;
 	struct c2c_stats stats = { .nr_entries = 0, };
 	struct hist_entry *he;
 	struct addr_location al;
-	struct mem_info *mi, *mi_dup;
+	struct mem_info *mi = NULL;
 	struct callchain_cursor *cursor;
 	int ret;
 
 	addr_location__init(&al);
 	if (machine__resolve(machine, &al, sample) < 0) {
-		pr_debug("problem processing %d event, skipping it.\n",
-			 event->header.type);
+		pr_debug("problem processing %s (%u) event at offset %#" PRIx64 ", skipping it.\n",
+			 perf_event__name(event->header.type), event->header.type,
+			 sample->file_offset);
 		ret = -1;
 		goto out;
 	}
@@ -303,7 +355,7 @@ static int process_sample_event(const struct perf_tool *tool __maybe_unused,
 
 	cursor = get_tls_callchain_cursor();
 	ret = sample__resolve_callchain(sample, cursor, NULL,
-					evsel, &al, sysctl_perf_event_max_stack);
+					&al, sysctl_perf_event_max_stack);
 	if (ret)
 		goto out;
 
@@ -313,20 +365,15 @@ static int process_sample_event(const struct perf_tool *tool __maybe_unused,
 		goto out;
 	}
 
-	/*
-	 * The mi object is released in hists__add_entry_ops,
-	 * if it gets sorted out into existing data, so we need
-	 * to take the copy now.
-	 */
-	mi_dup = mem_info__get(mi);
-
 	c2c_decode_stats(&stats, mi);
 
 	he = hists__add_entry_ops(&c2c_hists->hists, &c2c_entry_ops,
 				  &al, NULL, NULL, mi, NULL,
 				  sample, true);
-	if (he == NULL)
-		goto free_mi;
+	if (he == NULL) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	c2c_he = container_of(he, struct c2c_hist_entry, he);
 	c2c_add_stats(&c2c_he->stats, &stats);
@@ -334,8 +381,15 @@ static int process_sample_event(const struct perf_tool *tool __maybe_unused,
 
 	c2c_he__set_cpu(c2c_he, sample);
 	c2c_he__set_node(c2c_he, sample);
+	c2c_he__set_evsel(c2c_he, evsel);
 
 	hists__inc_nr_samples(&c2c_hists->hists, he->filtered);
+
+	if (perf_c2c__has_annotation(NULL)) {
+		perf_c2c__evsel_hists_inc_stats(evsel, he, sample);
+		addr_map_symbol__inc_samples(mem_info__iaddr(mi), sample);
+	}
+
 	ret = hist_entry__append_callchain(he, sample);
 
 	if (!ret) {
@@ -348,43 +402,48 @@ static int process_sample_event(const struct perf_tool *tool __maybe_unused,
 		 * Doing node stats only for single callchain data.
 		 */
 		int cpu = sample->cpu == (unsigned int) -1 ? 0 : sample->cpu;
-		int node = c2c.cpu2node[cpu];
+		int node;
 
-		mi = mi_dup;
+		/* cpu2node[] has c2c.cpus_cnt entries; large u32 wraps signed negative */
+		if (cpu < 0 || cpu >= c2c.cpus_cnt)
+			cpu = 0;
+		node = c2c.cpu2node[cpu];
 
 		c2c_hists = he__get_c2c_hists(he, c2c.cl_sort, 2, machine->env);
-		if (!c2c_hists)
-			goto free_mi;
+		if (!c2c_hists) {
+			ret = -ENOMEM;
+			goto out;
+		}
 
 		he = hists__add_entry_ops(&c2c_hists->hists, &c2c_entry_ops,
 					  &al, NULL, NULL, mi, NULL,
 					  sample, true);
-		if (he == NULL)
-			goto free_mi;
+		if (he == NULL) {
+			ret = -ENOMEM;
+			goto out;
+		}
 
 		c2c_he = container_of(he, struct c2c_hist_entry, he);
 		c2c_add_stats(&c2c_he->stats, &stats);
 		c2c_add_stats(&c2c_hists->stats, &stats);
-		c2c_add_stats(&c2c_he->node_stats[node], &stats);
+		/* node_stats[] has c2c.nodes_cnt entries */
+		if (node >= 0 && node < c2c.nodes_cnt)
+			c2c_add_stats(&c2c_he->node_stats[node], &stats);
 
 		compute_stats(c2c_he, &stats, sample->weight);
 
 		c2c_he__set_cpu(c2c_he, sample);
 		c2c_he__set_node(c2c_he, sample);
+		c2c_he__set_evsel(c2c_he, evsel);
 
 		hists__inc_nr_samples(&c2c_hists->hists, he->filtered);
 		ret = hist_entry__append_callchain(he, sample);
 	}
 
 out:
+	mem_info__put(mi);
 	addr_location__exit(&al);
 	return ret;
-
-free_mi:
-	mem_info__put(mi_dup);
-	mem_info__put(mi);
-	ret = -ENOMEM;
-	goto out;
 }
 
 static const char * const c2c_usage[] = {
@@ -1997,6 +2056,9 @@ static int c2c_hists__init_sort(struct perf_hpp_list *hpp_list, char *name, stru
 	if (dim == &dim_dso)
 		hpp_list->dso = 1;
 
+	if (dim == &dim_symbol || dim == &dim_iaddr)
+		hpp_list->sym = 1;
+
 	perf_hpp_list__register_sort_field(hpp_list, &c2c_fmt->fmt);
 	return 0;
 }
@@ -2271,7 +2333,6 @@ static int setup_nodes(struct perf_session *session)
 {
 	struct numa_node *n;
 	unsigned long **nodes;
-	int node, idx;
 	struct perf_cpu cpu;
 	int *cpu2node;
 	struct perf_env *env = perf_session__env(session);
@@ -2286,24 +2347,25 @@ static int setup_nodes(struct perf_session *session)
 	if (!n)
 		return -EINVAL;
 
-	nodes = zalloc(sizeof(unsigned long *) * c2c.nodes_cnt);
+	nodes = calloc(c2c.nodes_cnt, sizeof(unsigned long *));
 	if (!nodes)
 		return -ENOMEM;
 
 	c2c.nodes = nodes;
 
-	cpu2node = zalloc(sizeof(int) * c2c.cpus_cnt);
+	cpu2node = calloc(c2c.cpus_cnt, sizeof(int));
 	if (!cpu2node)
 		return -ENOMEM;
 
-	for (idx = 0; idx < c2c.cpus_cnt; idx++)
+	for (int idx = 0; idx < c2c.cpus_cnt; idx++)
 		cpu2node[idx] = -1;
 
 	c2c.cpu2node = cpu2node;
 
-	for (node = 0; node < c2c.nodes_cnt; node++) {
+	for (int node = 0; node < c2c.nodes_cnt; node++) {
 		struct perf_cpu_map *map = n[node].map;
 		unsigned long *set;
+		unsigned int idx;
 
 		set = bitmap_zalloc(c2c.cpus_cnt);
 		if (!set)
@@ -2312,6 +2374,10 @@ static int setup_nodes(struct perf_session *session)
 		nodes[node] = set;
 
 		perf_cpu_map__for_each_cpu_skip_any(cpu, idx, map) {
+			/* topology CPU IDs from perf.data may exceed nr_cpus_avail */
+			if (cpu.cpu < 0 || cpu.cpu >= c2c.cpus_cnt)
+				continue;
+
 			__set_bit(cpu.cpu, set);
 
 			if (WARN_ONCE(cpu2node[cpu.cpu] != -1, "node/cpu topology bug"))
@@ -2550,6 +2616,44 @@ static void perf_c2c__hists_fprintf(FILE *out, struct perf_session *session)
 }
 
 #ifdef HAVE_SLANG_SUPPORT
+
+static int perf_c2c__toggle_annotation(struct hist_browser *browser)
+{
+	struct hist_entry *he = browser->he_selection;
+	struct symbol *sym = NULL;
+	struct annotated_source *src = NULL;
+	struct c2c_hist_entry *c2c_he = NULL;
+	u64 al_addr = NO_ADDR;
+
+	if (!perf_c2c__has_annotation(he->hists->hpp_list)) {
+		ui_browser__help_window(&browser->b, "No annotation support");
+		return 0;
+	}
+
+	if (he == NULL) {
+		ui_browser__help_window(&browser->b, "No entry selected for annotation");
+		return 0;
+	}
+
+	sym = he->ms.sym;
+	if (sym == NULL) {
+		ui_browser__help_window(&browser->b, "Can not annotate, no symbol found");
+		return 0;
+	}
+
+	src = symbol__hists(sym, 0);
+	if (src == NULL) {
+		ui_browser__help_window(&browser->b, "Failed to initialize annotation source");
+		return 0;
+	}
+
+	if (he->mem_info)
+		al_addr = mem_info__iaddr(he->mem_info)->al_addr;
+
+	c2c_he = container_of(he, struct c2c_hist_entry, he);
+	return hist_entry__tui_annotate(he, c2c_he->evsel, NULL, al_addr);
+}
+
 static void c2c_browser__update_nr_entries(struct hist_browser *hb)
 {
 	u64 nr_entries = 0;
@@ -2617,6 +2721,7 @@ static int perf_c2c__browse_cacheline(struct hist_entry *he)
 	" ENTER         Toggle callchains (if present) \n"
 	" n             Toggle Node details info \n"
 	" s             Toggle full length of symbol and source line columns \n"
+	" a             Toggle annotation view \n"
 	" q             Return back to cacheline list \n";
 
 	if (!he)
@@ -2650,6 +2755,9 @@ static int perf_c2c__browse_cacheline(struct hist_entry *he)
 		case 'n':
 			c2c.node_info = (c2c.node_info + 1) % 3;
 			setup_nodes_header();
+			break;
+		case 'a':
+			perf_c2c__toggle_annotation(browser);
 			break;
 		case 'q':
 			goto out;
@@ -2811,9 +2919,10 @@ static int ui_quirks(void)
 
 #define CALLCHAIN_DEFAULT_OPT  "graph,0.5,caller,function,percent"
 
-const char callchain_help[] = "Display call graph (stack chain/backtrace):\n\n"
-				CALLCHAIN_REPORT_HELP
-				"\n\t\t\t\tDefault: " CALLCHAIN_DEFAULT_OPT;
+static const char callchain_help[] =
+	"Display call graph (stack chain/backtrace):\n\n"
+	CALLCHAIN_REPORT_HELP
+	"\n\t\t\t\tDefault: " CALLCHAIN_DEFAULT_OPT;
 
 static int
 parse_callchain_opt(const struct option *opt, const char *arg, int unset)
@@ -3006,6 +3115,7 @@ static int perf_c2c__report(int argc, const char **argv)
 	const char *display = NULL;
 	const char *coalesce = NULL;
 	bool no_source = false;
+	const char *disassembler_style = NULL, *objdump_path = NULL;
 	const struct option options[] = {
 	OPT_STRING('k', "vmlinux", &symbol_conf.vmlinux_name,
 		   "file", "vmlinux pathname"),
@@ -3033,12 +3143,22 @@ static int perf_c2c__report(int argc, const char **argv)
 	OPT_BOOLEAN(0, "stitch-lbr", &c2c.stitch_lbr,
 		    "Enable LBR callgraph stitching approach"),
 	OPT_BOOLEAN(0, "double-cl", &chk_double_cl, "Detect adjacent cacheline false sharing"),
+	OPT_STRING('M', "disassembler-style", &disassembler_style, "disassembler style",
+		   "Specify disassembler style (e.g. -M intel for intel syntax)"),
+	OPT_STRING(0, "objdump", &objdump_path, "path",
+		   "objdump binary to use for disassembly and annotations"),
 	OPT_PARENT(c2c_options),
 	OPT_END()
 	};
 	int err = 0;
 	const char *output_str, *sort_str = NULL;
 	struct perf_env *env;
+
+	annotation_options__init();
+
+	err = hists__init();
+	if (err < 0)
+		goto out;
 
 	argc = parse_options(argc, argv, options, report_c2c_usage,
 			     PARSE_OPT_STOP_AT_NON_OPTION);
@@ -3051,6 +3171,27 @@ static int perf_c2c__report(int argc, const char **argv)
 
 	if (c2c.stats_only)
 		c2c.use_stdio = true;
+
+	/**
+	 * Annotation related options disassembler_style, objdump_path are set
+	 * in the c2c_options, so we can use them here.
+	 */
+	if (disassembler_style) {
+		annotate_opts.disassembler_style = strdup(disassembler_style);
+		if (!annotate_opts.disassembler_style) {
+			err = -ENOMEM;
+			pr_err("Failed to allocate memory for annotation options\n");
+			goto out;
+		}
+	}
+	if (objdump_path) {
+		annotate_opts.objdump_path = strdup(objdump_path);
+		if (!annotate_opts.objdump_path) {
+			err = -ENOMEM;
+			pr_err("Failed to allocate memory for annotation options\n");
+			goto out;
+		}
+	}
 
 	err = symbol__validate_sym_arguments();
 	if (err)
@@ -3088,7 +3229,7 @@ static int perf_c2c__report(int argc, const char **argv)
 	 * default display type.
 	 */
 	if (!display) {
-		if (!strcmp(perf_env__arch(env), "arm64"))
+		if (perf_env__e_machine(env, /*e_flags=*/NULL) == EM_AARCH64)
 			display = "peer";
 		else
 			display = "tot";
@@ -3126,6 +3267,38 @@ static int perf_c2c__report(int argc, const char **argv)
 	if (err)
 		goto out_mem2node;
 
+	if (c2c.use_stdio)
+		use_browser = 0;
+	else
+		use_browser = 1;
+
+	/*
+	 * Only in the TUI browser we are doing integrated annotation,
+	 * so don't allocate extra space that won't be used in the stdio
+	 * implementation.
+	 */
+	if (perf_c2c__has_annotation(NULL)) {
+		int ret = symbol__annotation_init();
+
+		if (ret < 0)
+			goto out_mem2node;
+		/*
+		 * For searching by name on the "Browse map details".
+		 * providing it only in verbose mode not to bloat too
+		 * much struct symbol.
+		 */
+		if (verbose > 0) {
+			/*
+			 * XXX: Need to provide a less kludgy way to ask for
+			 * more space per symbol, the u32 is for the index on
+			 * the ui browser.
+			 * See symbol__browser_index.
+			 */
+			symbol_conf.priv_size += sizeof(u32);
+		}
+		annotation_config__init();
+	}
+
 	if (symbol__init(env) < 0)
 		goto out_mem2node;
 
@@ -3134,11 +3307,6 @@ static int perf_c2c__report(int argc, const char **argv)
 		pr_debug("No pipe support at the moment.\n");
 		goto out_mem2node;
 	}
-
-	if (c2c.use_stdio)
-		use_browser = 0;
-	else
-		use_browser = 1;
 
 	setup_browser(false);
 
@@ -3210,6 +3378,7 @@ out_mem2node:
 out_session:
 	perf_session__delete(session);
 out:
+	annotation_options__exit();
 	return err;
 }
 

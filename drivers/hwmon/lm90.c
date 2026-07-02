@@ -108,7 +108,6 @@
 #include <linux/hwmon.h>
 #include <linux/kstrtox.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
@@ -244,54 +243,54 @@ enum chips { adm1023, adm1032, adt7461, adt7461a, adt7481,
  */
 
 static const struct i2c_device_id lm90_id[] = {
-	{ "adm1020", max1617 },
-	{ "adm1021", max1617 },
-	{ "adm1023", adm1023 },
-	{ "adm1032", adm1032 },
-	{ "adt7421", adt7461a },
-	{ "adt7461", adt7461 },
-	{ "adt7461a", adt7461a },
-	{ "adt7481", adt7481 },
-	{ "adt7482", adt7481 },
-	{ "adt7483a", adt7481 },
-	{ "g781", g781 },
-	{ "gl523sm", max1617 },
-	{ "lm84", lm84 },
-	{ "lm86", lm90 },
-	{ "lm89", lm90 },
-	{ "lm90", lm90 },
-	{ "lm99", lm99 },
-	{ "max1617", max1617 },
-	{ "max6642", max6642 },
-	{ "max6646", max6646 },
-	{ "max6647", max6646 },
-	{ "max6648", max6648 },
-	{ "max6649", max6646 },
-	{ "max6654", max6654 },
-	{ "max6657", max6657 },
-	{ "max6658", max6657 },
-	{ "max6659", max6659 },
-	{ "max6680", max6680 },
-	{ "max6681", max6680 },
-	{ "max6690", max6654 },
-	{ "max6692", max6648 },
-	{ "max6695", max6696 },
-	{ "max6696", max6696 },
-	{ "mc1066", max1617 },
-	{ "nct1008", adt7461a },
-	{ "nct210", nct210 },
-	{ "nct214", nct72 },
-	{ "nct218", nct72 },
-	{ "nct72", nct72 },
-	{ "nct7716", nct7716 },
-	{ "nct7717", nct7717 },
-	{ "nct7718", nct7718 },
-	{ "ne1618", ne1618 },
-	{ "w83l771", w83l771 },
-	{ "sa56004", sa56004 },
-	{ "thmc10", max1617 },
-	{ "tmp451", tmp451 },
-	{ "tmp461", tmp461 },
+	{ .name = "adm1020", .driver_data = max1617 },
+	{ .name = "adm1021", .driver_data = max1617 },
+	{ .name = "adm1023", .driver_data = adm1023 },
+	{ .name = "adm1032", .driver_data = adm1032 },
+	{ .name = "adt7421", .driver_data = adt7461a },
+	{ .name = "adt7461", .driver_data = adt7461 },
+	{ .name = "adt7461a", .driver_data = adt7461a },
+	{ .name = "adt7481", .driver_data = adt7481 },
+	{ .name = "adt7482", .driver_data = adt7481 },
+	{ .name = "adt7483a", .driver_data = adt7481 },
+	{ .name = "g781", .driver_data = g781 },
+	{ .name = "gl523sm", .driver_data = max1617 },
+	{ .name = "lm84", .driver_data = lm84 },
+	{ .name = "lm86", .driver_data = lm90 },
+	{ .name = "lm89", .driver_data = lm90 },
+	{ .name = "lm90", .driver_data = lm90 },
+	{ .name = "lm99", .driver_data = lm99 },
+	{ .name = "max1617", .driver_data = max1617 },
+	{ .name = "max6642", .driver_data = max6642 },
+	{ .name = "max6646", .driver_data = max6646 },
+	{ .name = "max6647", .driver_data = max6646 },
+	{ .name = "max6648", .driver_data = max6648 },
+	{ .name = "max6649", .driver_data = max6646 },
+	{ .name = "max6654", .driver_data = max6654 },
+	{ .name = "max6657", .driver_data = max6657 },
+	{ .name = "max6658", .driver_data = max6657 },
+	{ .name = "max6659", .driver_data = max6659 },
+	{ .name = "max6680", .driver_data = max6680 },
+	{ .name = "max6681", .driver_data = max6680 },
+	{ .name = "max6690", .driver_data = max6654 },
+	{ .name = "max6692", .driver_data = max6648 },
+	{ .name = "max6695", .driver_data = max6696 },
+	{ .name = "max6696", .driver_data = max6696 },
+	{ .name = "mc1066", .driver_data = max1617 },
+	{ .name = "nct1008", .driver_data = adt7461a },
+	{ .name = "nct210", .driver_data = nct210 },
+	{ .name = "nct214", .driver_data = nct72 },
+	{ .name = "nct218", .driver_data = nct72 },
+	{ .name = "nct72", .driver_data = nct72 },
+	{ .name = "nct7716", .driver_data = nct7716 },
+	{ .name = "nct7717", .driver_data = nct7717 },
+	{ .name = "nct7718", .driver_data = nct7718 },
+	{ .name = "ne1618", .driver_data = ne1618 },
+	{ .name = "w83l771", .driver_data = w83l771 },
+	{ .name = "sa56004", .driver_data = sa56004 },
+	{ .name = "thmc10", .driver_data = max1617 },
+	{ .name = "tmp451", .driver_data = tmp451 },
+	{ .name = "tmp461", .driver_data = tmp461 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lm90_id);
@@ -735,9 +734,9 @@ struct lm90_data {
 	struct hwmon_channel_info temp_info;
 	const struct hwmon_channel_info *info[3];
 	struct hwmon_chip_info chip;
-	struct mutex update_lock;
 	struct delayed_work alert_work;
 	struct work_struct report_work;
+	bool shutdown;		/* true if shutting down */
 	bool valid;		/* true if register values are valid */
 	bool alarms_valid;	/* true if status register values are valid */
 	unsigned long last_updated; /* in jiffies */
@@ -1156,6 +1155,9 @@ static void lm90_report_alarms(struct work_struct *work)
 
 static int lm90_update_alarms_locked(struct lm90_data *data, bool force)
 {
+	if (data->shutdown)
+		return 0;
+
 	if (force || !data->alarms_valid ||
 	    time_after(jiffies, data->alarms_updated + msecs_to_jiffies(data->update_interval))) {
 		struct i2c_client *client = data->client;
@@ -1224,13 +1226,8 @@ static int lm90_update_alarms_locked(struct lm90_data *data, bool force)
 
 static int lm90_update_alarms(struct lm90_data *data, bool force)
 {
-	int err;
-
-	mutex_lock(&data->update_lock);
-	err = lm90_update_alarms_locked(data, force);
-	mutex_unlock(&data->update_lock);
-
-	return err;
+	guard(hwmon_lock)(data->hwmon_dev);
+	return lm90_update_alarms_locked(data, force);
 }
 
 static void lm90_alert_work(struct work_struct *__work)
@@ -1519,9 +1516,7 @@ static int lm90_temp_read(struct device *dev, u32 attr, int channel, long *val)
 	int err;
 	u16 bit;
 
-	mutex_lock(&data->update_lock);
 	err = lm90_update_device(dev);
-	mutex_unlock(&data->update_lock);
 	if (err)
 		return err;
 
@@ -1590,11 +1585,9 @@ static int lm90_temp_write(struct device *dev, u32 attr, int channel, long val)
 	struct lm90_data *data = dev_get_drvdata(dev);
 	int err;
 
-	mutex_lock(&data->update_lock);
-
 	err = lm90_update_device(dev);
 	if (err)
-		goto error;
+		return err;
 
 	switch (attr) {
 	case hwmon_temp_min:
@@ -1624,9 +1617,6 @@ static int lm90_temp_write(struct device *dev, u32 attr, int channel, long val)
 		err = -EOPNOTSUPP;
 		break;
 	}
-error:
-	mutex_unlock(&data->update_lock);
-
 	return err;
 }
 
@@ -1662,9 +1652,7 @@ static int lm90_chip_read(struct device *dev, u32 attr, int channel, long *val)
 	struct lm90_data *data = dev_get_drvdata(dev);
 	int err;
 
-	mutex_lock(&data->update_lock);
 	err = lm90_update_device(dev);
-	mutex_unlock(&data->update_lock);
 	if (err)
 		return err;
 
@@ -1710,11 +1698,9 @@ static int lm90_chip_write(struct device *dev, u32 attr, int channel, long val)
 	struct i2c_client *client = data->client;
 	int err;
 
-	mutex_lock(&data->update_lock);
-
 	err = lm90_update_device(dev);
 	if (err)
-		goto error;
+		return err;
 
 	switch (attr) {
 	case hwmon_chip_update_interval:
@@ -1728,9 +1714,6 @@ static int lm90_chip_write(struct device *dev, u32 attr, int channel, long val)
 		err = -EOPNOTSUPP;
 		break;
 	}
-error:
-	mutex_unlock(&data->update_lock);
-
 	return err;
 }
 
@@ -2600,13 +2583,21 @@ static void lm90_restore_conf(void *_data)
 	struct lm90_data *data = _data;
 	struct i2c_client *client = data->client;
 
-	cancel_delayed_work_sync(&data->alert_work);
-	cancel_work_sync(&data->report_work);
-
 	/* Restore initial configuration */
 	if (data->flags & LM90_HAVE_CONVRATE)
 		lm90_write_convrate(data, data->convrate_orig);
 	lm90_write_reg(client, LM90_REG_CONFIG1, data->config_orig);
+}
+
+static void lm90_stop_work(void *_data)
+{
+	struct lm90_data *data = _data;
+
+	scoped_guard(hwmon_lock, data->hwmon_dev) {
+		data->shutdown = true;
+	}
+	cancel_delayed_work_sync(&data->alert_work);
+	cancel_work_sync(&data->report_work);
 }
 
 static int lm90_init_client(struct i2c_client *client, struct lm90_data *data)
@@ -2793,7 +2784,6 @@ static int lm90_probe(struct i2c_client *client)
 
 	data->client = client;
 	i2c_set_clientdata(client, data);
-	mutex_init(&data->update_lock);
 	INIT_DELAYED_WORK(&data->alert_work, lm90_alert_work);
 	INIT_WORK(&data->report_work, lm90_report_alarms);
 
@@ -2919,6 +2909,10 @@ static int lm90_probe(struct i2c_client *client)
 
 	data->hwmon_dev = hwmon_dev;
 
+	err = devm_add_action_or_reset(&client->dev, lm90_stop_work, data);
+	if (err)
+		return err;
+
 	if (client->irq) {
 		dev_dbg(dev, "IRQ: %d\n", client->irq);
 		err = devm_request_threaded_irq(dev, client->irq,
@@ -2947,14 +2941,16 @@ static void lm90_alert(struct i2c_client *client, enum i2c_alert_protocol type,
 		 */
 		struct lm90_data *data = i2c_get_clientdata(client);
 
-		if ((data->flags & LM90_HAVE_BROKEN_ALERT) &&
-		    (data->current_alarms & data->alert_alarms)) {
-			if (!(data->config & 0x80)) {
-				dev_dbg(&client->dev, "Disabling ALERT#\n");
-				lm90_update_confreg(data, data->config | 0x80);
+		scoped_guard(hwmon_lock, data->hwmon_dev) {
+			if (!data->shutdown && (data->flags & LM90_HAVE_BROKEN_ALERT) &&
+			    (data->current_alarms & data->alert_alarms)) {
+				if (!(data->config & 0x80)) {
+					dev_dbg(&client->dev, "Disabling ALERT#\n");
+					lm90_update_confreg(data, data->config | 0x80);
+				}
+				schedule_delayed_work(&data->alert_work,
+					max_t(int, HZ, msecs_to_jiffies(data->update_interval)));
 			}
-			schedule_delayed_work(&data->alert_work,
-				max_t(int, HZ, msecs_to_jiffies(data->update_interval)));
 		}
 	} else {
 		dev_dbg(&client->dev, "Everything OK\n");

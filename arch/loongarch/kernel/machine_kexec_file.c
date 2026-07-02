@@ -68,7 +68,7 @@ static int prepare_elf_headers(void **addr, unsigned long *sz)
 	for_each_mem_range(i, &start, &end)
 		nr_ranges++;
 
-	cmem = kmalloc(struct_size(cmem, ranges, nr_ranges), GFP_KERNEL);
+	cmem = kmalloc_flex(*cmem, ranges, nr_ranges);
 	if (!cmem)
 		return -ENOMEM;
 
@@ -143,7 +143,7 @@ int load_other_segments(struct kimage *image,
 	unsigned long initrd_load_addr = 0;
 	unsigned long orig_segments = image->nr_segments;
 	char *modified_cmdline = NULL;
-	struct kexec_buf kbuf;
+	struct kexec_buf kbuf = {};
 
 	kbuf.image = image;
 	/* Don't allocate anything below the kernel */

@@ -33,6 +33,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/hex.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/err.h>
@@ -126,7 +127,7 @@ static struct kmem_cache *srpt_cache_get(unsigned int object_size)
 		return e->c;
 	}
 	snprintf(name, sizeof(name), "srpt-%u", object_size);
-	e = kmalloc(sizeof(*e), GFP_KERNEL);
+	e = kmalloc_obj(*e);
 	if (!e)
 		return NULL;
 	refcount_set(&e->ref, 1);
@@ -789,7 +790,7 @@ static struct srpt_ioctx **srpt_alloc_ioctx_ring(struct srpt_device *sdev,
 	WARN_ON(ioctx_size != sizeof(struct srpt_recv_ioctx) &&
 		ioctx_size != sizeof(struct srpt_send_ioctx));
 
-	ring = kvmalloc_array(ring_size, sizeof(ring[0]), GFP_KERNEL);
+	ring = kvmalloc_objs(ring[0], ring_size);
 	if (!ring)
 		goto out;
 	for (i = 0; i < ring_size; ++i) {
@@ -964,8 +965,7 @@ static int srpt_alloc_rw_ctxs(struct srpt_send_ioctx *ioctx,
 	if (nbufs == 1) {
 		ioctx->rw_ctxs = &ioctx->s_rw_ctx;
 	} else {
-		ioctx->rw_ctxs = kmalloc_array(nbufs, sizeof(*ioctx->rw_ctxs),
-			GFP_KERNEL);
+		ioctx->rw_ctxs = kmalloc_objs(*ioctx->rw_ctxs, nbufs);
 		if (!ioctx->rw_ctxs)
 			return -ENOMEM;
 	}
@@ -1129,9 +1129,10 @@ static int srpt_get_desc_tbl(struct srpt_recv_ioctx *recv_ioctx,
 		struct srp_imm_buf *imm_buf = srpt_get_desc_buf(srp_cmd);
 		void *data = (void *)srp_cmd + imm_data_offset;
 		uint32_t len = be32_to_cpu(imm_buf->len);
-		uint32_t req_size = imm_data_offset + len;
+		uint32_t req_size;
 
-		if (req_size > srp_max_req_size) {
+		if (check_add_overflow((uint32_t)imm_data_offset, len, &req_size) ||
+		    req_size > srp_max_req_size) {
 			pr_err("Immediate data (length %d + %d) exceeds request size %d\n",
 			       imm_data_offset, len, srp_max_req_size);
 			return -EINVAL;
@@ -1180,7 +1181,7 @@ static int srpt_init_ch_qp(struct srpt_rdma_ch *ch, struct ib_qp *qp)
 
 	WARN_ON_ONCE(ch->using_rdma_cm);
 
-	attr = kzalloc(sizeof(*attr), GFP_KERNEL);
+	attr = kzalloc_obj(*attr);
 	if (!attr)
 		return -ENOMEM;
 
@@ -1856,7 +1857,7 @@ static int srpt_create_ch_ib(struct srpt_rdma_ch *ch)
 	WARN_ON(ch->rq_size < 1);
 
 	ret = -ENOMEM;
-	qp_init = kzalloc(sizeof(*qp_init), GFP_KERNEL);
+	qp_init = kzalloc_obj(*qp_init);
 	if (!qp_init)
 		goto out;
 
@@ -2088,7 +2089,7 @@ static struct srpt_nexus *srpt_get_nexus(struct srpt_port *sport,
 
 		if (nexus)
 			break;
-		tmp_nexus = kzalloc(sizeof(*nexus), GFP_KERNEL);
+		tmp_nexus = kzalloc_obj(*nexus);
 		if (!tmp_nexus) {
 			nexus = ERR_PTR(-ENOMEM);
 			break;
@@ -2240,9 +2241,9 @@ static int srpt_cm_req_recv(struct srpt_device *const sdev,
 	}
 
 	ret = -ENOMEM;
-	rsp = kzalloc(sizeof(*rsp), GFP_KERNEL);
-	rej = kzalloc(sizeof(*rej), GFP_KERNEL);
-	rep_param = kzalloc(sizeof(*rep_param), GFP_KERNEL);
+	rsp = kzalloc_obj(*rsp);
+	rej = kzalloc_obj(*rej);
+	rep_param = kzalloc_obj(*rep_param);
 	if (!rsp || !rej || !rep_param)
 		goto out;
 
@@ -2272,7 +2273,7 @@ static int srpt_cm_req_recv(struct srpt_device *const sdev,
 	}
 
 	ret = -ENOMEM;
-	ch = kzalloc(sizeof(*ch), GFP_KERNEL);
+	ch = kzalloc_obj(*ch);
 	if (!ch) {
 		rej->reason = cpu_to_be32(SRP_LOGIN_REJ_INSUFFICIENT_RESOURCES);
 		pr_err("rejected SRP_LOGIN_REQ because out of memory.\n");
@@ -3209,8 +3210,7 @@ static int srpt_add_one(struct ib_device *device)
 
 	pr_debug("device = %p\n", device);
 
-	sdev = kzalloc(struct_size(sdev, port, device->phys_port_cnt),
-		       GFP_KERNEL);
+	sdev = kzalloc_flex(*sdev, port, device->phys_port_cnt);
 	if (!sdev)
 		return -ENOMEM;
 
@@ -3789,7 +3789,7 @@ static struct se_portal_group *srpt_make_tpg(struct se_wwn *wwn,
 	struct srpt_tpg *stpg;
 	int res = -ENOMEM;
 
-	stpg = kzalloc(sizeof(*stpg), GFP_KERNEL);
+	stpg = kzalloc_obj(*stpg);
 	if (!stpg)
 		return ERR_PTR(res);
 	stpg->sport_id = sport_id;
@@ -3846,7 +3846,7 @@ static struct se_wwn *srpt_make_tport(struct target_fabric_configfs *tf,
 		WARN_ON_ONCE(true);
 		return &(*papi.port_id)->wwn;
 	}
-	port_id = kzalloc(sizeof(*port_id), GFP_KERNEL);
+	port_id = kzalloc_obj(*port_id);
 	if (!port_id) {
 		srpt_sdev_put(sport->sdev);
 		return ERR_PTR(-ENOMEM);
@@ -3926,6 +3926,7 @@ static const struct target_core_fabric_ops srpt_template = {
 	.tfc_wwn_attrs			= srpt_wwn_attrs,
 	.tfc_tpg_attrib_attrs		= srpt_tpg_attrib_attrs,
 
+	.default_compl_type		= TARGET_QUEUE_COMPL,
 	.default_submit_type		= TARGET_DIRECT_SUBMIT,
 	.direct_submit_supp		= 1,
 };

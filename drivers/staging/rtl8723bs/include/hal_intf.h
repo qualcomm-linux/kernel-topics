@@ -9,10 +9,10 @@
 
 
 enum {
-	RTW_PCIE	= BIT0,
-	RTW_USB		= BIT1,
-	RTW_SDIO	= BIT2,
-	RTW_GSPI	= BIT3,
+	RTW_PCIE	= BIT(0),
+	RTW_USB		= BIT(1),
+	RTW_SDIO	= BIT(2),
+	RTW_GSPI	= BIT(3),
 };
 
 enum {
@@ -161,10 +161,10 @@ enum hal_intf_ps_func {
 typedef s32 (*c2h_id_filter)(u8 *c2h_evt);
 
 #define RF_CHANGE_BY_INIT	0
-#define RF_CHANGE_BY_IPS	BIT28
-#define RF_CHANGE_BY_PS		BIT29
-#define RF_CHANGE_BY_HW		BIT30
-#define RF_CHANGE_BY_SW		BIT31
+#define RF_CHANGE_BY_IPS	BIT(28)
+#define RF_CHANGE_BY_PS		BIT(29)
+#define RF_CHANGE_BY_HW		BIT(30)
+#define RF_CHANGE_BY_SW		BIT(31)
 
 #define GET_EEPROM_EFUSE_PRIV(adapter) (&adapter->eeprompriv)
 #define is_boot_from_eeprom(adapter) (adapter->eeprompriv.EepromOrEfuse)
@@ -181,12 +181,6 @@ typedef s32 (*c2h_id_filter)(u8 *c2h_evt);
 #define	RX_PNOWakeUp			0x55
 #define	AP_WakeUp			0x66
 
-void rtw_hal_def_value_init(struct adapter *padapter);
-
-void rtw_hal_free_data(struct adapter *padapter);
-
-void rtw_hal_dm_init(struct adapter *padapter);
-
 uint rtw_hal_init(struct adapter *padapter);
 uint rtw_hal_deinit(struct adapter *padapter);
 void rtw_hal_stop(struct adapter *padapter);
@@ -195,21 +189,13 @@ void rtw_hal_get_hwreg(struct adapter *padapter, u8 variable, u8 *val);
 
 void rtw_hal_set_hwreg_with_buf(struct adapter *padapter, u8 variable, u8 *pbuf, int len);
 
-void rtw_hal_chip_configure(struct adapter *padapter);
-void rtw_hal_read_chip_info(struct adapter *padapter);
-void rtw_hal_read_chip_version(struct adapter *padapter);
-
-u8 rtw_hal_set_def_var(struct adapter *padapter, enum hal_def_variable eVariable, void *pValue);
 u8 rtw_hal_get_def_var(struct adapter *padapter, enum hal_def_variable eVariable, void *pValue);
 
 void rtw_hal_set_odm_var(struct adapter *padapter, enum hal_odm_variable eVariable, void *pValue1, bool bSet);
 
-void rtw_hal_enable_interrupt(struct adapter *padapter);
-void rtw_hal_disable_interrupt(struct adapter *padapter);
-
 u8 rtw_hal_check_ips_status(struct adapter *padapter);
 
-s32	rtw_hal_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe);
+int rtw_hal_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe);
 s32	rtw_hal_xmit(struct adapter *padapter, struct xmit_frame *pxmitframe);
 s32	rtw_hal_mgnt_xmit(struct adapter *padapter, struct xmit_frame *pmgntframe);
 
@@ -221,9 +207,6 @@ void rtw_hal_free_recv_priv(struct adapter *padapter);
 
 void rtw_hal_update_ra_mask(struct sta_info *psta, u8 rssi_level);
 void rtw_hal_add_ra_tid(struct adapter *padapter, u32 bitmap, u8 *arg, u8 rssi_level);
-
-void rtw_hal_start_thread(struct adapter *padapter);
-void rtw_hal_stop_thread(struct adapter *padapter);
 
 void beacon_timing_control(struct adapter *padapter);
 
@@ -262,7 +245,6 @@ void SetHwReg8723BS(struct adapter *padapter, u8 variable, u8 *val);
 void GetHwReg8723BS(struct adapter *padapter, u8 variable, u8 *val);
 void SetHwRegWithBuf8723B(struct adapter *padapter, u8 variable, u8 *pbuf, int len);
 u8 GetHalDefVar8723BSDIO(struct adapter *Adapter, enum hal_def_variable eVariable, void *pValue);
-u8 SetHalDefVar8723BSDIO(struct adapter *Adapter, enum hal_def_variable eVariable, void *pValue);
 void UpdateHalRAMask8723B(struct adapter *padapter, u32 mac_id, u8 rssi_level);
 void rtl8723b_SetBeaconRelatedRegisters(struct adapter *padapter);
 void Hal_EfusePowerSwitch(struct adapter *padapter, u8 PwrState);

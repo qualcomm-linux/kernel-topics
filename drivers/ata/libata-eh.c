@@ -469,6 +469,7 @@ static void ata_eh_clear_action(struct ata_link *link, struct ata_device *dev,
  *	EH context.
  */
 void ata_eh_acquire(struct ata_port *ap)
+	__acquires(&ap->host->eh_mutex)
 {
 	mutex_lock(&ap->host->eh_mutex);
 	WARN_ON_ONCE(ap->host->eh_owner);
@@ -486,6 +487,7 @@ void ata_eh_acquire(struct ata_port *ap)
  *	EH context.
  */
 void ata_eh_release(struct ata_port *ap)
+	__releases(&ap->host->eh_mutex)
 {
 	WARN_ON_ONCE(ap->host->eh_owner != current);
 	ap->host->eh_owner = NULL;
@@ -560,21 +562,27 @@ void ata_scsi_error(struct Scsi_Host *host)
 {
 	struct ata_port *ap = ata_shost_to_port(host);
 	unsigned long flags;
+	int nr_timedout;
 	LIST_HEAD(eh_work_q);
 
 	spin_lock_irqsave(host->host_lock, flags);
 	list_splice_init(&host->eh_cmd_q, &eh_work_q);
 	spin_unlock_irqrestore(host->host_lock, flags);
 
-	ata_scsi_cmd_error_handler(host, ap, &eh_work_q);
+	/*
+	 * First check what errors we got with ata_scsi_cmd_error_handler().
+	 * If we had no command timeouts and EH is not scheduled for this port,
+	 * meaning that we do not have any failed command, then there is no
+	 * need to go through the full port error handling. We only need to
+	 * flush the completed commands we have.
+	 */
+	nr_timedout = ata_scsi_cmd_error_handler(host, ap, &eh_work_q);
+	if (nr_timedout || ata_port_eh_scheduled(ap))
+		ata_scsi_port_error_handler(host, ap);
+	else
+		scsi_eh_flush_done_q(&ap->eh_done_q);
 
-	/* If we timed raced normal completion and there is nothing to
-	   recover nr_timedout == 0 why exactly are we doing error recovery ? */
-	ata_scsi_port_error_handler(host, ap);
-
-	/* finish or retry handled scmd's and clean up */
 	WARN_ON(!list_empty(&eh_work_q));
-
 }
 
 /**
@@ -586,9 +594,11 @@ void ata_scsi_error(struct Scsi_Host *host)
  * process the given list of commands and return those finished to the
  * ap->eh_done_q.  This function is the first part of the libata error
  * handler which processes a given list of failed commands.
+ *
+ * Return the number of commands that timed out.
  */
-void ata_scsi_cmd_error_handler(struct Scsi_Host *host, struct ata_port *ap,
-				struct list_head *eh_work_q)
+int ata_scsi_cmd_error_handler(struct Scsi_Host *host, struct ata_port *ap,
+			       struct list_head *eh_work_q)
 {
 	int i;
 	unsigned long flags;
@@ -640,12 +650,29 @@ void ata_scsi_cmd_error_handler(struct Scsi_Host *host, struct ata_port *ap,
 		set_host_byte(scmd, DID_OK);
 
 		ata_qc_for_each_raw(ap, qc, i) {
-			if (qc->flags & ATA_QCFLAG_ACTIVE &&
-			    qc->scsicmd == scmd)
+			if (qc->scsicmd != scmd)
+				continue;
+			if ((qc->flags & ATA_QCFLAG_ACTIVE) ||
+			    qc == qc->dev->link->deferred_qc)
 				break;
 		}
 
-		if (i < ATA_MAX_QUEUE) {
+		if (i < ATA_MAX_QUEUE && qc == qc->dev->link->deferred_qc) {
+			/*
+			 * This is a deferred command that timed out while
+			 * waiting for the command queue to drain. Since the qc
+			 * is not active yet (deferred_qc is still set, so the
+			 * deferred qc work has not issued the command yet),
+			 * simply signal the timeout by finishing the SCSI
+			 * command and clear the deferred qc to prevent the
+			 * deferred qc work from issuing this qc.
+			 */
+			WARN_ON_ONCE(qc->flags & ATA_QCFLAG_ACTIVE);
+			qc->dev->link->deferred_qc = NULL;
+			cancel_work(&qc->dev->link->deferred_qc_work);
+			set_host_byte(scmd, DID_TIME_OUT);
+			scsi_eh_finish_cmd(scmd, &ap->eh_done_q);
+		} else if (i < ATA_MAX_QUEUE) {
 			/* the scmd has an associated qc */
 			if (!(qc->flags & ATA_QCFLAG_EH)) {
 				/* which hasn't failed yet, timeout */
@@ -678,6 +705,8 @@ void ata_scsi_cmd_error_handler(struct Scsi_Host *host, struct ata_port *ap,
 	ap->eh_tries = ATA_EH_MAX_TRIES;
 
 	spin_unlock_irqrestore(ap->lock, flags);
+
+	return nr_timedout;
 }
 EXPORT_SYMBOL(ata_scsi_cmd_error_handler);
 
@@ -736,7 +765,8 @@ void ata_scsi_port_error_handler(struct Scsi_Host *host, struct ata_port *ap)
 	spin_unlock_irqrestore(ap->lock, flags);
 
 	/* invoke EH, skip if unloading or suspended */
-	if (!(ap->pflags & (ATA_PFLAG_UNLOADING | ATA_PFLAG_SUSPENDED)))
+	if (!(ap->pflags & (ATA_PFLAG_UNLOADING | ATA_PFLAG_SUSPENDED)) &&
+	    ata_adapter_is_online(ap))
 		ap->ops->error_handler(ap);
 	else {
 		/* if unloading, commence suicide */
@@ -791,7 +821,7 @@ void ata_scsi_port_error_handler(struct Scsi_Host *host, struct ata_port *ap)
 		ap->pflags &= ~ATA_PFLAG_LOADING;
 	else if ((ap->pflags & ATA_PFLAG_SCSI_HOTPLUG) &&
 		!(ap->flags & ATA_FLAG_SAS_HOST))
-		schedule_delayed_work(&ap->hotplug_task, 0);
+		queue_delayed_work(system_dfl_long_wq, &ap->hotplug_task, 0);
 
 	if (ap->pflags & ATA_PFLAG_RECOVERED)
 		ata_port_info(ap, "EH complete\n");
@@ -916,6 +946,12 @@ static void ata_eh_set_pending(struct ata_port *ap, bool fastdrain)
 		return;
 
 	ap->pflags |= ATA_PFLAG_EH_PENDING;
+
+	/*
+	 * If we have a deferred qc, requeue it so that it is retried once EH
+	 * completes.
+	 */
+	ata_scsi_requeue_deferred_qc(ap);
 
 	if (!fastdrain)
 		return;
@@ -2797,10 +2833,10 @@ static bool ata_eh_followup_srst_needed(struct ata_link *link, int rc)
 	return false;
 }
 
-int ata_eh_reset(struct ata_link *link, int classify,
+int ata_eh_reset(struct ata_port *ap, struct ata_link *link, int classify,
 		 struct ata_reset_operations *reset_ops)
+	__must_hold(&ap->host->eh_mutex)
 {
-	struct ata_port *ap = link->ap;
 	struct ata_link *slave = ap->slave_link;
 	struct ata_eh_context *ehc = &link->eh_context;
 	struct ata_eh_context *sehc = slave ? &slave->eh_context : NULL;
@@ -3147,7 +3183,7 @@ int ata_eh_reset(struct ata_link *link, int classify,
 	    sata_scr_read(link, SCR_STATUS, &sstatus))
 		rc = -ERESTART;
 
-	if (try >= max_tries) {
+	if (try >= max_tries || rc == -ENODEV) {
 		/*
 		 * Thaw host port even if reset failed, so that the port
 		 * can be retried on the next phy event.  This risks
@@ -3782,6 +3818,7 @@ static int ata_eh_handle_dev_fail(struct ata_device *dev, int err)
  */
 int ata_eh_recover(struct ata_port *ap, struct ata_reset_operations *reset_ops,
 		   struct ata_link **r_failed_link)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct ata_link *link;
 	struct ata_device *dev;
@@ -3848,7 +3885,8 @@ int ata_eh_recover(struct ata_port *ap, struct ata_reset_operations *reset_ops,
 		if (!(ehc->i.action & ATA_EH_RESET))
 			continue;
 
-		rc = ata_eh_reset(link, ata_link_nr_vacant(link), reset_ops);
+		rc = ata_eh_reset(ap, link, ata_link_nr_vacant(link),
+				  reset_ops);
 		if (rc) {
 			ata_link_err(link, "reset failed, giving up\n");
 			goto out;
@@ -4078,6 +4116,7 @@ void ata_eh_finish(struct ata_port *ap)
  *	Kernel thread context (may sleep).
  */
 void ata_std_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	struct ata_reset_operations *reset_ops = &ap->ops->reset;
 	struct ata_link *link = &ap->link;

@@ -412,7 +412,7 @@ static struct port_buffer *alloc_buf(struct virtio_device *vdev, size_t buf_size
 	 * Allocate buffer and the sg list. The sg list array is allocated
 	 * directly after the port_buffer struct.
 	 */
-	buf = kmalloc(struct_size(buf, sg, pages), GFP_KERNEL);
+	buf = kmalloc_flex(*buf, sg, pages);
 	if (!buf)
 		goto fail;
 
@@ -1325,7 +1325,7 @@ static int add_port(struct ports_device *portdev, u32 id)
 	dev_t devt;
 	int err;
 
-	port = kmalloc(sizeof(*port), GFP_KERNEL);
+	port = kmalloc_obj(*port);
 	if (!port) {
 		err = -ENOMEM;
 		goto fail;
@@ -1771,32 +1771,40 @@ static void config_intr(struct virtio_device *vdev)
 		schedule_work(&portdev->config_work);
 }
 
+static void update_size_from_config(struct ports_device *portdev)
+{
+	struct virtio_device *vdev;
+	struct port *port;
+	u16 rows, cols;
+
+	vdev = portdev->vdev;
+
+	/*
+	 * We'll use this way of resizing only for legacy support.
+	 * For multiport devices, use control messages to indicate
+	 * console size changes so that it can be done per-port.
+	 *
+	 * Don't test F_SIZE at all if we're rproc: not a valid feature.
+	 */
+	if (is_rproc_serial(vdev) ||
+	    use_multiport(portdev) ||
+	    !virtio_has_feature(vdev, VIRTIO_CONSOLE_F_SIZE))
+		return;
+
+	virtio_cread(vdev, struct virtio_console_config, cols, &cols);
+	virtio_cread(vdev, struct virtio_console_config, rows, &rows);
+
+	port = find_port_by_id(portdev, 0);
+	set_console_size(port, rows, cols);
+	resize_console(port);
+}
+
 static void config_work_handler(struct work_struct *work)
 {
 	struct ports_device *portdev;
 
 	portdev = container_of(work, struct ports_device, config_work);
-	if (!use_multiport(portdev)) {
-		struct virtio_device *vdev;
-		struct port *port;
-		u16 rows, cols;
-
-		vdev = portdev->vdev;
-		virtio_cread(vdev, struct virtio_console_config, cols, &cols);
-		virtio_cread(vdev, struct virtio_console_config, rows, &rows);
-
-		port = find_port_by_id(portdev, 0);
-		set_console_size(port, rows, cols);
-
-		/*
-		 * We'll use this way of resizing only for legacy
-		 * support.  For newer userspace
-		 * (VIRTIO_CONSOLE_F_MULTPORT+), use control messages
-		 * to indicate console size changes so that it can be
-		 * done per-port.
-		 */
-		resize_console(port);
-	}
+	update_size_from_config(portdev);
 }
 
 static int init_vqs(struct ports_device *portdev)
@@ -1809,12 +1817,10 @@ static int init_vqs(struct ports_device *portdev)
 	nr_ports = portdev->max_nr_ports;
 	nr_queues = use_multiport(portdev) ? (nr_ports + 1) * 2 : 2;
 
-	vqs = kmalloc_array(nr_queues, sizeof(struct virtqueue *), GFP_KERNEL);
-	vqs_info = kcalloc(nr_queues, sizeof(*vqs_info), GFP_KERNEL);
-	portdev->in_vqs = kmalloc_array(nr_ports, sizeof(struct virtqueue *),
-					GFP_KERNEL);
-	portdev->out_vqs = kmalloc_array(nr_ports, sizeof(struct virtqueue *),
-					 GFP_KERNEL);
+	vqs = kmalloc_objs(struct virtqueue *, nr_queues);
+	vqs_info = kzalloc_objs(*vqs_info, nr_queues);
+	portdev->in_vqs = kmalloc_objs(struct virtqueue *, nr_ports);
+	portdev->out_vqs = kmalloc_objs(struct virtqueue *, nr_ports);
 	if (!vqs || !vqs_info || !portdev->in_vqs || !portdev->out_vqs) {
 		err = -ENOMEM;
 		goto free;
@@ -1965,7 +1971,7 @@ static int virtcons_probe(struct virtio_device *vdev)
 		return -EINVAL;
 	}
 
-	portdev = kmalloc(sizeof(*portdev), GFP_KERNEL);
+	portdev = kmalloc_obj(*portdev);
 	if (!portdev) {
 		err = -ENOMEM;
 		goto fail;
@@ -2053,6 +2059,8 @@ static int virtcons_probe(struct virtio_device *vdev)
 
 	__send_control_msg(portdev, VIRTIO_CONSOLE_BAD_ID,
 			   VIRTIO_CONSOLE_DEVICE_READY, 1);
+
+	update_size_from_config(portdev);
 
 	return 0;
 

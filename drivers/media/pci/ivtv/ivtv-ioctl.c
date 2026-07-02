@@ -467,15 +467,13 @@ static int ivtv_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 	int h = fmt->fmt.pix.height;
 	int min_h = 2;
 
-	w = min(w, 720);
-	w = max(w, 2);
+	w = clamp(w, 2, 720);
 	if (id->type == IVTV_ENC_STREAM_TYPE_YUV) {
 		/* YUV height must be a multiple of 32 */
 		h &= ~0x1f;
 		min_h = 32;
 	}
-	h = min(h, itv->is_50hz ? 576 : 480);
-	h = max(h, min_h);
+	h = clamp(h, min_h, itv->is_50hz ? 576 : 480);
 	ivtv_g_fmt_vid_cap(file, fh, fmt);
 	fmt->fmt.pix.width = w;
 	fmt->fmt.pix.height = h;
@@ -516,8 +514,7 @@ static int ivtv_try_fmt_vid_out(struct file *file, void *fh, struct v4l2_format 
 	int field = fmt->fmt.pix.field;
 	int ret = ivtv_g_fmt_vid_out(file, fh, fmt);
 
-	w = min(w, 720);
-	w = max(w, 2);
+	w = clamp(w, 2, 720);
 	/* Why can the height be 576 even when the output is NTSC?
 
 	   Internally the buffers of the PVR350 are always set to 720x576. The
@@ -533,8 +530,7 @@ static int ivtv_try_fmt_vid_out(struct file *file, void *fh, struct v4l2_format 
 	   resolution is locked to the broadcast standard and not scaled.
 
 	   Thanks to Ian Armstrong for this explanation. */
-	h = min(h, 576);
-	h = max(h, 2);
+	h = clamp(h, 2, 576);
 	if (id->type == IVTV_DEC_STREAM_TYPE_YUV)
 		fmt->fmt.pix.field = field;
 	fmt->fmt.pix.width = w;
@@ -974,9 +970,8 @@ static int ivtv_g_input(struct file *file, void *fh, unsigned int *i)
 	return 0;
 }
 
-int ivtv_s_input(struct file *file, void *fh, unsigned int inp)
+int ivtv_do_s_input(struct ivtv *itv, unsigned int inp)
 {
-	struct ivtv *itv = file2id(file)->itv;
 	v4l2_std_id std;
 	int i;
 
@@ -1015,6 +1010,11 @@ int ivtv_s_input(struct file *file, void *fh, unsigned int inp)
 	ivtv_unmute(itv);
 
 	return 0;
+}
+
+static int ivtv_s_input(struct file *file, void *fh, unsigned int inp)
+{
+	return ivtv_do_s_input(file2id(file)->itv, inp);
 }
 
 static int ivtv_g_output(struct file *file, void *fh, unsigned int *i)
@@ -1065,10 +1065,9 @@ static int ivtv_g_frequency(struct file *file, void *fh, struct v4l2_frequency *
 	return 0;
 }
 
-int ivtv_s_frequency(struct file *file, void *fh, const struct v4l2_frequency *vf)
+int ivtv_do_s_frequency(struct ivtv_stream *s, const struct v4l2_frequency *vf)
 {
-	struct ivtv *itv = file2id(file)->itv;
-	struct ivtv_stream *s = &itv->streams[file2id(file)->type];
+	struct ivtv *itv = s->itv;
 
 	if (s->vdev.vfl_dir)
 		return -ENOTTY;
@@ -1080,6 +1079,15 @@ int ivtv_s_frequency(struct file *file, void *fh, const struct v4l2_frequency *v
 	ivtv_call_all(itv, tuner, s_frequency, vf);
 	ivtv_unmute(itv);
 	return 0;
+}
+
+static int ivtv_s_frequency(struct file *file, void *fh,
+			    const struct v4l2_frequency *vf)
+{
+	struct ivtv_open_id *id = file2id(file);
+	struct ivtv *itv = id->itv;
+
+	return ivtv_do_s_frequency(&itv->streams[id->type], vf);
 }
 
 static int ivtv_g_std(struct file *file, void *fh, v4l2_std_id *std)

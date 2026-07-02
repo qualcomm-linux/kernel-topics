@@ -246,8 +246,8 @@ struct via82xx_modem {
 };
 
 static const struct pci_device_id snd_via82xx_modem_ids[] = {
-	{ PCI_VDEVICE(VIA, 0x3068), TYPE_CARD_VIA82XX_MODEM, },
-	{ 0, }
+	{ PCI_VDEVICE(VIA, 0x3068), .driver_data = TYPE_CARD_VIA82XX_MODEM },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(pci, snd_via82xx_modem_ids);
@@ -278,9 +278,7 @@ static int build_via_table(struct viadev *dev, struct snd_pcm_substream *substre
 			return -ENOMEM;
 	}
 	if (! dev->idx_table) {
-		dev->idx_table = kmalloc_array(VIA_TABLE_SIZE,
-					       sizeof(*dev->idx_table),
-					       GFP_KERNEL);
+		dev->idx_table = kmalloc_objs(*dev->idx_table, VIA_TABLE_SIZE);
 		if (! dev->idx_table)
 			return -ENOMEM;
 	}

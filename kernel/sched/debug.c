@@ -8,6 +8,7 @@
  */
 #include <linux/debugfs.h>
 #include <linux/nmi.h>
+#include <linux/log2.h>
 #include "sched.h"
 
 /*
@@ -135,7 +136,7 @@ sched_feat_write(struct file *filp, const char __user *ubuf,
 	if (cnt > 63)
 		cnt = 63;
 
-	if (copy_from_user(&buf, ubuf, cnt))
+	if (copy_from_user(buf, ubuf, cnt))
 		return -EFAULT;
 
 	buf[cnt] = 0;
@@ -172,18 +173,12 @@ static const struct file_operations sched_feat_fops = {
 static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 				   size_t cnt, loff_t *ppos)
 {
-	char buf[16];
 	unsigned int scaling;
+	int ret;
 
-	if (cnt > 15)
-		cnt = 15;
-
-	if (copy_from_user(&buf, ubuf, cnt))
-		return -EFAULT;
-	buf[cnt] = '\0';
-
-	if (kstrtouint(buf, 10, &scaling))
-		return -EINVAL;
+	ret = kstrtouint_from_user(ubuf, cnt, 10, &scaling);
+	if (ret)
+		return ret;
 
 	if (scaling >= SCHED_TUNABLESCALING_END)
 		return -EINVAL;
@@ -215,6 +210,48 @@ static const struct file_operations sched_scaling_fops = {
 	.release	= single_release,
 };
 
+#ifdef CONFIG_SCHED_CACHE
+static ssize_t
+sched_cache_enable_write(struct file *filp, const char __user *ubuf,
+			 size_t cnt, loff_t *ppos)
+{
+	bool val;
+	int ret;
+
+	ret = kstrtobool_from_user(ubuf, cnt, &val);
+	if (ret)
+		return ret;
+
+	sysctl_sched_cache_user = val;
+
+	sched_cache_active_set();
+
+	*ppos += cnt;
+
+	return cnt;
+}
+
+static int sched_cache_enable_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%d\n", sysctl_sched_cache_user);
+	return 0;
+}
+
+static int sched_cache_enable_open(struct inode *inode,
+				   struct file *filp)
+{
+	return single_open(filp, sched_cache_enable_show, NULL);
+}
+
+static const struct file_operations sched_cache_enable_fops = {
+	.open           = sched_cache_enable_open,
+	.write          = sched_cache_enable_write,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = single_release,
+};
+#endif
+
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
 static ssize_t sched_dynamic_write(struct file *filp, const char __user *ubuf,
@@ -226,7 +263,7 @@ static ssize_t sched_dynamic_write(struct file *filp, const char __user *ubuf,
 	if (cnt > 15)
 		cnt = 15;
 
-	if (copy_from_user(&buf, ubuf, cnt))
+	if (copy_from_user(buf, ubuf, cnt))
 		return -EFAULT;
 
 	buf[cnt] = 0;
@@ -243,7 +280,8 @@ static ssize_t sched_dynamic_write(struct file *filp, const char __user *ubuf,
 
 static int sched_dynamic_show(struct seq_file *m, void *v)
 {
-	int i = IS_ENABLED(CONFIG_PREEMPT_RT) * 2;
+	int i = (IS_ENABLED(CONFIG_PREEMPT_RT) || IS_ENABLED(CONFIG_ARCH_HAS_PREEMPT_LAZY)) * 2;
+	int mode = READ_ONCE(preempt_dynamic_mode);
 	int j;
 
 	/* Count entries in NULL terminated preempt_modes */
@@ -252,10 +290,10 @@ static int sched_dynamic_show(struct seq_file *m, void *v)
 	j -= !IS_ENABLED(CONFIG_ARCH_HAS_PREEMPT_LAZY);
 
 	for (; i < j; i++) {
-		if (preempt_dynamic_mode == i)
+		if (mode == i)
 			seq_puts(m, "(");
 		seq_puts(m, preempt_modes[i]);
-		if (preempt_dynamic_mode == i)
+		if (mode == i)
 			seq_puts(m, ")");
 
 		seq_puts(m, " ");
@@ -336,17 +374,19 @@ enum dl_param {
 	DL_PERIOD,
 };
 
-static unsigned long fair_server_period_max = (1UL << 22) * NSEC_PER_USEC; /* ~4 seconds */
-static unsigned long fair_server_period_min = (100) * NSEC_PER_USEC;     /* 100 us */
+static unsigned long dl_server_period_max = (1UL << 22) * NSEC_PER_USEC; /* ~4 seconds */
+static unsigned long dl_server_period_min = (100) * NSEC_PER_USEC;     /* 100 us */
 
-static ssize_t sched_fair_server_write(struct file *filp, const char __user *ubuf,
-				       size_t cnt, loff_t *ppos, enum dl_param param)
+static ssize_t sched_server_write_common(struct file *filp, const char __user *ubuf,
+					 size_t cnt, loff_t *ppos, enum dl_param param,
+					 void *server)
 {
 	long cpu = (long) ((struct seq_file *) filp->private_data)->private;
+	struct sched_dl_entity *dl_se = (struct sched_dl_entity *)server;
+	u64 old_runtime, runtime, period;
 	struct rq *rq = cpu_rq(cpu);
-	u64 runtime, period;
+	int retval = 0;
 	size_t err;
-	int retval;
 	u64 value;
 
 	err = kstrtoull_from_user(ubuf, cnt, 10, &value);
@@ -354,8 +394,8 @@ static ssize_t sched_fair_server_write(struct file *filp, const char __user *ubu
 		return err;
 
 	scoped_guard (rq_lock_irqsave, rq) {
-		runtime  = rq->fair_server.dl_runtime;
-		period = rq->fair_server.dl_period;
+		old_runtime = runtime = dl_se->dl_runtime;
+		period = dl_se->dl_period;
 
 		switch (param) {
 		case DL_RUNTIME:
@@ -371,60 +411,71 @@ static ssize_t sched_fair_server_write(struct file *filp, const char __user *ubu
 		}
 
 		if (runtime > period ||
-		    period > fair_server_period_max ||
-		    period < fair_server_period_min) {
+		    period > dl_server_period_max ||
+		    period < dl_server_period_min) {
 			return  -EINVAL;
 		}
 
+		if (!cpu_online(cpu_of(rq)))
+			return -EBUSY;
+
 		update_rq_clock(rq);
-		dl_server_stop(&rq->fair_server);
+		dl_server_stop(dl_se);
+		retval = dl_server_apply_params(dl_se, runtime, period, 0);
+		dl_server_start(dl_se);
 
-		retval = dl_server_apply_params(&rq->fair_server, runtime, period, 0);
-		if (retval)
-			cnt = retval;
+		if (retval < 0)
+			return retval;
+	}
 
-		if (!runtime)
-			printk_deferred("Fair server disabled in CPU %d, system may crash due to starvation.\n",
-					cpu_of(rq));
-
-		if (rq->cfs.h_nr_queued)
-			dl_server_start(&rq->fair_server);
+	if (!!old_runtime ^ !!runtime) {
+		pr_info("%s server %sabled on CPU %d%s.\n",
+			server == &rq->fair_server ? "Fair" : "Ext",
+			runtime ? "en" : "dis",
+			cpu_of(rq),
+			runtime ? "" : ", system may malfunction due to starvation");
 	}
 
 	*ppos += cnt;
 	return cnt;
 }
 
-static size_t sched_fair_server_show(struct seq_file *m, void *v, enum dl_param param)
+static size_t sched_server_show_common(struct seq_file *m, void *v, enum dl_param param,
+				       void *server)
 {
-	unsigned long cpu = (unsigned long) m->private;
-	struct rq *rq = cpu_rq(cpu);
+	struct sched_dl_entity *dl_se = (struct sched_dl_entity *)server;
 	u64 value;
 
 	switch (param) {
 	case DL_RUNTIME:
-		value = rq->fair_server.dl_runtime;
+		value = dl_se->dl_runtime;
 		break;
 	case DL_PERIOD:
-		value = rq->fair_server.dl_period;
+		value = dl_se->dl_period;
 		break;
 	}
 
 	seq_printf(m, "%llu\n", value);
 	return 0;
-
 }
 
 static ssize_t
 sched_fair_server_runtime_write(struct file *filp, const char __user *ubuf,
 				size_t cnt, loff_t *ppos)
 {
-	return sched_fair_server_write(filp, ubuf, cnt, ppos, DL_RUNTIME);
+	long cpu = (long) ((struct seq_file *) filp->private_data)->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_write_common(filp, ubuf, cnt, ppos, DL_RUNTIME,
+					&rq->fair_server);
 }
 
 static int sched_fair_server_runtime_show(struct seq_file *m, void *v)
 {
-	return sched_fair_server_show(m, v, DL_RUNTIME);
+	unsigned long cpu = (unsigned long) m->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_show_common(m, v, DL_RUNTIME, &rq->fair_server);
 }
 
 static int sched_fair_server_runtime_open(struct inode *inode, struct file *filp)
@@ -440,16 +491,112 @@ static const struct file_operations fair_server_runtime_fops = {
 	.release	= single_release,
 };
 
+static struct dentry *debugfs_sched;
+
+#ifdef CONFIG_SCHED_CLASS_EXT
+static ssize_t
+sched_ext_server_runtime_write(struct file *filp, const char __user *ubuf,
+			       size_t cnt, loff_t *ppos)
+{
+	long cpu = (long) ((struct seq_file *) filp->private_data)->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_write_common(filp, ubuf, cnt, ppos, DL_RUNTIME,
+					&rq->ext_server);
+}
+
+static int sched_ext_server_runtime_show(struct seq_file *m, void *v)
+{
+	unsigned long cpu = (unsigned long) m->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_show_common(m, v, DL_RUNTIME, &rq->ext_server);
+}
+
+static int sched_ext_server_runtime_open(struct inode *inode, struct file *filp)
+{
+	return single_open(filp, sched_ext_server_runtime_show, inode->i_private);
+}
+
+static const struct file_operations ext_server_runtime_fops = {
+	.open		= sched_ext_server_runtime_open,
+	.write		= sched_ext_server_runtime_write,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static ssize_t
+sched_ext_server_period_write(struct file *filp, const char __user *ubuf,
+			      size_t cnt, loff_t *ppos)
+{
+	long cpu = (long) ((struct seq_file *) filp->private_data)->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_write_common(filp, ubuf, cnt, ppos, DL_PERIOD,
+					&rq->ext_server);
+}
+
+static int sched_ext_server_period_show(struct seq_file *m, void *v)
+{
+	unsigned long cpu = (unsigned long) m->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_show_common(m, v, DL_PERIOD, &rq->ext_server);
+}
+
+static int sched_ext_server_period_open(struct inode *inode, struct file *filp)
+{
+	return single_open(filp, sched_ext_server_period_show, inode->i_private);
+}
+
+static const struct file_operations ext_server_period_fops = {
+	.open		= sched_ext_server_period_open,
+	.write		= sched_ext_server_period_write,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static void debugfs_ext_server_init(void)
+{
+	struct dentry *d_ext;
+	unsigned long cpu;
+
+	d_ext = debugfs_create_dir("ext_server", debugfs_sched);
+	if (!d_ext)
+		return;
+
+	for_each_possible_cpu(cpu) {
+		struct dentry *d_cpu;
+		char buf[32];
+
+		snprintf(buf, sizeof(buf), "cpu%lu", cpu);
+		d_cpu = debugfs_create_dir(buf, d_ext);
+
+		debugfs_create_file("runtime", 0644, d_cpu, (void *) cpu, &ext_server_runtime_fops);
+		debugfs_create_file("period", 0644, d_cpu, (void *) cpu, &ext_server_period_fops);
+	}
+}
+#endif /* CONFIG_SCHED_CLASS_EXT */
+
 static ssize_t
 sched_fair_server_period_write(struct file *filp, const char __user *ubuf,
 			       size_t cnt, loff_t *ppos)
 {
-	return sched_fair_server_write(filp, ubuf, cnt, ppos, DL_PERIOD);
+	long cpu = (long) ((struct seq_file *) filp->private_data)->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_write_common(filp, ubuf, cnt, ppos, DL_PERIOD,
+					&rq->fair_server);
 }
 
 static int sched_fair_server_period_show(struct seq_file *m, void *v)
 {
-	return sched_fair_server_show(m, v, DL_PERIOD);
+	unsigned long cpu = (unsigned long) m->private;
+	struct rq *rq = cpu_rq(cpu);
+
+	return sched_server_show_common(m, v, DL_PERIOD, &rq->fair_server);
 }
 
 static int sched_fair_server_period_open(struct inode *inode, struct file *filp)
@@ -464,8 +611,6 @@ static const struct file_operations fair_server_period_fops = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
-
-static struct dentry *debugfs_sched;
 
 static void debugfs_fair_server_init(void)
 {
@@ -490,7 +635,7 @@ static void debugfs_fair_server_init(void)
 
 static __init int sched_init_debug(void)
 {
-	struct dentry __maybe_unused *numa;
+	struct dentry __maybe_unused *numa, *llc;
 
 	debugfs_sched = debugfs_create_dir("sched", NULL);
 
@@ -523,9 +668,28 @@ static __init int sched_init_debug(void)
 	debugfs_create_u32("hot_threshold_ms", 0644, numa, &sysctl_numa_balancing_hot_threshold);
 #endif /* CONFIG_NUMA_BALANCING */
 
+#ifdef CONFIG_SCHED_CACHE
+	llc = debugfs_create_dir("llc_balancing", debugfs_sched);
+	debugfs_create_file("enabled", 0644, llc, NULL,
+			    &sched_cache_enable_fops);
+	debugfs_create_u32("aggr_tolerance", 0644, llc,
+			   &llc_aggr_tolerance);
+	debugfs_create_u32("epoch_period", 0644, llc,
+			   &llc_epoch_period);
+	debugfs_create_u32("epoch_affinity_timeout", 0644, llc,
+			   &llc_epoch_affinity_timeout);
+	debugfs_create_u32("overaggr_pct", 0644, llc,
+			   &llc_overaggr_pct);
+	debugfs_create_u32("imb_pct", 0644, llc,
+			   &llc_imb_pct);
+#endif
+
 	debugfs_create_file("debug", 0444, debugfs_sched, NULL, &sched_debug_fops);
 
 	debugfs_fair_server_init();
+#ifdef CONFIG_SCHED_CLASS_EXT
+	debugfs_ext_server_init();
+#endif
 
 	return 0;
 }
@@ -644,7 +808,7 @@ void dirty_sched_domain_sysctl(int cpu)
 #ifdef CONFIG_FAIR_GROUP_SCHED
 static void print_cfs_group_stats(struct seq_file *m, int cpu, struct task_group *tg)
 {
-	struct sched_entity *se = tg->se[cpu];
+	struct sched_entity *se = tg_se(tg, cpu);
 
 #define P(F)		SEQ_printf(m, "  .%-30s: %lld\n",	#F, (long long)F)
 #define P_SCHEDSTAT(F)	SEQ_printf(m, "  .%-30s: %lld\n",	\
@@ -796,10 +960,14 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 {
-	s64 left_vruntime = -1, min_vruntime, right_vruntime = -1, left_deadline = -1, spread;
+	s64 left_vruntime = -1, right_vruntime = -1, left_deadline = -1, spread;
+	s64 zero_vruntime = -1, sum_w_vruntime = -1;
+	u64 avruntime;
 	struct sched_entity *last, *first, *root;
 	struct rq *rq = cpu_rq(cpu);
+	unsigned int sum_shift;
 	unsigned long flags;
+	u64 sum_weight;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	SEQ_printf(m, "\n");
@@ -819,17 +987,26 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 	last = __pick_last_entity(cfs_rq);
 	if (last)
 		right_vruntime = last->vruntime;
-	min_vruntime = cfs_rq->min_vruntime;
+	zero_vruntime = cfs_rq->zero_vruntime;
+	sum_w_vruntime = cfs_rq->sum_w_vruntime;
+	sum_weight = cfs_rq->sum_weight;
+	sum_shift = cfs_rq->sum_shift;
+	avruntime = avg_vruntime(cfs_rq);
 	raw_spin_rq_unlock_irqrestore(rq, flags);
 
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "left_deadline",
 			SPLIT_NS(left_deadline));
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "left_vruntime",
 			SPLIT_NS(left_vruntime));
-	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "min_vruntime",
-			SPLIT_NS(min_vruntime));
+	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "zero_vruntime",
+			SPLIT_NS(zero_vruntime));
+	SEQ_printf(m, "  .%-30s: %Ld (%d bits)\n", "sum_w_vruntime",
+		   sum_w_vruntime, ilog2(abs(sum_w_vruntime)));
+	SEQ_printf(m, "  .%-30s: %Lu\n", "sum_weight",
+		   sum_weight);
+	SEQ_printf(m, "  .%-30s: %u\n", "sum_shift", sum_shift);
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "avg_vruntime",
-			SPLIT_NS(avg_vruntime(cfs_rq)));
+			SPLIT_NS(avruntime));
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "right_vruntime",
 			SPLIT_NS(right_vruntime));
 	spread = right_vruntime - left_vruntime;

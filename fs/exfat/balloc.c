@@ -74,11 +74,10 @@ static int exfat_allocate_bitmap(struct super_block *sb,
 		struct exfat_dentry *ep)
 {
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
-	struct blk_plug plug;
 	long long map_size;
 	unsigned int i, j, need_map_size;
-	sector_t sector;
-	unsigned int max_ra_count;
+	sector_t sector, end, ra;
+	blkcnt_t ra_cnt = 0;
 
 	sbi->map_clu = le32_to_cpu(ep->dentry.bitmap.start_clu);
 	map_size = le64_to_cpu(ep->dentry.bitmap.size);
@@ -96,22 +95,16 @@ static int exfat_allocate_bitmap(struct super_block *sb,
 	}
 	sbi->map_sectors = ((need_map_size - 1) >>
 			(sb->s_blocksize_bits)) + 1;
-	sbi->vol_amap = kvmalloc_array(sbi->map_sectors,
-				sizeof(struct buffer_head *), GFP_KERNEL);
+	sbi->vol_amap = kvmalloc_objs(struct buffer_head *, sbi->map_sectors);
 	if (!sbi->vol_amap)
 		return -ENOMEM;
 
-	sector = exfat_cluster_to_sector(sbi, sbi->map_clu);
-	max_ra_count = min(sb->s_bdi->ra_pages, sb->s_bdi->io_pages) <<
-		(PAGE_SHIFT - sb->s_blocksize_bits);
+	sector = ra = exfat_cluster_to_sector(sbi, sbi->map_clu);
+	end = sector + sbi->map_sectors - 1;
+
 	for (i = 0; i < sbi->map_sectors; i++) {
 		/* Trigger the next readahead in advance. */
-		if (0 == (i % max_ra_count)) {
-			blk_start_plug(&plug);
-			for (j = i; j < min(max_ra_count, sbi->map_sectors - i) + i; j++)
-				sb_breadahead(sb, sector + j);
-			blk_finish_plug(&plug);
-		}
+		exfat_blk_readahead(sb, sector + i, &ra, &ra_cnt, end);
 
 		sbi->vol_amap[i] = sb_bread(sb, sector + i);
 		if (!sbi->vol_amap[i])
@@ -119,7 +112,7 @@ static int exfat_allocate_bitmap(struct super_block *sb,
 	}
 
 	if (exfat_test_bitmap_range(sb, sbi->map_clu,
-		EXFAT_B_TO_CLU_ROUND_UP(map_size, sbi)) == false)
+		exfat_bytes_to_cluster_round_up(sbi, map_size)) == false)
 		goto err_out;
 
 	return 0;
@@ -183,11 +176,10 @@ void exfat_free_bitmap(struct exfat_sb_info *sbi)
 	kvfree(sbi->vol_amap);
 }
 
-int exfat_set_bitmap(struct inode *inode, unsigned int clu, bool sync)
+int exfat_set_bitmap(struct super_block *sb, unsigned int clu, bool sync)
 {
 	int i, b;
 	unsigned int ent_idx;
-	struct super_block *sb = inode->i_sb;
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 
 	if (!is_valid_cluster(sbi, clu))
@@ -202,11 +194,10 @@ int exfat_set_bitmap(struct inode *inode, unsigned int clu, bool sync)
 	return 0;
 }
 
-int exfat_clear_bitmap(struct inode *inode, unsigned int clu, bool sync)
+int exfat_clear_bitmap(struct super_block *sb, unsigned int clu, bool sync)
 {
 	int i, b;
 	unsigned int ent_idx;
-	struct super_block *sb = inode->i_sb;
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 
 	if (!is_valid_cluster(sbi, clu))
@@ -224,6 +215,28 @@ int exfat_clear_bitmap(struct inode *inode, unsigned int clu, bool sync)
 	exfat_update_bh(sbi->vol_amap[i], sync);
 
 	return 0;
+}
+
+bool exfat_test_bitmap(struct super_block *sb, unsigned int clu)
+{
+	int i, b;
+	unsigned int ent_idx;
+	struct exfat_sb_info *sbi = EXFAT_SB(sb);
+
+	if (!sbi->vol_amap)
+		return true;
+
+	if (!is_valid_cluster(sbi, clu))
+		return false;
+
+	ent_idx = CLUSTER_TO_BITMAP_ENT(clu);
+	i = BITMAP_OFFSET_SECTOR_INDEX(sb, ent_idx);
+	b = BITMAP_OFFSET_BIT_IN_SECTOR(sb, ent_idx);
+
+	if (!test_bit_le(b, sbi->vol_amap[i]->b_data))
+		return false;
+
+	return true;
 }
 
 /*

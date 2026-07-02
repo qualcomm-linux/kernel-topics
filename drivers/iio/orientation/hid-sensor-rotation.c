@@ -19,8 +19,13 @@ struct dev_rot_state {
 	struct hid_sensor_common common_attributes;
 	struct hid_sensor_hub_attribute_info quaternion;
 	struct {
-		s32 sampled_vals[4];
-		aligned_s64 timestamp;
+		IIO_DECLARE_QUATERNION(s32, sampled_vals);
+		/*
+		 * ABI regression avoidance: There are two copies of the same
+		 * timestamp in case of userspace depending on broken alignment
+		 * from older kernels.
+		 */
+		aligned_s64 timestamp[2];
 	} scan;
 	int scale_pre_decml;
 	int scale_post_decml;
@@ -34,6 +39,27 @@ static const u32 rotation_sensitivity_addresses[] = {
 	HID_USAGE_SENSOR_ORIENT_QUATERNION,
 };
 
+enum {
+	DEV_ROT_SCAN_TYPE_16BIT,
+	DEV_ROT_SCAN_TYPE_32BIT,
+};
+
+static const struct iio_scan_type dev_rot_scan_types[] = {
+	[DEV_ROT_SCAN_TYPE_16BIT] = {
+		.sign = 's',
+		.realbits = 16,
+		/* Storage bits has to stay 32 to not break userspace. */
+		.storagebits = 32,
+		.repeat = 4,
+	},
+	[DEV_ROT_SCAN_TYPE_32BIT] = {
+		.sign = 's',
+		.realbits = 32,
+		.storagebits = 32,
+		.repeat = 4,
+	},
+};
+
 /* Channel definitions */
 static const struct iio_chan_spec dev_rot_channels[] = {
 	{
@@ -45,22 +71,13 @@ static const struct iio_chan_spec dev_rot_channels[] = {
 					BIT(IIO_CHAN_INFO_OFFSET) |
 					BIT(IIO_CHAN_INFO_SCALE) |
 					BIT(IIO_CHAN_INFO_HYSTERESIS),
-		.scan_index = 0
+		.scan_index = 0,
+		.has_ext_scan_type = 1,
+		.ext_scan_type = dev_rot_scan_types,
+		.num_ext_scan_type = ARRAY_SIZE(dev_rot_scan_types),
 	},
 	IIO_CHAN_SOFT_TIMESTAMP(1)
 };
-
-/* Adjust channel real bits based on report descriptor */
-static void dev_rot_adjust_channel_bit_mask(struct iio_chan_spec *chan,
-						int size)
-{
-	chan->scan_type.sign = 's';
-	/* Real storage bits will change based on the report desc. */
-	chan->scan_type.realbits = size * 8;
-	/* Maximum size of a sample to capture is u32 */
-	chan->scan_type.storagebits = sizeof(u32) * 8;
-	chan->scan_type.repeat = 4;
-}
 
 /* Channel read_raw handler */
 static int dev_rot_read_raw(struct iio_dev *indio_dev,
@@ -136,9 +153,25 @@ static int dev_rot_write_raw(struct iio_dev *indio_dev,
 	return ret;
 }
 
+static int dev_rot_get_current_scan_type(const struct iio_dev *indio_dev,
+					 const struct iio_chan_spec *chan)
+{
+	struct dev_rot_state *rot_state = iio_priv(indio_dev);
+
+	switch (rot_state->quaternion.size / 4) {
+	case sizeof(s16):
+		return DEV_ROT_SCAN_TYPE_16BIT;
+	case sizeof(s32):
+		return DEV_ROT_SCAN_TYPE_32BIT;
+	default:
+		return -EINVAL;
+	}
+}
+
 static const struct iio_info dev_rot_info = {
 	.read_raw_multi = &dev_rot_read_raw,
 	.write_raw = &dev_rot_write_raw,
+	.get_current_scan_type = &dev_rot_get_current_scan_type,
 };
 
 /* Callback handler to send event after all samples are received and captured */
@@ -154,8 +187,19 @@ static int dev_rot_proc_event(struct hid_sensor_hub_device *hsdev,
 		if (!rot_state->timestamp)
 			rot_state->timestamp = iio_get_time_ns(indio_dev);
 
-		iio_push_to_buffers_with_timestamp(indio_dev, &rot_state->scan,
-						   rot_state->timestamp);
+		/*
+		 * ABI regression avoidance: IIO previously had an incorrect
+		 * implementation of iio_push_to_buffers_with_timestamp() that
+		 * put the timestamp in the last 8 bytes of the buffer, which
+		 * was incorrect according to the IIO ABI. To avoid breaking
+		 * userspace that may be depending on this broken behavior, we
+		 * put the timestamp in both the correct place [0] and the old
+		 * incorrect place [1].
+		 */
+		rot_state->scan.timestamp[0] = rot_state->timestamp;
+		rot_state->scan.timestamp[1] = rot_state->timestamp;
+
+		iio_push_to_buffers(indio_dev, &rot_state->scan);
 
 		rot_state->timestamp = 0;
 	}
@@ -196,7 +240,6 @@ static int dev_rot_capture_sample(struct hid_sensor_hub_device *hsdev,
 /* Parse report which is specific to an usage id*/
 static int dev_rot_parse_report(struct platform_device *pdev,
 				struct hid_sensor_hub_device *hsdev,
-				struct iio_chan_spec *channels,
 				unsigned usage_id,
 				struct dev_rot_state *st)
 {
@@ -209,9 +252,6 @@ static int dev_rot_parse_report(struct platform_device *pdev,
 				&st->quaternion);
 	if (ret)
 		return ret;
-
-	dev_rot_adjust_channel_bit_mask(&channels[0],
-		st->quaternion.size / 4);
 
 	dev_dbg(&pdev->dev, "dev_rot %x:%x\n", st->quaternion.index,
 		st->quaternion.report_id);
@@ -271,22 +311,13 @@ static int hid_dev_rot_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	indio_dev->channels = devm_kmemdup(&pdev->dev, dev_rot_channels,
-					   sizeof(dev_rot_channels),
-					   GFP_KERNEL);
-	if (!indio_dev->channels) {
-		dev_err(&pdev->dev, "failed to duplicate channels\n");
-		return -ENOMEM;
-	}
-
-	ret = dev_rot_parse_report(pdev, hsdev,
-				   (struct iio_chan_spec *)indio_dev->channels,
-					hsdev->usage, rot_state);
+	ret = dev_rot_parse_report(pdev, hsdev, hsdev->usage, rot_state);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to setup attributes\n");
 		return ret;
 	}
 
+	indio_dev->channels = dev_rot_channels;
 	indio_dev->num_channels = ARRAY_SIZE(dev_rot_channels);
 	indio_dev->info = &dev_rot_info;
 	indio_dev->name = name;

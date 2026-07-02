@@ -31,7 +31,7 @@
 #include "dcn30/dcn30_hubp.h"
 #include "dcn31/dcn31_hubp.h"
 #include "dcn32/dcn32_hubp.h"
-#include "dml2/dml21/inc/dml_top_dchub_registers.h"
+#include "dml2_0/dml21/inc/dml_top_dchub_registers.h"
 
 #define HUBP_3DLUT_FL_REG_LIST_DCN401(inst)\
 	SRI_ARR_US(_3DLUT_FL_CONFIG, HUBP, inst),\
@@ -324,7 +324,7 @@ bool hubp401_construct(
 
 void hubp401_init(struct hubp *hubp);
 
-int hubp401_get_3dlut_fl_done(struct hubp *hubp);
+uint32_t hubp401_get_3dlut_fl_done(struct hubp *hubp);
 
 void hubp401_set_unbounded_requesting(struct hubp *hubp, bool enable);
 

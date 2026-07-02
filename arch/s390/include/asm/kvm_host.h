@@ -27,6 +27,7 @@
 #include <asm/isc.h>
 #include <asm/guarded_storage.h>
 
+#define KVM_HAVE_MMU_RWLOCK
 #define KVM_MAX_VCPUS 255
 
 #define KVM_INTERNAL_MEM_SLOTS 1
@@ -146,6 +147,7 @@ struct kvm_vcpu_stat {
 	u64 instruction_diagnose_500;
 	u64 instruction_diagnose_other;
 	u64 pfault_sync;
+	u64 signal_exits;
 };
 
 #define PGM_OPERATION			0x01
@@ -357,7 +359,7 @@ struct kvm_s390_float_interrupt {
 	struct kvm_s390_mchk_info mchk;
 	struct kvm_s390_ext_info srv_signal;
 	int last_sleep_cpu;
-	struct mutex ais_lock;
+	spinlock_t ais_lock;
 	u8 simm;
 	u8 nimm;
 };
@@ -440,11 +442,18 @@ struct kvm_vcpu_arch {
 	bool acrs_loaded;
 	struct kvm_s390_pv_vcpu pv;
 	union diag318_info diag318_info;
+	struct kvm_s390_mmu_cache *mc;
 };
 
 struct kvm_vm_stat {
 	struct kvm_vm_stat_generic generic;
 	u64 inject_io;
+	u64 io_390_adapter_map;
+	u64 io_390_adapter_unmap;
+	u64 io_390_inatomic;
+	u64 io_flic_inject_airq;
+	u64 io_set_adapter_int;
+	u64 io_390_inatomic_no_inject;
 	u64 inject_float_mchk;
 	u64 inject_pfault_done;
 	u64 inject_service_signal;
@@ -476,6 +485,9 @@ struct s390_io_adapter {
 	bool masked;
 	bool swap;
 	bool suppressible;
+	spinlock_t maps_lock;
+	struct list_head maps;
+	unsigned int nr_maps;
 };
 
 #define MAX_S390_IO_ADAPTERS ((MAX_ISC + 1) * 8)
@@ -499,6 +511,18 @@ struct kvm_s390_cpu_model {
 	unsigned short ibc;
 	/* subset of available UV-features for pv-guests enabled by user space */
 	struct kvm_s390_vm_cpu_uv_feat uv_feat_guest;
+};
+
+#define S390_ARCH_FAC_FORMAT_2 2
+struct kvm_s390_flcb2 {
+	union {
+		struct {
+			u8 reserved0[7];
+			u8 length;
+		};
+		u64 header_val;
+	};
+	u64 facilities[S390_ARCH_FAC_LIST_SIZE_U64];
 };
 
 typedef int (*crypto_hook)(struct kvm_vcpu *vcpu);
@@ -629,12 +653,14 @@ struct kvm_s390_pv {
 	void *set_aside;
 	struct list_head need_cleanup;
 	struct mmu_notifier mmu_notifier;
+	/* Protects against concurrent import-like operations */
+	struct mutex import_lock;
 };
 
-struct kvm_arch{
-	void *sca;
-	int use_esca;
-	rwlock_t sca_lock;
+struct kvm_s390_mmu_cache;
+
+struct kvm_arch {
+	struct esca_block *sca;
 	debug_info_t *dbf;
 	struct kvm_s390_float_interrupt float_int;
 	struct kvm_device *flic;
@@ -650,6 +676,8 @@ struct kvm_arch{
 	int user_sigp;
 	int user_stsi;
 	int user_instr0;
+	int user_operexec;
+	int allow_vsie_esamode;
 	struct s390_io_adapter *adapters[MAX_S390_IO_ADAPTERS];
 	wait_queue_head_t ipte_wq;
 	int ipte_lock_count;
@@ -671,6 +699,7 @@ struct kvm_arch{
 	struct kvm_s390_pv pv;
 	struct list_head kzdev_list;
 	spinlock_t kzdev_list_lock;
+	struct kvm_s390_mmu_cache *mc;
 };
 
 #define KVM_HVA_ERR_BAD		(-1UL)
@@ -702,6 +731,9 @@ static inline void kvm_arch_async_page_present_queued(struct kvm_vcpu *vcpu) {}
 void kvm_arch_crypto_clear_masks(struct kvm *kvm);
 void kvm_arch_crypto_set_masks(struct kvm *kvm, unsigned long *apm,
 			       unsigned long *aqm, unsigned long *adm);
+
+#define SIE64_RETURN_NORMAL	0
+#define SIE64_RETURN_MCCK	1
 
 int __sie64a(phys_addr_t sie_block_phys, struct kvm_s390_sie_block *sie_block, u64 *rsa,
 	     unsigned long gasce);

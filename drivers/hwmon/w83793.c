@@ -291,7 +291,7 @@ static void w83793_update_nonvolatile(struct device *dev);
 static struct w83793_data *w83793_update_device(struct device *dev);
 
 static const struct i2c_device_id w83793_id[] = {
-	{ "w83793" },
+	{ .name = "w83793" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, w83793_id);
@@ -1650,7 +1650,7 @@ static int w83793_probe(struct i2c_client *client)
 	int files_pwm = ARRAY_SIZE(w83793_left_pwm) / 5;
 	int files_temp = ARRAY_SIZE(w83793_temp) / 6;
 
-	data = kzalloc(sizeof(struct w83793_data), GFP_KERNEL);
+	data = kzalloc_obj(struct w83793_data);
 	if (!data) {
 		err = -ENOMEM;
 		goto exit;

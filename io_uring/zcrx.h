@@ -8,6 +8,11 @@
 #include <net/page_pool/types.h>
 #include <net/net_trackers.h>
 
+#define ZCRX_SUPPORTED_REG_FLAGS	(ZCRX_REG_IMPORT | ZCRX_REG_NODEV)
+#define ZCRX_FEATURES			(ZCRX_FEATURE_RX_PAGE_SIZE |\
+					 ZCRX_FEATURE_NOTIFICATION)
+#define ZCRX_NOTIF_TYPE_MASK		((1U << ZCRX_NOTIF_NO_BUFFERS) | (1U << ZCRX_NOTIF_COPY))
+
 struct io_zcrx_mem {
 	unsigned long			size;
 	bool				is_dmabuf;
@@ -38,52 +43,67 @@ struct io_zcrx_area {
 	struct io_zcrx_mem	mem;
 };
 
+struct zcrx_rq {
+	spinlock_t			lock;
+	struct io_uring			*ring;
+	struct io_uring_zcrx_rqe	*rqes;
+	u32				cached_head;
+	u32				nr_entries;
+};
+
 struct io_zcrx_ifq {
-	struct io_ring_ctx		*ctx;
 	struct io_zcrx_area		*area;
 	unsigned			niov_shift;
+	struct user_struct		*user;
+	struct mm_struct		*mm_account;
+	bool				kern_readable;
 
-	spinlock_t			rq_lock ____cacheline_aligned_in_smp;
-	struct io_uring			*rq_ring;
-	struct io_uring_zcrx_rqe	*rqes;
-	u32				cached_rq_head;
-	u32				rq_entries;
+	struct zcrx_rq			rq ____cacheline_aligned_in_smp;
 
 	u32				if_rxq;
 	struct device			*dev;
 	struct net_device		*netdev;
 	netdevice_tracker		netdev_tracker;
+	refcount_t			refs;
+	/* counts userspace facing users like io_uring */
+	refcount_t			user_refs;
 
 	/*
 	 * Page pool and net configuration lock, can be taken deeper in the
 	 * net stack.
 	 */
 	struct mutex			pp_lock;
-	struct io_mapped_region		region;
+	struct io_mapped_region		rq_region;
+
+	spinlock_t			ctx_lock;
+	struct io_ring_ctx		*master_ctx;
+	u32				allowed_notif_mask;
+	u32				fired_notifs;
+	u64				notif_data;
+	struct zcrx_notif_stats		*notif_stats;
 };
 
 #if defined(CONFIG_IO_URING_ZCRX)
-int io_zcrx_return_bufs(struct io_ring_ctx *ctx,
-			void __user *arg, unsigned nr_arg);
-int io_register_zcrx_ifq(struct io_ring_ctx *ctx,
+int io_zcrx_ctrl(struct io_ring_ctx *ctx, void __user *arg, unsigned nr_arg);
+int io_register_zcrx(struct io_ring_ctx *ctx,
 			 struct io_uring_zcrx_ifq_reg __user *arg);
-void io_unregister_zcrx_ifqs(struct io_ring_ctx *ctx);
-void io_shutdown_zcrx_ifqs(struct io_ring_ctx *ctx);
+void io_unregister_zcrx(struct io_ring_ctx *ctx);
+void io_terminate_zcrx(struct io_ring_ctx *ctx);
 int io_zcrx_recv(struct io_kiocb *req, struct io_zcrx_ifq *ifq,
 		 struct socket *sock, unsigned int flags,
 		 unsigned issue_flags, unsigned int *len);
 struct io_mapped_region *io_zcrx_get_region(struct io_ring_ctx *ctx,
 					    unsigned int id);
 #else
-static inline int io_register_zcrx_ifq(struct io_ring_ctx *ctx,
-					struct io_uring_zcrx_ifq_reg __user *arg)
+static inline int io_register_zcrx(struct io_ring_ctx *ctx,
+				   struct io_uring_zcrx_ifq_reg __user *arg)
 {
 	return -EOPNOTSUPP;
 }
-static inline void io_unregister_zcrx_ifqs(struct io_ring_ctx *ctx)
+static inline void io_unregister_zcrx(struct io_ring_ctx *ctx)
 {
 }
-static inline void io_shutdown_zcrx_ifqs(struct io_ring_ctx *ctx)
+static inline void io_terminate_zcrx(struct io_ring_ctx *ctx)
 {
 }
 static inline int io_zcrx_recv(struct io_kiocb *req, struct io_zcrx_ifq *ifq,
@@ -97,8 +117,8 @@ static inline struct io_mapped_region *io_zcrx_get_region(struct io_ring_ctx *ct
 {
 	return NULL;
 }
-static inline int io_zcrx_return_bufs(struct io_ring_ctx *ctx,
-				      void __user *arg, unsigned nr_arg)
+static inline int io_zcrx_ctrl(struct io_ring_ctx *ctx,
+				void __user *arg, unsigned nr_arg)
 {
 	return -EOPNOTSUPP;
 }

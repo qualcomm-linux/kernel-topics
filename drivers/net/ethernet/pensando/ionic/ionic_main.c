@@ -283,7 +283,7 @@ bool ionic_notifyq_service(struct ionic_cq *cq)
 		if (lif->ionic->idev.fw_status_ready &&
 		    !test_bit(IONIC_LIF_F_FW_RESET, lif->state) &&
 		    !test_and_set_bit(IONIC_LIF_F_FW_STOPPING, lif->state)) {
-			work = kzalloc(sizeof(*work), GFP_ATOMIC);
+			work = kzalloc_obj(*work, GFP_ATOMIC);
 			if (!work) {
 				netdev_err(lif->netdev, "Reset event dropped\n");
 				clear_bit(IONIC_LIF_F_FW_STOPPING, lif->state);
@@ -730,6 +730,14 @@ int ionic_port_init(struct ionic *ionic)
 		if (!idev->port_info)
 			return -ENOMEM;
 	}
+
+	/* If the driver knows about more "extra stats" than the firmware,
+	 * make sure these stats are marked as invalid.
+	 */
+	memset(&idev->port_info->extra_stats, 0xff,
+	       sizeof(idev->port_info->extra_stats));
+
+	WRITE_ONCE(idev->link_down_count_init, false);
 
 	sz = min(sizeof(ident->port.config), sizeof(idev->dev_cmd_regs->data));
 

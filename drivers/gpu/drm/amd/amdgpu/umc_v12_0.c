@@ -183,50 +183,97 @@ static void umc_v12_0_get_retire_flip_bits(struct amdgpu_device *adev)
 	if (adev->gmc.gmc_funcs->query_mem_partition_mode)
 		nps = adev->gmc.gmc_funcs->query_mem_partition_mode(adev);
 
-	/* default setting */
-	flip_bits->flip_bits_in_pa[0] = UMC_V12_0_PA_C2_BIT;
-	flip_bits->flip_bits_in_pa[1] = UMC_V12_0_PA_C3_BIT;
-	flip_bits->flip_bits_in_pa[2] = UMC_V12_0_PA_C4_BIT;
-	flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R13_BIT;
-	flip_bits->flip_row_bit = 13;
-	flip_bits->bit_num = 4;
-	flip_bits->r13_in_pa = UMC_V12_0_PA_R13_BIT;
+	if (adev->gmc.num_umc == 16) {
+		/* default setting */
+		flip_bits->flip_bits_in_pa[0] = UMC_V12_0_PA_C2_BIT;
+		flip_bits->flip_bits_in_pa[1] = UMC_V12_0_PA_C3_BIT;
+		flip_bits->flip_bits_in_pa[2] = UMC_V12_0_PA_C4_BIT;
+		flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R13_BIT;
+		flip_bits->flip_row_bit = 13;
+		flip_bits->bit_num = 4;
+		flip_bits->r13_in_pa = UMC_V12_0_PA_R13_BIT;
 
-	if (nps == AMDGPU_NPS2_PARTITION_MODE) {
+		if (nps == AMDGPU_NPS2_PARTITION_MODE) {
+			flip_bits->flip_bits_in_pa[0] = UMC_V12_0_PA_CH5_BIT;
+			flip_bits->flip_bits_in_pa[1] = UMC_V12_0_PA_C2_BIT;
+			flip_bits->flip_bits_in_pa[2] = UMC_V12_0_PA_B1_BIT;
+			flip_bits->r13_in_pa = UMC_V12_0_PA_R12_BIT;
+		} else if (nps == AMDGPU_NPS4_PARTITION_MODE) {
+			flip_bits->flip_bits_in_pa[0] = UMC_V12_0_PA_CH4_BIT;
+			flip_bits->flip_bits_in_pa[1] = UMC_V12_0_PA_CH5_BIT;
+			flip_bits->flip_bits_in_pa[2] = UMC_V12_0_PA_B0_BIT;
+			flip_bits->r13_in_pa = UMC_V12_0_PA_R11_BIT;
+		}
+
+		switch (vram_type) {
+		case AMDGPU_VRAM_TYPE_HBM:
+			/* other nps modes are taken as nps1 */
+			if (nps == AMDGPU_NPS2_PARTITION_MODE)
+				flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R12_BIT;
+			else if (nps == AMDGPU_NPS4_PARTITION_MODE)
+				flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R11_BIT;
+
+			break;
+		case AMDGPU_VRAM_TYPE_HBM3E:
+			flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R12_BIT;
+			flip_bits->flip_row_bit = 12;
+
+			if (nps == AMDGPU_NPS2_PARTITION_MODE)
+				flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R11_BIT;
+			else if (nps == AMDGPU_NPS4_PARTITION_MODE)
+				flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R10_BIT;
+
+			break;
+		default:
+			dev_warn(adev->dev,
+				"Unknown HBM type, set RAS retire flip bits to the value in NPS1 mode.\n");
+			break;
+		}
+	} else if (adev->gmc.num_umc == 8) {
+		/* default setting */
 		flip_bits->flip_bits_in_pa[0] = UMC_V12_0_PA_CH5_BIT;
 		flip_bits->flip_bits_in_pa[1] = UMC_V12_0_PA_C2_BIT;
 		flip_bits->flip_bits_in_pa[2] = UMC_V12_0_PA_B1_BIT;
-		flip_bits->r13_in_pa = UMC_V12_0_PA_R12_BIT;
-	} else if (nps == AMDGPU_NPS4_PARTITION_MODE) {
-		flip_bits->flip_bits_in_pa[0] = UMC_V12_0_PA_CH4_BIT;
-		flip_bits->flip_bits_in_pa[1] = UMC_V12_0_PA_CH5_BIT;
-		flip_bits->flip_bits_in_pa[2] = UMC_V12_0_PA_B0_BIT;
-		flip_bits->r13_in_pa = UMC_V12_0_PA_R11_BIT;
-	}
-
-	switch (vram_type) {
-	case AMDGPU_VRAM_TYPE_HBM:
-		/* other nps modes are taken as nps1 */
-		if (nps == AMDGPU_NPS2_PARTITION_MODE)
-			flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R12_BIT;
-		else if (nps == AMDGPU_NPS4_PARTITION_MODE)
-			flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R11_BIT;
-
-		break;
-	case AMDGPU_VRAM_TYPE_HBM3E:
-		flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R12_BIT;
+		flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R11_BIT;
 		flip_bits->flip_row_bit = 12;
+		flip_bits->bit_num = 4;
+		flip_bits->r13_in_pa = UMC_V12_0_PA_R12_BIT;
 
-		if (nps == AMDGPU_NPS2_PARTITION_MODE)
+		if (nps == AMDGPU_NPS2_PARTITION_MODE) {
+			flip_bits->flip_bits_in_pa[0] = UMC_V12_0_PA_CH4_BIT;
+			flip_bits->flip_bits_in_pa[1] = UMC_V12_0_PA_CH5_BIT;
+			flip_bits->flip_bits_in_pa[2] = UMC_V12_0_PA_B0_BIT;
+			flip_bits->r13_in_pa = UMC_V12_0_PA_R11_BIT;
+		}
+
+		switch (vram_type) {
+		case AMDGPU_VRAM_TYPE_HBM:
+			flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R12_BIT;
+
+			/* other nps modes are taken as nps1 */
+			if (nps == AMDGPU_NPS2_PARTITION_MODE)
+				flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R11_BIT;
+
+			break;
+		case AMDGPU_VRAM_TYPE_HBM3E:
 			flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R11_BIT;
-		else if (nps == AMDGPU_NPS4_PARTITION_MODE)
-			flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R10_BIT;
+			flip_bits->flip_row_bit = 12;
 
-		break;
-	default:
+			if (nps == AMDGPU_NPS2_PARTITION_MODE)
+				flip_bits->flip_bits_in_pa[3] = UMC_V12_0_PA_R10_BIT;
+
+			break;
+		default:
+			dev_warn(adev->dev,
+				"Unknown HBM type, set RAS retire flip bits to the value in NPS1 mode.\n");
+			break;
+		}
+	} else {
 		dev_warn(adev->dev,
-			"Unknown HBM type, set RAS retire flip bits to the value in NPS1 mode.\n");
-		break;
+			"Unsupported UMC number(%d), failed to set RAS flip bits.\n",
+			adev->gmc.num_umc);
+
+		return;
 	}
 
 	adev->umc.retire_unit = 0x1 << flip_bits->bit_num;
@@ -238,7 +285,8 @@ static int umc_v12_0_convert_error_address(struct amdgpu_device *adev,
 					struct ta_ras_query_address_output *addr_out,
 					bool dump_addr)
 {
-	uint32_t col, col_lower, row, row_lower, row_high, bank;
+	uint32_t row = 0, row_lower = 0, row_high = 0;
+	uint32_t col = 0, col_lower = 0, bank = 0;
 	uint32_t channel_index = 0, umc_inst = 0;
 	uint32_t i, bit_num, retire_unit, *flip_bits;
 	uint64_t soc_pa, column, err_addr;
@@ -567,7 +615,7 @@ static int umc_v12_0_update_ecc_status(struct amdgpu_device *adev,
 	if (ret)
 		return ret;
 
-	ecc_err = kzalloc(sizeof(*ecc_err), GFP_KERNEL);
+	ecc_err = kzalloc_obj(*ecc_err);
 	if (!ecc_err)
 		return -ENOMEM;
 
@@ -711,6 +759,19 @@ static uint32_t umc_v12_0_get_die_id(struct amdgpu_device *adev,
 	return die;
 }
 
+static void umc_v12_0_mca_ipid_parse(struct amdgpu_device *adev, uint64_t ipid,
+		uint32_t *did, uint32_t *ch, uint32_t *umc_inst, uint32_t *sid)
+{
+	if (did)
+		*did = MCA_IPID_2_DIE_ID(ipid);
+	if (ch)
+		*ch = MCA_IPID_2_UMC_CH(ipid);
+	if (umc_inst)
+		*umc_inst = MCA_IPID_2_UMC_INST(ipid);
+	if (sid)
+		*sid = MCA_IPID_2_SOCKET_ID(ipid);
+}
+
 struct amdgpu_umc_ras umc_v12_0_ras = {
 	.ras_block = {
 		.hw_ops = &umc_v12_0_ras_hw_ops,
@@ -724,5 +785,6 @@ struct amdgpu_umc_ras umc_v12_0_ras = {
 	.convert_ras_err_addr = umc_v12_0_convert_error_address,
 	.get_die_id_from_pa = umc_v12_0_get_die_id,
 	.get_retire_flip_bits = umc_v12_0_get_retire_flip_bits,
+	.mca_ipid_parse = umc_v12_0_mca_ipid_parse,
 };
 

@@ -13,6 +13,7 @@
 #include <linux/libfdt.h>
 #include <linux/types.h>
 #include <linux/memblock.h>
+#include <linux/pfn.h>
 #include <linux/vmalloc.h>
 #include <asm/setup.h>
 #include <asm/insn.h>
@@ -64,7 +65,7 @@ static int prepare_elf_headers(void **addr, unsigned long *sz)
 	nr_ranges = 1; /* For exclusion of crashkernel region */
 	walk_system_ram_res(0, -1, &nr_ranges, get_nr_ram_ranges_callback);
 
-	cmem = kmalloc(struct_size(cmem, ranges, nr_ranges), GFP_KERNEL);
+	cmem = kmalloc_flex(*cmem, ranges, nr_ranges);
 	if (!cmem)
 		return -ENOMEM;
 
@@ -266,7 +267,7 @@ int load_extra_segments(struct kimage *image, unsigned long kernel_start,
 
 	kbuf.image = image;
 	kbuf.buf_min = kernel_start + kernel_len;
-	kbuf.buf_max = ULONG_MAX;
+	kbuf.buf_max = PFN_PHYS(max_low_pfn);
 
 #ifdef CONFIG_CRASH_DUMP
 	/* Add elfcorehdr */

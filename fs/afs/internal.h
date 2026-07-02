@@ -31,7 +31,6 @@
 
 #define AFS_CELL_MAX_ADDRS 15
 
-struct pagevec;
 struct afs_call;
 struct afs_vnode;
 struct afs_server_probe;
@@ -343,6 +342,7 @@ extern const char afs_init_sysname[];
 
 enum afs_cell_state {
 	AFS_CELL_SETTING_UP,
+	AFS_CELL_UNLOOKED,
 	AFS_CELL_ACTIVE,
 	AFS_CELL_REMOVING,
 	AFS_CELL_DEAD,
@@ -412,6 +412,7 @@ struct afs_cell {
 
 	u8			name_len;	/* Length of name */
 	char			*name;		/* Cell name, case-flattened and NUL-padded */
+	char			*key_desc;	/* Authentication key description */
 };
 
 /*
@@ -709,6 +710,7 @@ struct afs_vnode {
 #define AFS_VNODE_DIR_READ	11		/* Set if we've read a dir's contents */
 
 	struct folio_queue	*directory;	/* Directory contents */
+	struct afs_symlink __rcu *symlink;	/* Symlink content */
 	struct list_head	wb_keys;	/* List of keys available for writeback */
 	struct list_head	pending_locks;	/* locks waiting to be granted */
 	struct list_head	granted_locks;	/* locks granted on this file */
@@ -773,6 +775,15 @@ struct afs_permits {
 	unsigned short		nr_permits;	/* Number of records */
 	bool			invalidated;	/* Invalidated due to key change */
 	struct afs_permit	permits[] __counted_by(nr_permits);	/* List of permits sorted by key pointer */
+};
+
+/*
+ * Copy of symlink content for normal use.
+ */
+struct afs_symlink {
+	struct rcu_head		rcu;
+	refcount_t		ref;
+	char			content[];
 };
 
 /*
@@ -886,7 +897,7 @@ struct afs_operation {
 		struct {
 			int	reason;		/* enum afs_edit_dir_reason */
 			mode_t	mode;
-			const char *symlink;
+			struct afs_symlink *symlink;
 		} create;
 		struct {
 			bool	need_rehash;
@@ -1049,9 +1060,18 @@ static inline bool afs_cb_is_broken(unsigned int cb_break,
 extern int afs_cell_init(struct afs_net *, const char *);
 extern struct afs_cell *afs_find_cell(struct afs_net *, const char *, unsigned,
 				      enum afs_cell_trace);
+enum afs_lookup_cell_for {
+	AFS_LOOKUP_CELL_DYNROOT,
+	AFS_LOOKUP_CELL_MOUNTPOINT,
+	AFS_LOOKUP_CELL_DIRECT_MOUNT,
+	AFS_LOOKUP_CELL_PRELOAD,
+	AFS_LOOKUP_CELL_ROOTCELL,
+	AFS_LOOKUP_CELL_ALIAS_CHECK,
+};
 struct afs_cell *afs_lookup_cell(struct afs_net *net,
 				 const char *name, unsigned int namesz,
-				 const char *vllist, bool excl,
+				 const char *vllist,
+				 enum afs_lookup_cell_for reason,
 				 enum afs_cell_trace trace);
 extern struct afs_cell *afs_use_cell(struct afs_cell *, enum afs_cell_trace);
 void afs_unuse_cell(struct afs_cell *cell, enum afs_cell_trace reason);
@@ -1088,13 +1108,10 @@ extern const struct inode_operations afs_dir_inode_operations;
 extern const struct address_space_operations afs_dir_aops;
 extern const struct dentry_operations afs_fs_dentry_operations;
 
-ssize_t afs_read_single(struct afs_vnode *dvnode, struct file *file);
 ssize_t afs_read_dir(struct afs_vnode *dvnode, struct file *file)
 	__acquires(&dvnode->validate_lock);
 extern void afs_d_release(struct dentry *);
 extern void afs_check_for_remote_deletion(struct afs_operation *);
-int afs_single_writepages(struct address_space *mapping,
-			  struct writeback_control *wbc);
 
 /*
  * dir_edit.c
@@ -1147,6 +1164,7 @@ extern int afs_open(struct inode *, struct file *);
 extern int afs_release(struct inode *, struct file *);
 void afs_fetch_data_async_rx(struct work_struct *work);
 void afs_fetch_data_immediate_cancel(struct afs_call *call);
+void afs_set_i_size(struct afs_vnode *vnode, loff_t new_i_size);
 
 /*
  * flock.c
@@ -1236,10 +1254,6 @@ extern void afs_fs_probe_cleanup(struct afs_net *);
  */
 extern const struct afs_operation_ops afs_fetch_status_operation;
 
-void afs_init_new_symlink(struct afs_vnode *vnode, struct afs_operation *op);
-const char *afs_get_link(struct dentry *dentry, struct inode *inode,
-			 struct delayed_call *callback);
-int afs_readlink(struct dentry *dentry, char __user *buffer, int buflen);
 extern void afs_vnode_commit_status(struct afs_operation *, struct afs_vnode_param *);
 extern int afs_fetch_status(struct afs_vnode *, struct key *, bool, afs_access_t *);
 extern int afs_ilookup5_test_by_fid(struct inode *, void *);
@@ -1590,6 +1604,21 @@ extern int __init afs_fs_init(void);
 extern void afs_fs_exit(void);
 
 /*
+ * symlink.c
+ */
+extern const struct inode_operations afs_symlink_inode_operations;
+extern const struct address_space_operations afs_symlink_aops;
+
+void afs_invalidate_symlink(struct afs_vnode *vnode);
+void afs_evict_symlink(struct afs_vnode *vnode);
+void afs_init_new_symlink(struct afs_vnode *vnode, struct afs_operation *op);
+const char *afs_get_link(struct dentry *dentry, struct inode *inode,
+			 struct delayed_call *callback);
+int afs_readlink(struct dentry *dentry, char __user *buffer, int buflen);
+int afs_symlink_writepages(struct address_space *mapping,
+			   struct writeback_control *wbc);
+
+/*
  * validation.c
  */
 bool afs_check_validity(const struct afs_vnode *vnode);
@@ -1746,16 +1775,6 @@ static inline void afs_update_dentry_version(struct afs_operation *op,
 	if (!op->cumul_error.error)
 		dentry->d_fsdata =
 			(void *)(unsigned long)dir_vp->scb.status.data_version;
-}
-
-/*
- * Set the file size and block count.  Estimate the number of 512 bytes blocks
- * used, rounded up to nearest 1K for consistency with other AFS clients.
- */
-static inline void afs_set_i_size(struct afs_vnode *vnode, u64 size)
-{
-	i_size_write(&vnode->netfs.inode, size);
-	vnode->netfs.inode.i_blocks = ((size + 1023) >> 10) << 1;
 }
 
 /*

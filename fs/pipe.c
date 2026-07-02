@@ -111,16 +111,76 @@ void pipe_double_lock(struct pipe_inode_info *pipe1,
 	pipe_lock(pipe2);
 }
 
-static struct page *anon_pipe_get_page(struct pipe_inode_info *pipe)
+#define PIPE_PREALLOC_MAX 8
+
+struct anon_pipe_prealloc {
+	struct page *pages[PIPE_PREALLOC_MAX];
+	unsigned int count;
+};
+
+/*
+ * Pre-allocate pages outside pipe->mutex for multi-page writes.
+ * alloc_page() with GFP_HIGHUSER can sleep in reclaim and runs memcg
+ * charging; doing it under the mutex stalls a concurrent reader.
+ *
+ * Loop alloc_page() instead of alloc_pages_bulk_*(): the bulk path refuses
+ * __GFP_ACCOUNT under memcg (see commit 8dcb3060d81d "memcg: page_alloc:
+ * skip bulk allocator for __GFP_ACCOUNT") and silently degrades to a single
+ * page. A per-page loop keeps memcg accounting and the task NUMA mempolicy
+ * honoured for every page; the per-call overhead is small compared to the
+ * pipe->mutex hold-time being shrunk. Any shortfall is covered by the
+ * in-lock alloc_page() fallback in anon_pipe_get_page().
+ */
+static void anon_pipe_get_page_prealloc(struct anon_pipe_prealloc *prealloc,
+					size_t total_len)
 {
+	unsigned int want, i;
+	struct page *page;
+
+	prealloc->count = 0;
+	if (total_len <= PAGE_SIZE)
+		return;
+
+	want = min_t(unsigned int, DIV_ROUND_UP(total_len, PAGE_SIZE),
+		     PIPE_PREALLOC_MAX);
+
+	for (i = 0; i < want; i++) {
+		page = alloc_page(GFP_HIGHUSER | __GFP_ACCOUNT);
+		if (!page)
+			break;
+		prealloc->pages[prealloc->count++] = page;
+	}
+}
+
+static struct page *anon_pipe_prealloc_pop(struct anon_pipe_prealloc *prealloc)
+{
+	if (!prealloc->count)
+		return NULL;
+
+	prealloc->count--;
+
+	return prealloc->pages[prealloc->count];
+}
+
+static struct page *anon_pipe_get_page(struct pipe_inode_info *pipe,
+				       struct anon_pipe_prealloc *prealloc)
+{
+	struct page *page;
+
+	/* Drain prealloc first to keep tmp_page[] hot for later small writes. */
+	page = anon_pipe_prealloc_pop(prealloc);
+	if (page)
+		return page;
+
 	for (int i = 0; i < ARRAY_SIZE(pipe->tmp_page); i++) {
 		if (pipe->tmp_page[i]) {
-			struct page *page = pipe->tmp_page[i];
+			page = pipe->tmp_page[i];
 			pipe->tmp_page[i] = NULL;
 			return page;
 		}
 	}
 
+	/* FWIW: This is called with pipe->mutex held */
 	return alloc_page(GFP_HIGHUSER | __GFP_ACCOUNT);
 }
 
@@ -137,6 +197,38 @@ static void anon_pipe_put_page(struct pipe_inode_info *pipe,
 	}
 
 	put_page(page);
+}
+
+/*
+ * Stash leftover prealloc pages in tmp_page[] so the next write to this
+ * pipe gets a hot page without entering the allocator.
+ */
+static void anon_pipe_refill_tmp_pages(struct pipe_inode_info *pipe,
+				       struct anon_pipe_prealloc *prealloc)
+{
+	int i, idx;
+
+	if (!prealloc->count)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(pipe->tmp_page); i++) {
+		if (pipe->tmp_page[i])
+			continue;
+		if (!prealloc->count)
+			return;
+		idx = --prealloc->count;
+		pipe->tmp_page[i] = prealloc->pages[idx];
+		prealloc->pages[idx] = NULL;
+	}
+}
+
+/* Runs after mutex_unlock() to keep put_page() out of the critical section. */
+static void anon_pipe_free_pages(struct anon_pipe_prealloc *prealloc)
+{
+	while (prealloc->count) {
+		prealloc->count--;
+		put_page(prealloc->pages[prealloc->count]);
+	}
 }
 
 static void anon_pipe_buf_release(struct pipe_inode_info *pipe,
@@ -432,6 +524,7 @@ anon_pipe_write(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct file *filp = iocb->ki_filp;
 	struct pipe_inode_info *pipe = filp->private_data;
+	struct anon_pipe_prealloc prealloc;
 	unsigned int head;
 	ssize_t ret = 0;
 	size_t total_len = iov_iter_count(from);
@@ -454,6 +547,8 @@ anon_pipe_write(struct kiocb *iocb, struct iov_iter *from)
 	/* Null write succeeds. */
 	if (unlikely(total_len == 0))
 		return 0;
+
+	anon_pipe_get_page_prealloc(&prealloc, total_len);
 
 	mutex_lock(&pipe->mutex);
 
@@ -512,7 +607,7 @@ anon_pipe_write(struct kiocb *iocb, struct iov_iter *from)
 			struct page *page;
 			int copied;
 
-			page = anon_pipe_get_page(pipe);
+			page = anon_pipe_get_page(pipe, &prealloc);
 			if (unlikely(!page)) {
 				if (!ret)
 					ret = -ENOMEM;
@@ -576,9 +671,11 @@ anon_pipe_write(struct kiocb *iocb, struct iov_iter *from)
 		wake_next_writer = true;
 	}
 out:
+	anon_pipe_refill_tmp_pages(pipe, &prealloc);
 	if (pipe_is_full(pipe))
 		wake_next_writer = false;
 	mutex_unlock(&pipe->mutex);
+	anon_pipe_free_pages(&prealloc);
 
 	/*
 	 * If we do do a wakeup event, we do a 'sync' wakeup, because we
@@ -664,7 +761,8 @@ pipe_poll(struct file *filp, poll_table *wait)
 	union pipe_index idx;
 
 	/* Epoll has some historical nasty semantics, this enables them */
-	WRITE_ONCE(pipe->poll_usage, true);
+	if (unlikely(!READ_ONCE(pipe->poll_usage)))
+		WRITE_ONCE(pipe->poll_usage, true);
 
 	/*
 	 * Reading pipe state only -- no need for acquiring the semaphore.
@@ -797,7 +895,7 @@ struct pipe_inode_info *alloc_pipe_info(void)
 	unsigned long user_bufs;
 	unsigned int max_size = READ_ONCE(pipe_max_size);
 
-	pipe = kzalloc(sizeof(struct pipe_inode_info), GFP_KERNEL_ACCOUNT);
+	pipe = kzalloc_obj(struct pipe_inode_info, GFP_KERNEL_ACCOUNT);
 	if (pipe == NULL)
 		goto out_free_uid;
 
@@ -814,8 +912,8 @@ struct pipe_inode_info *alloc_pipe_info(void)
 	if (too_many_pipe_buffers_hard(user_bufs) && pipe_is_unprivileged_user())
 		goto out_revert_acct;
 
-	pipe->bufs = kcalloc(pipe_bufs, sizeof(struct pipe_buffer),
-			     GFP_KERNEL_ACCOUNT);
+	pipe->bufs = kzalloc_objs(struct pipe_buffer, pipe_bufs,
+				  GFP_KERNEL_ACCOUNT);
 
 	if (pipe->bufs) {
 		init_waitqueue_head(&pipe->rd_wait);
@@ -873,7 +971,7 @@ static struct vfsmount *pipe_mnt __ro_after_init;
  */
 static char *pipefs_dname(struct dentry *dentry, char *buffer, int buflen)
 {
-	return dynamic_dname(buffer, buflen, "pipe:[%lu]",
+	return dynamic_dname(buffer, buflen, "pipe:[%llu]",
 				d_inode(dentry)->i_ino);
 }
 
@@ -908,7 +1006,7 @@ static struct inode * get_pipe_inode(void)
 	 * list because "mark_inode_dirty()" will think
 	 * that it already _is_ on the dirty list.
 	 */
-	inode->i_state = I_DIRTY;
+	inode_state_assign_raw(inode, I_DIRTY);
 	inode->i_mode = S_IFIFO | S_IRUSR | S_IWUSR;
 	inode->i_uid = current_fsuid();
 	inode->i_gid = current_fsgid();
@@ -1297,8 +1395,7 @@ int pipe_resize_ring(struct pipe_inode_info *pipe, unsigned int nr_slots)
 	if (unlikely(nr_slots > (pipe_index_t)-1u))
 		return -EINVAL;
 
-	bufs = kcalloc(nr_slots, sizeof(*bufs),
-		       GFP_KERNEL_ACCOUNT | __GFP_NOWARN);
+	bufs = kzalloc_objs(*bufs, nr_slots, GFP_KERNEL_ACCOUNT | __GFP_NOWARN);
 	if (unlikely(!bufs))
 		return -ENOMEM;
 
@@ -1481,31 +1578,30 @@ static struct file_system_type pipe_fs_type = {
 };
 
 #ifdef CONFIG_SYSCTL
-static int do_proc_dopipe_max_size_conv(unsigned long *lvalp,
-					unsigned int *valp,
-					int write, void *data)
+
+static ulong round_pipe_size_ul(ulong size)
 {
-	if (write) {
-		unsigned int val;
+	return round_pipe_size(size);
+}
 
-		val = round_pipe_size(*lvalp);
-		if (val == 0)
-			return -EINVAL;
+static int u2k_pipe_maxsz(const ulong *u_ptr, uint *k_ptr)
+{
+	return proc_uint_u2k_conv_uop(u_ptr, k_ptr, round_pipe_size_ul);
+}
 
-		*valp = val;
-	} else {
-		unsigned int val = *valp;
-		*lvalp = (unsigned long) val;
-	}
-
-	return 0;
+static int do_proc_uint_conv_pipe_maxsz(ulong *u_ptr, uint *k_ptr,
+					int dir, const struct ctl_table *table)
+{
+	return proc_uint_conv(u_ptr, k_ptr, dir, table, true,
+			      u2k_pipe_maxsz,
+			      proc_uint_k2u_conv);
 }
 
 static int proc_dopipe_max_size(const struct ctl_table *table, int write,
 				void *buffer, size_t *lenp, loff_t *ppos)
 {
-	return do_proc_douintvec(table, write, buffer, lenp, ppos,
-				 do_proc_dopipe_max_size_conv, NULL);
+	return proc_douintvec_conv(table, write, buffer, lenp, ppos,
+				   do_proc_uint_conv_pipe_maxsz);
 }
 
 static const struct ctl_table fs_pipe_sysctls[] = {
@@ -1515,6 +1611,7 @@ static const struct ctl_table fs_pipe_sysctls[] = {
 		.maxlen		= sizeof(pipe_max_size),
 		.mode		= 0644,
 		.proc_handler	= proc_dopipe_max_size,
+		.extra1		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "pipe-user-pages-hard",

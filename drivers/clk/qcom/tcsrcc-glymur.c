@@ -6,7 +6,6 @@
 #include <linux/clk-provider.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
-#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 
@@ -28,10 +27,10 @@ enum {
 };
 
 static struct clk_branch tcsr_edp_clkref_en = {
-	.halt_reg = 0x1c,
+	.halt_reg = 0x60,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x1c,
+		.enable_reg = 0x60,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_edp_clkref_en",
@@ -45,10 +44,10 @@ static struct clk_branch tcsr_edp_clkref_en = {
 };
 
 static struct clk_branch tcsr_pcie_1_clkref_en = {
-	.halt_reg = 0x4,
+	.halt_reg = 0x48,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x4,
+		.enable_reg = 0x48,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_pcie_1_clkref_en",
@@ -62,10 +61,10 @@ static struct clk_branch tcsr_pcie_1_clkref_en = {
 };
 
 static struct clk_branch tcsr_pcie_2_clkref_en = {
-	.halt_reg = 0x8,
+	.halt_reg = 0x4c,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x8,
+		.enable_reg = 0x4c,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_pcie_2_clkref_en",
@@ -79,10 +78,10 @@ static struct clk_branch tcsr_pcie_2_clkref_en = {
 };
 
 static struct clk_branch tcsr_pcie_3_clkref_en = {
-	.halt_reg = 0x10,
+	.halt_reg = 0x54,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x10,
+		.enable_reg = 0x54,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_pcie_3_clkref_en",
@@ -96,10 +95,10 @@ static struct clk_branch tcsr_pcie_3_clkref_en = {
 };
 
 static struct clk_branch tcsr_pcie_4_clkref_en = {
-	.halt_reg = 0x14,
+	.halt_reg = 0x58,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x14,
+		.enable_reg = 0x58,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_pcie_4_clkref_en",
@@ -113,10 +112,10 @@ static struct clk_branch tcsr_pcie_4_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb2_1_clkref_en = {
-	.halt_reg = 0x28,
+	.halt_reg = 0x6c,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x28,
+		.enable_reg = 0x6c,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb2_1_clkref_en",
@@ -130,10 +129,10 @@ static struct clk_branch tcsr_usb2_1_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb2_2_clkref_en = {
-	.halt_reg = 0x2c,
+	.halt_reg = 0x70,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x2c,
+		.enable_reg = 0x70,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb2_2_clkref_en",
@@ -147,10 +146,10 @@ static struct clk_branch tcsr_usb2_2_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb2_3_clkref_en = {
-	.halt_reg = 0x30,
+	.halt_reg = 0x74,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x30,
+		.enable_reg = 0x74,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb2_3_clkref_en",
@@ -164,10 +163,10 @@ static struct clk_branch tcsr_usb2_3_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb2_4_clkref_en = {
-	.halt_reg = 0x44,
+	.halt_reg = 0x88,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x44,
+		.enable_reg = 0x88,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb2_4_clkref_en",
@@ -181,10 +180,10 @@ static struct clk_branch tcsr_usb2_4_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb3_0_clkref_en = {
-	.halt_reg = 0x20,
+	.halt_reg = 0x64,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x20,
+		.enable_reg = 0x64,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb3_0_clkref_en",
@@ -198,10 +197,10 @@ static struct clk_branch tcsr_usb3_0_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb3_1_clkref_en = {
-	.halt_reg = 0x24,
+	.halt_reg = 0x68,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x24,
+		.enable_reg = 0x68,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb3_1_clkref_en",
@@ -215,10 +214,10 @@ static struct clk_branch tcsr_usb3_1_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb4_1_clkref_en = {
-	.halt_reg = 0x0,
+	.halt_reg = 0x44,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x0,
+		.enable_reg = 0x44,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb4_1_clkref_en",
@@ -232,10 +231,10 @@ static struct clk_branch tcsr_usb4_1_clkref_en = {
 };
 
 static struct clk_branch tcsr_usb4_2_clkref_en = {
-	.halt_reg = 0x18,
+	.halt_reg = 0x5c,
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
-		.enable_reg = 0x18,
+		.enable_reg = 0x5c,
 		.enable_mask = BIT(0),
 		.hw.init = &(const struct clk_init_data) {
 			.name = "tcsr_usb4_2_clkref_en",
@@ -268,7 +267,7 @@ static const struct regmap_config tcsr_cc_glymur_regmap_config = {
 	.reg_bits = 32,
 	.reg_stride = 4,
 	.val_bits = 32,
-	.max_register = 0x44,
+	.max_register = 0x94,
 	.fast_io = true,
 };
 
@@ -309,5 +308,5 @@ static void __exit tcsr_cc_glymur_exit(void)
 }
 module_exit(tcsr_cc_glymur_exit);
 
-MODULE_DESCRIPTION("QTI TCSRCC GLYMUR Driver");
+MODULE_DESCRIPTION("QTI TCSRCC Glymur Driver");
 MODULE_LICENSE("GPL");

@@ -374,7 +374,7 @@ static struct rt6_info *ip6_route_output_gtp(struct net *net,
 	fl6->saddr		= *saddr;
 	fl6->flowi6_proto	= sk->sk_protocol;
 
-	dst = ipv6_stub->ipv6_dst_lookup_flow(net, sk, fl6, NULL);
+	dst = ip6_dst_lookup_flow(net, sk, fl6, NULL);
 	if (IS_ERR(dst))
 		return ERR_PTR(-ENETUNREACH);
 
@@ -633,7 +633,7 @@ static void gtp1u_build_echo_msg(struct gtp1_header_long *hdr, __u8 msg_type)
 	hdr->tid = 0;
 
 	/* seq, npdu and next should be counted to the length of the GTP packet
-	 * that's why szie of gtp1_header should be subtracted,
+	 * that's why size of gtp1_header should be subtracted,
 	 * not size of gtp1_header_long.
 	 */
 
@@ -885,8 +885,8 @@ static void gtp_encap_disable_sock(struct sock *sk)
 static void gtp_encap_disable(struct gtp_dev *gtp)
 {
 	if (gtp->sk_created) {
-		udp_tunnel_sock_release(gtp->sk0->sk_socket);
-		udp_tunnel_sock_release(gtp->sk1u->sk_socket);
+		udp_tunnel_sock_release(gtp->sk0);
+		udp_tunnel_sock_release(gtp->sk1u);
 		gtp->sk_created = false;
 		gtp->sk0 = NULL;
 		gtp->sk1u = NULL;
@@ -1434,7 +1434,7 @@ static struct sock *gtp_create_sock(int type, struct gtp_dev *gtp,
 	tuncfg.encap_rcv = gtp_encap_recv;
 	tuncfg.encap_destroy = NULL;
 
-	setup_udp_tunnel_sock(net, sock, &tuncfg);
+	setup_udp_tunnel_sock(net, sock->sk, &tuncfg);
 
 	return sock->sk;
 }
@@ -1451,7 +1451,7 @@ static int gtp_create_sockets(struct gtp_dev *gtp, const struct nlattr *nla,
 
 	sk1u = gtp_create_sock(UDP_ENCAP_GTP1U, gtp, nla, family);
 	if (IS_ERR(sk1u)) {
-		udp_tunnel_sock_release(sk0->sk_socket);
+		udp_tunnel_sock_release(sk0);
 		return PTR_ERR(sk1u);
 	}
 
@@ -1623,13 +1623,13 @@ static int gtp_hashtable_new(struct gtp_dev *gtp, int hsize)
 {
 	int i;
 
-	gtp->addr_hash = kmalloc_array(hsize, sizeof(struct hlist_head),
-				       GFP_KERNEL | __GFP_NOWARN);
+	gtp->addr_hash = kmalloc_objs(struct hlist_head, hsize,
+				      GFP_KERNEL | __GFP_NOWARN);
 	if (gtp->addr_hash == NULL)
 		return -ENOMEM;
 
-	gtp->tid_hash = kmalloc_array(hsize, sizeof(struct hlist_head),
-				      GFP_KERNEL | __GFP_NOWARN);
+	gtp->tid_hash = kmalloc_objs(struct hlist_head, hsize,
+				     GFP_KERNEL | __GFP_NOWARN);
 	if (gtp->tid_hash == NULL)
 		goto err1;
 
@@ -1689,7 +1689,7 @@ static struct sock *gtp_encap_enable_socket(int fd, int type,
 	tuncfg.encap_rcv = gtp_encap_recv;
 	tuncfg.encap_destroy = gtp_encap_destroy;
 
-	setup_udp_tunnel_sock(sock_net(sock->sk), sock, &tuncfg);
+	setup_udp_tunnel_sock(sock_net(sock->sk), sk, &tuncfg);
 
 out_rel_sock:
 	release_sock(sock->sk);
@@ -1917,7 +1917,7 @@ static struct pdp_ctx *gtp_pdp_add(struct gtp_dev *gtp, struct sock *sk,
 
 	}
 
-	pctx = kmalloc(sizeof(*pctx), GFP_ATOMIC);
+	pctx = kmalloc_obj(*pctx, GFP_ATOMIC);
 	if (pctx == NULL)
 		return ERR_PTR(-ENOMEM);
 
@@ -2400,6 +2400,7 @@ static int gtp_genl_send_echo_req(struct sk_buff *skb, struct genl_info *info)
 		return -ENODEV;
 	}
 
+	local_bh_disable();
 	udp_tunnel_xmit_skb(rt, sk, skb_to_send,
 			    fl4.saddr, fl4.daddr,
 			    inet_dscp_to_dsfield(fl4.flowi4_dscp),
@@ -2409,6 +2410,7 @@ static int gtp_genl_send_echo_req(struct sk_buff *skb, struct genl_info *info)
 			    !net_eq(sock_net(sk),
 				    dev_net(gtp->dev)),
 			    false, 0);
+	local_bh_enable();
 	return 0;
 }
 

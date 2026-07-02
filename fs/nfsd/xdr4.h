@@ -245,6 +245,8 @@ struct nfsd4_create {
 	int		cr_umask;           /* request */
 	struct nfsd4_change_info  cr_cinfo; /* response */
 	struct nfs4_acl *cr_acl;
+	struct posix_acl *cr_dpacl;
+	struct posix_acl *cr_pacl;
 	struct xdr_netobj cr_label;
 };
 #define cr_datalen	u.link.datalen
@@ -397,6 +399,8 @@ struct nfsd4_open {
 	struct nfs4_ol_stateid *op_stp;	    /* used during processing */
 	struct nfs4_clnt_odstate *op_odstate; /* used during processing */
 	struct nfs4_acl *op_acl;
+	struct posix_acl *op_dpacl;
+	struct posix_acl *op_pacl;
 	struct xdr_netobj op_label;
 	struct svc_rqst *op_rqstp;
 };
@@ -428,6 +432,19 @@ struct nfsd4_read {
 	u32			rd_eof;             /* response */
 };
 
+/*
+ * Cache the case-folding properties of @dir so a batched encoder
+ * (e.g., READDIR) does not re-probe per child. @dir is the
+ * directory being read, held by the request, so it is stable
+ * against rename for the duration of the cache's lifetime.
+ */
+struct nfsd_case_attrs_cache {
+	struct dentry	*dir;
+	bool		valid;
+	bool		insensitive;
+	bool		preserving;
+};
+
 struct nfsd4_readdir {
 	u64		rd_cookie;          /* request */
 	nfs4_verifier	rd_verf;            /* request */
@@ -440,6 +457,7 @@ struct nfsd4_readdir {
 	struct readdir_cd	common;
 	struct xdr_stream	*xdr;
 	int			cookie_offset;
+	struct nfsd_case_attrs_cache rd_case_cache;
 };
 
 struct nfsd4_release_lockowner {
@@ -483,6 +501,8 @@ struct nfsd4_setattr {
 	struct iattr	sa_iattr;           /* request */
 	struct nfs4_acl *sa_acl;
 	struct xdr_netobj sa_label;
+	struct posix_acl *sa_dpacl;
+	struct posix_acl *sa_pacl;
 };
 
 struct nfsd4_setclientid {
@@ -574,8 +594,9 @@ struct nfsd4_sequence {
 	struct nfs4_sessionid	sessionid;		/* request/response */
 	u32			seqid;			/* request/response */
 	u32			slotid;			/* request/response */
-	u32			maxslots;		/* request/response */
+	u32			maxslots;		/* request */
 	u32			cachethis;		/* request */
+	u32			maxslots_response;	/* response */
 	u32			target_maxslots;	/* response */
 	u32			status_flags;		/* response */
 };
@@ -731,6 +752,7 @@ struct nfsd4_copy {
 #define NFSD4_COPY_F_COMMITTED		(3)
 #define NFSD4_COPY_F_COMPLETED		(4)
 #define NFSD4_COPY_F_OFFLOAD_DONE	(5)
+#define NFSD4_COPY_F_CB_ERROR		(6)
 
 	/* response */
 	__be32			nfserr;
@@ -744,6 +766,7 @@ struct nfsd4_copy {
 
 	struct nfsd_file        *nf_src;
 	struct nfsd_file        *nf_dst;
+	bool			attr_update;
 
 	copy_stateid_t		cp_stateid;
 
@@ -903,6 +926,7 @@ struct nfsd4_compoundargs {
 	char *				tag;
 	u32				taglen;
 	u32				minorversion;
+	u32				client_opcnt;
 	u32				opcnt;
 	bool				splice_ok;
 	struct nfsd4_op			*ops;
@@ -921,27 +945,6 @@ struct nfsd4_compoundres {
 
 	struct nfsd4_compound_state	cstate;
 };
-
-static inline bool nfsd4_is_solo_sequence(struct nfsd4_compoundres *resp)
-{
-	struct nfsd4_compoundargs *args = resp->rqstp->rq_argp;
-	return resp->opcnt == 1 && args->ops[0].opnum == OP_SEQUENCE;
-}
-
-/*
- * The session reply cache only needs to cache replies that the client
- * actually asked us to.  But it's almost free for us to cache compounds
- * consisting of only a SEQUENCE op, so we may as well cache those too.
- * Also, the protocol doesn't give us a convenient response in the case
- * of a replay of a solo SEQUENCE op that wasn't cached
- * (RETRY_UNCACHED_REP can only be returned in the second op of a
- * compound).
- */
-static inline bool nfsd4_cache_this(struct nfsd4_compoundres *resp)
-{
-	return (resp->cstate.slot->sl_flags & NFSD4_SLOT_CACHETHIS)
-		|| nfsd4_is_solo_sequence(resp);
-}
 
 static inline bool nfsd4_last_compound_op(struct svc_rqst *rqstp)
 {
