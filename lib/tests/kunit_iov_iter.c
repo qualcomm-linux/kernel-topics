@@ -53,7 +53,7 @@ static void *__init iov_kunit_create_buffer(struct kunit *test,
 					    size_t npages)
 {
 	struct page **pages;
-	unsigned long got;
+	unsigned long got, last;
 	void *buffer;
 	unsigned int i;
 
@@ -61,7 +61,15 @@ static void *__init iov_kunit_create_buffer(struct kunit *test,
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, pages);
 	*ppages = pages;
 
-	got = alloc_pages_bulk(GFP_KERNEL, npages, pages);
+	got = 0;
+	while (true) {
+		last = got;
+		got = alloc_pages_bulk(GFP_KERNEL, npages, pages);
+
+		if (last == got || got == npages)
+			break;
+	}
+
 	if (got != npages) {
 		release_pages(pages, got);
 		kvfree(pages);
@@ -1128,7 +1136,7 @@ static void __init iov_kunit_iter_to_sg_kvec(struct kunit *test)
 	struct kvec kvec;
 	size_t bufsize;
 
-	bufsize = 0x100000;
+	bufsize = 0x200000;
 	iov_kunit_iter_to_sg_init(test, bufsize, false, &data);
 
 	kvec.iov_base = data.buffer;
@@ -1146,7 +1154,7 @@ static void __init iov_kunit_iter_to_sg_bvec(struct kunit *test)
 	struct bio_vec *bvec;
 	struct iov_iter iter;
 
-	bufsize = 0x100000;
+	bufsize = 0x200000;
 	iov_kunit_iter_to_sg_init(test, bufsize, false, &data);
 
 	bvec = kunit_kmalloc_array(test, data.npages, sizeof(*bvec),
@@ -1173,7 +1181,7 @@ static void __init iov_kunit_iter_to_sg_folioq(struct kunit *test)
 	struct iov_iter iter;
 	size_t bufsize;
 
-	bufsize = 0x100000;
+	bufsize = 0x200000;
 	iov_kunit_iter_to_sg_init(test, bufsize, false, &data);
 
 	folioq = iov_kunit_create_folioq(test);
@@ -1190,7 +1198,7 @@ static void __init iov_kunit_iter_to_sg_xarray(struct kunit *test)
 	struct iov_iter iter;
 	size_t bufsize;
 
-	bufsize = 0x100000;
+	bufsize = 0x200000;
 	iov_kunit_iter_to_sg_init(test, bufsize, false, &data);
 
 	xarray = iov_kunit_create_xarray(test);
@@ -1206,7 +1214,7 @@ static void __init iov_kunit_iter_to_sg_ubuf(struct kunit *test)
 	struct iov_iter iter;
 	size_t bufsize;
 
-	bufsize = 0x100000;
+	bufsize = 0x200000;
 	iov_kunit_iter_to_sg_init(test, bufsize, true, &data);
 
 	iov_iter_ubuf(&iter, READ, data.ubuf, bufsize);

@@ -1540,6 +1540,7 @@ unsigned int ata_exec_internal(struct ata_device *dev, struct ata_taskfile *tf,
 {
 	struct ata_link *link = dev->link;
 	struct ata_port *ap = link->ap;
+	const bool owns_eh_mutex = ap->host->eh_owner == current;
 	u8 command = tf->command;
 	struct ata_queued_cmd *qc;
 	struct scatterlist sgl;
@@ -1604,7 +1605,7 @@ unsigned int ata_exec_internal(struct ata_device *dev, struct ata_taskfile *tf,
 	qc->private_data = &wait;
 	qc->complete_fn = ata_qc_complete_internal;
 
-	ata_qc_issue(qc);
+	ata_qc_issue(ap, qc);
 
 	spin_unlock_irqrestore(ap->lock, flags);
 
@@ -1617,11 +1618,25 @@ unsigned int ata_exec_internal(struct ata_device *dev, struct ata_taskfile *tf,
 		}
 	}
 
-	ata_eh_release(ap);
+	if (owns_eh_mutex) {
+		/*
+		 * To prevent that the compiler complains about the
+		 * ata_eh_release() call below.
+		 */
+		__acquire(&ap->host->eh_mutex);
+		ata_eh_release(ap);
+	}
 
 	rc = wait_for_completion_timeout(&wait, msecs_to_jiffies(timeout));
 
-	ata_eh_acquire(ap);
+	if (owns_eh_mutex) {
+		ata_eh_acquire(ap);
+		/*
+		 * To prevent that the compiler complains about the above
+		 * ata_eh_acquire() call.
+		 */
+		__release(&ap->host->eh_mutex);
+	}
 
 	ata_sff_flush_pio_task(ap);
 
@@ -5135,6 +5150,7 @@ EXPORT_SYMBOL_GPL(ata_qc_get_active);
 
 /**
  *	ata_qc_issue - issue taskfile to device
+ *	@ap: ATA port of interest
  *	@qc: command to issue to device
  *
  *	Prepare an ATA command to submission to device.
@@ -5145,9 +5161,9 @@ EXPORT_SYMBOL_GPL(ata_qc_get_active);
  *	LOCKING:
  *	spin_lock_irqsave(host lock)
  */
-void ata_qc_issue(struct ata_queued_cmd *qc)
+void ata_qc_issue(struct ata_port *ap, struct ata_queued_cmd *qc)
+	__must_hold(ap->lock)
 {
-	struct ata_port *ap = qc->ap;
 	struct ata_link *link = qc->dev->link;
 	u8 prot = qc->tf.protocol;
 
@@ -5584,6 +5600,7 @@ void ata_link_init(struct ata_port *ap, struct ata_link *link, int pmp)
 	link->pmp = pmp;
 	link->active_tag = ATA_TAG_POISON;
 	link->hw_sata_spd_limit = UINT_MAX;
+	INIT_WORK(&link->deferred_qc_work, ata_scsi_deferred_qc_work);
 
 	/* can't use iterator, ap isn't initialized yet */
 	for (i = 0; i < ATA_MAX_DEVICES; i++) {
@@ -5666,7 +5683,6 @@ struct ata_port *ata_port_alloc(struct ata_host *host)
 	mutex_init(&ap->scsi_scan_mutex);
 	INIT_DELAYED_WORK(&ap->hotplug_task, ata_scsi_hotplug);
 	INIT_DELAYED_WORK(&ap->scsi_rescan_task, ata_scsi_dev_rescan);
-	INIT_WORK(&ap->deferred_qc_work, ata_scsi_deferred_qc_work);
 	INIT_LIST_HEAD(&ap->eh_done_q);
 	init_waitqueue_head(&ap->eh_wait_q);
 	init_completion(&ap->park_req_pending);
@@ -6291,11 +6307,14 @@ static void ata_port_detach(struct ata_port *ap)
 
 	/* It better be dead now and not have any remaining deferred qc. */
 	WARN_ON(!(ap->pflags & ATA_PFLAG_UNLOADED));
-	WARN_ON(ap->deferred_qc);
 
-	cancel_work_sync(&ap->deferred_qc_work);
 	cancel_delayed_work_sync(&ap->hotplug_task);
 	cancel_delayed_work_sync(&ap->scsi_rescan_task);
+
+	ata_for_each_link(link, ap, PMP_FIRST) {
+		WARN_ON(link->deferred_qc);
+		cancel_work_sync(&link->deferred_qc_work);
+	}
 
 	/* Delete port multiplier link transport devices */
 	if (ap->pmp_link) {
@@ -6817,6 +6836,7 @@ EXPORT_SYMBOL_GPL(ata_ratelimit);
  *	Might sleep.
  */
 void ata_msleep(struct ata_port *ap, unsigned int msecs)
+	__context_unsafe(conditional locking)
 {
 	bool owns_eh = ap && ap->host->eh_owner == current;
 
@@ -6891,6 +6911,7 @@ static unsigned int ata_dummy_qc_issue(struct ata_queued_cmd *qc)
 }
 
 static void ata_dummy_error_handler(struct ata_port *ap)
+	__must_hold(&ap->host->eh_mutex)
 {
 	/* truly dummy */
 }
