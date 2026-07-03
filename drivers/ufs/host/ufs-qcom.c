@@ -2987,6 +2987,7 @@ static int ufs_qcom_probe(struct platform_device *pdev)
 	const struct ufs_hba_variant_ops *vops;
 	const struct ufs_qcom_drvdata *drvdata = device_get_match_data(dev);
 
+	pr_err(" this is test change\n");
 	if (drvdata && drvdata->vops)
 		vops = drvdata->vops;
 	else
