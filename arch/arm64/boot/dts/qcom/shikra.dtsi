@@ -252,11 +252,21 @@
 			opp-hz = /bits/ 64 <1804800000>;
 			opp-peak-kBps = <7216000 43622400>;
 		};
+
+		opp-2208000000 {
+			opp-hz = /bits/ 64 <2208000000>;
+			opp-peak-kBps = <7216000 43622400>;
+		};
 	};
 
 	cpu3_opp_table: opp-table-cpu3 {
 		compatible = "operating-points-v2";
 		opp-shared;
+
+		opp-768000000 {
+			opp-hz = /bits/ 64 <768000000>;
+			opp-peak-kBps = <1200000 17817600>;
+		};
 
 		opp-1017600000 {
 			opp-hz = /bits/ 64 <1017600000>;
@@ -280,6 +290,11 @@
 
 		opp-1900800000 {
 			opp-hz = /bits/ 64 <1900800000>;
+			opp-peak-kBps = <7216000 43622400>;
+		};
+
+		opp-2208000000 {
+			opp-hz = /bits/ 64 <2208000000>;
 			opp-peak-kBps = <7216000 43622400>;
 		};
 	};
