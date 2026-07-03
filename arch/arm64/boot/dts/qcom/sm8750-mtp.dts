@@ -1285,10 +1285,74 @@
 &tlmm {
 	/* reserved for secure world */
 	gpio-reserved-ranges = <36 4>, <74 1>;
+
+	cam2_reset: cam2-reset-state {
+		pins = "gpio3";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
 };
 
 &uart7 {
 	status = "okay";
+};
+
+&vreg_l7n_3p3 {
+        regulator-always-on;
+};
+
+&gpi_dma2 {
+	status = "okay";
+};
+
+&i2c9 {
+	status = "okay";
+	qcom,pm-ctrl-client;
+	power-domains = <&camcc CAM_CC_TITAN_TOP_GDSC>;
+
+	camera@10 {
+		compatible = "samsung,s5kjn5";
+		reg = <0x10>;
+		reset-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam2_default &cam2_reset>;
+		pinctrl-names = "default";
+
+		clocks = <&cambistmclkcc CAM_BIST_MCLK_CC_MCLK2_CLK>;
+		assigned-clocks = <&cambistmclkcc CAM_BIST_MCLK_CC_MCLK2_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		vddio-supply = <&vreg_l1i_1p2>;
+		vddd-supply = <&vreg_l2m_1p056>;
+		vdda-supply = <&vreg_l4m_2p8>;
+		vddio1p2-supply = <&vreg_l5m_1p8>;
+		afvdd-supply = <&vreg_l7m_2p96>;
+
+		port {
+			s5kjn5_ep: endpoint {
+				link-frequencies = /bits/ 64
+					<1248000000 840000000 250400000>;
+				data-lanes = <1 2 3 4>;
+				remote-endpoint = <&csiphy2_ep>;
+			};
+		};
+	};
+};
+
+&camss {
+	vdd-csiphy2-0p8-supply = <&vreg_l3i_0p88>;
+	vdd-csiphy2-1p2-supply = <&vreg_l3g_1p2>;
+
+	status = "okay";
+
+	ports {
+		port@2 {
+			csiphy2_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&s5kjn5_ep>;
+			};
+		};
+	};
 };
 
 /* Pinctrl */
