@@ -701,6 +701,10 @@ static int tee_ioctl_object_invoke(struct tee_context *ctx,
 			goto out;
 	}
 
+	/* Userspace object-ids are restricted to 32-bits. */
+	if (arg.id > U32_MAX)
+		return -EINVAL;
+
 	rc = ctx->teedev->desc->ops->object_invoke_func(ctx, &arg, params);
 	if (rc)
 		goto out;

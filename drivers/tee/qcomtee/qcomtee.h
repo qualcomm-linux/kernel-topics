@@ -17,6 +17,12 @@
 #define QCOMTEE_OBJREF_FLAG_USER	BIT(1)
 #define QCOMTEE_OBJREF_FLAG_MEM		BIT(2)
 
+/* The MSB of the object_id field indicates whether the client is invoking the
+ * object from user context or kernel context.
+ */
+#define QCOMTEE_GET_CLIENT_CTX(x) (((x) >> 63) & 1U)
+#define QCOMTEE_SANITIZE_OBJ_ID(x) ((x) & (BIT(63) - 1))
+
 /**
  * struct qcomtee - Main service struct.
  * @teedev: client device.

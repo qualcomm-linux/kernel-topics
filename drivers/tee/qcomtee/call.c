@@ -397,10 +397,30 @@ static int qcomtee_object_invoke(struct tee_context *ctx,
 {
 	struct qcomtee_context_data *ctxdata = ctx->data;
 	struct qcomtee_object *object;
+	bool kernel_ctx = false;
 	int i, ret, result;
 
 	if (qcomtee_params_check(params, arg->num_params))
 		return -EINVAL;
+
+	/* Obtain the invocation context information from the MSB of the object
+	 * `id` field.
+	 */
+	kernel_ctx = QCOMTEE_GET_CLIENT_CTX(arg->id);
+	/* User-space identifies a NULL object via a 32-bit TEE_OBJREF_NULL id, whereas
+	 * the kernel uses as 64-bit object-id. Hence, we check for a NULL object by
+	 * sign-extending the object-id to 64 bits. If user-space is indeed invoking a
+	 * NULL object we must extend the object-id to 64-bits from here on so that
+	 * QCOMTEE can recognize it.
+	 */
+	if (!kernel_ctx && ((s64)(s32)arg->id) == TEE_OBJREF_NULL)
+		arg->id = TEE_OBJREF_NULL;
+
+	/* If the object being invoked is not NULL, drop the MSB from the `id` field to
+	 * obtain the actual object-id.
+	 */
+	if (arg->id != TEE_OBJREF_NULL)
+		arg->id = QCOMTEE_SANITIZE_OBJ_ID(arg->id);
 
 	/* First, handle reserved operations: */
 	if (arg->op == QCOMTEE_MSG_OBJECT_OP_RELEASE) {
@@ -411,7 +431,7 @@ static int qcomtee_object_invoke(struct tee_context *ctx,
 
 	/* Otherwise, invoke a QTEE object: */
 	struct qcomtee_object_invoke_ctx *oic __free(kfree) =
-		qcomtee_object_invoke_ctx_alloc(ctx);
+		qcomtee_object_invoke_ctx_alloc(ctx, kernel_ctx);
 	if (!oic)
 		return -ENOMEM;
 
@@ -648,7 +668,7 @@ static void qcomtee_get_qtee_feature_list(struct tee_context *ctx, u32 id,
 	int result;
 
 	struct qcomtee_object_invoke_ctx *oic __free(kfree) =
-		qcomtee_object_invoke_ctx_alloc(ctx);
+		qcomtee_object_invoke_ctx_alloc(ctx, true);
 	if (!oic)
 		return;
 
