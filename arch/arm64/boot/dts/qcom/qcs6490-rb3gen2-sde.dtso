@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include "kodiak-sde.dtsi"
+
+&mdss_mdp0 {
+	status = "okay";
+        connectors = <&smmu_sde_unsec &mdss_edp0>;
+};
+
+&mdss_edp0 {
+	status = "okay";
+        qcom,display-type = "primary";
+        qcom,dp-low-power-hw-hpd;
+        vdda-1p2-supply = <&vreg_l6b_1p2>;
+        vdda-0p9-supply = <&vreg_l10c_0p88>;
+        pinctrl-names = "mdss_dp_active", "mdss_dp_sleep", "mdss_dp_hpd_active";
+        pinctrl-0 = <&edp_hpd_ctrl>;
+        pinctrl-1 = <&edp_hpd_default>;
+        pinctrl-2 = <&edp_hpd_default>;
+        qcom,dp-hpd-gpio = <&tlmm 60 0>;
+        qcom,dp-gpio-aux-switch;
+        qcom,edp-vcc-en-gpio = <&tlmm 80 0>;
+        qcom,no-backlight-support;
+        qcom,dp-ext-hpd;
+};
+
+&tlmm {
+        edp_hpd_default: hpd_default@60 {
+                mux {
+                        pins = "gpio60";
+                        function = "gpio";
+                };
+
+                config {
+                        pins = "gpio60";
+                        bias-disable;
+                        input-enable;
+                        drive-strength = <2>;
+                };
+        };
+        edp_hpd_ctrl: hpd_ctrl@60 {
+                mux {
+                        pins = "gpio60";
+                        function = "edp_hot";
+                };
+
+                config {
+                        pins = "gpio60";
+                        bias-disable;
+                        input-enable;
+                        drive-strength = <2>;
+                };
+        };
+};
