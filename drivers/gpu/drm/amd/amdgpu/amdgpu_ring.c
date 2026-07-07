@@ -484,7 +484,7 @@ bool amdgpu_ring_soft_recovery(struct amdgpu_ring *ring, unsigned int vmid,
 static ssize_t amdgpu_ras_cper_debugfs_read(struct file *f, char __user *buf,
 					    size_t size, loff_t *offset)
 {
-	const uint8_t ring_header_size = 12;
+	const u8 ring_header_size = 12;
 	struct amdgpu_ring *ring = file_inode(f)->i_private;
 	struct ras_cmd_cper_snapshot_req *snapshot_req __free(kfree) =
 		kzalloc_obj(struct ras_cmd_cper_snapshot_req);
@@ -494,49 +494,103 @@ static ssize_t amdgpu_ras_cper_debugfs_read(struct file *f, char __user *buf,
 		kzalloc_obj(struct ras_cmd_cper_record_req);
 	struct ras_cmd_cper_record_rsp *record_rsp __free(kfree) =
 		kzalloc_obj(struct ras_cmd_cper_record_rsp);
-	uint8_t *ring_header __free(kfree) =
+	u32 *ring_header __free(kfree) =
 		kzalloc(ring_header_size, GFP_KERNEL);
-	uint32_t total_cper_num;
-	uint64_t start_cper_id;
+	char __user *data_buf = buf;
+	size_t data_size = size;
+	u32 total_cper_num;
+	u64 start_cper_id;
+	u64 cper_offset;
+	size_t chunk_size;
+	size_t total_data_size = 0;
+	bool read_header;
 	int r;
 
 	if (!snapshot_req || !snapshot_rsp || !record_req || !record_rsp ||
 	    !ring_header)
 		return -ENOMEM;
 
-	if (!(*offset)) {
+	read_header = !(*offset);
+	cper_offset = read_header ? 0 : *offset - 1;
+
+	if (read_header) {
 		/* Need at least 12 bytes for the header on the first read */
 		if (size < ring_header_size)
 			return -EINVAL;
-
-		if (copy_to_user(buf, ring_header, ring_header_size))
-			return -EFAULT;
-		buf += ring_header_size;
-		size -= ring_header_size;
+		data_buf += ring_header_size;
+		data_size -= ring_header_size;
 	}
 
 	r = amdgpu_ras_mgr_handle_ras_cmd(ring->adev,
 					  RAS_CMD__GET_CPER_SNAPSHOT,
 					  snapshot_req, sizeof(struct ras_cmd_cper_snapshot_req),
 					  snapshot_rsp, sizeof(struct ras_cmd_cper_snapshot_rsp));
-	if (r || !snapshot_rsp->total_cper_num)
-		return r;
-
-	start_cper_id = snapshot_rsp->start_cper_id;
-	total_cper_num = snapshot_rsp->total_cper_num;
-
-	record_req->buf_ptr = (uint64_t)(uintptr_t)buf;
-	record_req->buf_size = size;
-	record_req->cper_start_id = start_cper_id + *offset;
-	record_req->cper_num = total_cper_num;
-	r = amdgpu_ras_mgr_handle_ras_cmd(ring->adev, RAS_CMD__GET_CPER_RECORD,
-					  record_req, sizeof(struct ras_cmd_cper_record_req),
-					  record_rsp, sizeof(struct ras_cmd_cper_record_rsp));
 	if (r)
 		return r;
 
-	r = *offset ? record_rsp->real_data_size : record_rsp->real_data_size + ring_header_size;
-	(*offset) += record_rsp->real_cper_num;
+	if (!snapshot_rsp->total_cper_num) {
+		if (!read_header)
+			return 0;
+
+		if (copy_to_user(buf, ring_header, ring_header_size))
+			return -EFAULT;
+
+		*offset = 1;
+		return ring_header_size;
+	}
+
+	start_cper_id = snapshot_rsp->start_cper_id;
+	total_cper_num = snapshot_rsp->total_cper_num;
+	if (read_header && !data_size) {
+		if (copy_to_user(buf, ring_header, ring_header_size))
+			return -EFAULT;
+
+		*offset = cper_offset + 1;
+		return ring_header_size;
+	}
+
+	if (!data_size)
+		return 0;
+
+	while (data_size && cper_offset < total_cper_num) {
+		memset(record_req, 0, sizeof(*record_req));
+		memset(record_rsp, 0, sizeof(*record_rsp));
+		chunk_size = min_t(size_t, data_size, RAS_CMD_MAX_CPER_BUF_SZ);
+
+		record_req->buf_ptr = (u64)(uintptr_t)data_buf;
+		record_req->buf_size = chunk_size;
+		record_req->cper_start_id = start_cper_id + cper_offset;
+		record_req->cper_num = total_cper_num - cper_offset;
+		r = amdgpu_ras_mgr_handle_ras_cmd(ring->adev,
+						  RAS_CMD__GET_CPER_RECORD,
+						  record_req,
+						  sizeof(struct ras_cmd_cper_record_req),
+						  record_rsp,
+						  sizeof(struct ras_cmd_cper_record_rsp));
+		if (r)
+			return r;
+
+		if (!record_rsp->real_data_size || !record_rsp->real_cper_num)
+			break;
+		if (record_rsp->real_data_size > data_size)
+			return -EIO;
+
+		data_buf += record_rsp->real_data_size;
+		data_size -= record_rsp->real_data_size;
+		total_data_size += record_rsp->real_data_size;
+		cper_offset += record_rsp->real_cper_num;
+	}
+
+	if (read_header) {
+		ring_header[1] = total_data_size >> 2;
+		ring_header[2] = ring_header[1];
+
+		if (copy_to_user(buf, ring_header, ring_header_size))
+			return -EFAULT;
+	}
+
+	r = read_header ? total_data_size + ring_header_size : total_data_size;
+	*offset = cper_offset + 1;
 
 	return r;
 }
@@ -552,8 +606,9 @@ static ssize_t amdgpu_debugfs_ring_read(struct file *f, char __user *buf,
 					size_t size, loff_t *pos)
 {
 	struct amdgpu_ring *ring = file_inode(f)->i_private;
-	uint32_t value, result, early[3];
+	u32 value, result, early[3] = { 0 };
 	uint64_t p;
+	u32 avail_dw, start_dw, read_dw;
 	loff_t i;
 	int r;
 
@@ -565,10 +620,10 @@ static ssize_t amdgpu_debugfs_ring_read(struct file *f, char __user *buf,
 
 	result = 0;
 
-	if (*pos < 12) {
-		if (ring->funcs->type == AMDGPU_RING_TYPE_CPER)
-			mutex_lock(&ring->adev->cper.ring_lock);
+	if (ring->funcs->type == AMDGPU_RING_TYPE_CPER)
+		mutex_lock(&ring->adev->cper.ring_lock);
 
+	if (*pos < 12) {
 		early[0] = amdgpu_ring_get_rptr(ring) & ring->buf_mask;
 		early[1] = amdgpu_ring_get_wptr(ring) & ring->buf_mask;
 		early[2] = ring->wptr & ring->buf_mask;
@@ -600,13 +655,24 @@ static ssize_t amdgpu_debugfs_ring_read(struct file *f, char __user *buf,
 			*pos += 4;
 		}
 	} else {
+		early[0] = amdgpu_ring_get_rptr(ring) & ring->buf_mask;
+		early[1] = amdgpu_ring_get_wptr(ring) & ring->buf_mask;
+
 		p = early[0];
 		if (early[0] <= early[1])
-			size = (early[1] - early[0]);
+			avail_dw = early[1] - early[0];
 		else
-			size = ring->ring_size - (early[0] - early[1]);
+			avail_dw = ring->buf_mask + 1 - (early[0] - early[1]);
 
-		while (size) {
+		start_dw = (*pos > 12) ? ((*pos - 12) >> 2) : 0;
+		if (start_dw >= avail_dw)
+			goto out;
+
+		p = (p + start_dw) & ring->ptr_mask;
+		avail_dw -= start_dw;
+		read_dw = min_t(u32, avail_dw, size >> 2);
+
+		while (read_dw) {
 			if (p == early[1])
 				goto out;
 
@@ -619,9 +685,10 @@ static ssize_t amdgpu_debugfs_ring_read(struct file *f, char __user *buf,
 
 			buf += 4;
 			result += 4;
-			size--;
+			read_dw--;
 			p++;
 			p &= ring->ptr_mask;
+			*pos += 4;
 		}
 	}
 

@@ -22,6 +22,7 @@
 #include "crypto_ctx.h"
 #include "auth.h"
 #include "stats.h"
+#include "compress.h"
 
 int ksmbd_debug_types;
 
@@ -244,6 +245,15 @@ send:
 	if (work->tcon)
 		ksmbd_tree_connect_put(work->tcon);
 	smb3_preauth_hash_rsp(work);
+	/*
+	 * Preauthentication hashes cover the original SMB2 response. Apply the
+	 * transport compression wrapper only after updating the hash.
+	 */
+	if (work->compress_response) {
+		rc = ksmbd_compress_response(work);
+		if (rc < 0)
+			ksmbd_debug(CONN, "Failed to compress response: %d\n", rc);
+	}
 	if (work->sess && work->sess->enc && work->encrypted &&
 	    conn->ops->encrypt_resp) {
 		rc = conn->ops->encrypt_resp(work);
@@ -596,8 +606,14 @@ static int __init ksmbd_server_init(void)
 	if (ret)
 		goto err_crypto_destroy;
 
+	ret = ksmbd_conn_wq_init();
+	if (ret)
+		goto err_workqueue_destroy;
+
 	return 0;
 
+err_workqueue_destroy:
+	ksmbd_workqueue_destroy();
 err_crypto_destroy:
 	ksmbd_crypto_destroy();
 err_release_inode_hash:
@@ -623,6 +639,12 @@ static void __exit ksmbd_server_exit(void)
 {
 	ksmbd_server_shutdown();
 	rcu_barrier();
+	/*
+	 * ksmbd_conn_put() defers the final release onto ksmbd_conn_wq,
+	 * so drain it after rcu_barrier() has fired any pending RCU
+	 * callbacks that may have queued a release.
+	 */
+	ksmbd_conn_wq_destroy();
 	ksmbd_release_inode_hash();
 }
 
