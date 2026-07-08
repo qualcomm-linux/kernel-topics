@@ -398,6 +398,7 @@
 	compatible = "qcom,x1p42100-qmp-gen4x4-pcie-phy";
 };
 
+/* X1P42100 PDC is same as X1E80100, but without hardware register bug */
 &pdc {
 	compatible = "qcom,x1p42100-pdc", "qcom,pdc";
 };
