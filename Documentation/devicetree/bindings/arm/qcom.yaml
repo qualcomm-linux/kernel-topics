@@ -391,6 +391,7 @@ properties:
 
       - items:
           - enum:
+              - qcom,iq10-rrd
               - qcom,sa8797p-ride
           - const: qcom,nord
 
