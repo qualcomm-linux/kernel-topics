@@ -348,6 +348,13 @@ static void ctcu_platform_remove(struct platform_device *pdev)
 		return;
 
 	/*
+	 * Resume the device so its clocks are enabled again, balancing the
+	 * clk_disable_unprepare() that devm runs when the driver detaches.
+	 * Then mark it suspended and drop the usage count taken here.
+	 */
+	pm_runtime_get_sync(&pdev->dev);
+
+	/*
 	 * Signal all active byte-cntr readers to exit, then wait for them to
 	 * finish before resetting the ops pointer and freeing driver data.
 	 * Without this, a reader blocked in wait_event_interruptible_timeout()
@@ -370,6 +377,8 @@ static void ctcu_platform_remove(struct platform_device *pdev)
 	tmc_etr_reset_byte_cntr_sysfs_ops();
 	ctcu_remove(pdev);
 	pm_runtime_disable(&pdev->dev);
+	pm_runtime_set_suspended(&pdev->dev);
+	pm_runtime_put_noidle(&pdev->dev);
 }
 
 #ifdef CONFIG_PM
