@@ -35,7 +35,6 @@
 			codec {
 				sound-dai = <&lpass_vamacro 0>;
 			};
-
 			cpu {
 				sound-dai = <&q6apmbedai VA_CODEC_DMA_TX_0>;
 			};
@@ -48,13 +47,12 @@
 		wsa-dai-link {
 			link-name = "WSA Playback";
 
+			cpu {
+				sound-dai = <&q6apmbedai WSA_CODEC_DMA_RX_0>;
+			};
 			codec {
 				sound-dai = <&left_spkr>, <&right_spkr>,
 					    <&swr0 0>, <&lpass_wsamacro 0>;
-			};
-
-			cpu {
-				sound-dai = <&q6apmbedai WSA_CODEC_DMA_RX_0>;
 			};
 
 			platform {
@@ -71,6 +69,25 @@
 		gpio = <&pm7550_gpios 8 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 		vin-supply = <&vreg_bob>;
+		regulator-boot-on;
+	};
+};
+
+&tlmm {
+	spkr_1_sd_n_active: spkr-1-sd-n-active-state {
+		pins = "gpio59";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+		output-low;
+	};
+
+	spkr_2_sd_n_active: spkr-2-sd-n-active-state {
+		pins = "gpio79";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+		output-low;
 	};
 };
 
@@ -81,6 +98,12 @@
 
 	vdd-micb-supply = <&dmic_eldo>;
 	qcom,dmic-sample-rate = <4800000>;
+
+	status = "okay";
+};
+
+&lpass_wsamacro {
+	status = "okay";
 };
 
 &swr0 {
@@ -136,20 +159,5 @@
 		 */
 		qcom,port-mapping = <4 5 6 7 11 13>;
 	};
-};
 
-&tlmm {
-	spkr_1_sd_n_active: spkr-1-sd-n-active-state {
-		pins = "gpio59";
-		function = "gpio";
-		drive-strength = <16>;
-		bias-disable;
-	};
-
-	spkr_2_sd_n_active: spkr-2-sd-n-active-state {
-		pins = "gpio79";
-		function = "gpio";
-		drive-strength = <16>;
-		bias-disable;
-	};
 };
