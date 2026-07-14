@@ -5300,7 +5300,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			arm,primecell-periphid = <0x000f0c00>;
 
 			in-ports {
 				#address-cells = <1>;
