@@ -9,6 +9,7 @@
 #include <dt-bindings/clock/qcom,rpmcc.h>
 #include <dt-bindings/clock/qcom,shikra-audiocorecc.h>
 #include <dt-bindings/clock/qcom,shikra-gcc.h>
+#include <dt-bindings/firmware/qcom,scm.h>
 #include <dt-bindings/interconnect/qcom,icc.h>
 #include <dt-bindings/interconnect/qcom,osm-l3.h>
 #include <dt-bindings/dma/qcom-gpi.h>
@@ -3195,7 +3196,7 @@
 		};
 
 		bam_dmux_dma: dma-controller@6044000 {
-			compatible = "qcom,bam-v1.7.0";
+			compatible = "qcom,shikra-bam-dma", "qcom,bam-v1.7.0";
 			reg = <0x0 0x06044000 0x0 0x19000>;
 			interrupts = <GIC_SPI 74 IRQ_TYPE_EDGE_RISING 0>;
 			#dma-cells = <1>;
@@ -3204,6 +3205,7 @@
 			num-channels = <6>;
 			qcom,num-ees = <1>;
 			qcom,powered-remotely;
+			qcom,vmid = <QCOM_SCM_VMID_NAV>;
 		};
 
 		remoteproc_mpss: remoteproc@6080000 {
@@ -3246,7 +3248,7 @@
 			};
 
 			bam_dmux: bam-dmux {
-				compatible = "qcom,bam-dmux";
+				compatible = "qcom,shikra-bam-dmux", "qcom,bam-dmux";
 
 				interrupts-extended = <&modem_smsm 1 IRQ_TYPE_EDGE_BOTH>,
 						      <&modem_smsm 11 IRQ_TYPE_EDGE_BOTH>;
