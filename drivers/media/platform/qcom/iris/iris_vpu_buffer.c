@@ -2194,19 +2194,6 @@ u32 iris_vpu4x_buf_size(struct iris_inst *inst, enum iris_buffer_type buffer_typ
 	return size;
 }
 
-u32 iris_vpu_ar50lt_gen1_buf_size(struct iris_inst *inst, enum iris_buffer_type buffer_type)
-{
-	const struct iris_hfi_session_ops *hfi_ops = inst->hfi_session_ops;
-	int ret;
-
-	/* return 0 on error to let the driver cope */
-	ret = hfi_ops->session_get_property(inst, HFI_PROPERTY_CONFIG_BUFFER_REQUIREMENTS);
-	if (ret)
-		return 0;
-
-	return inst->buffers[buffer_type].size;
-}
-
 static u32 internal_buffer_count(struct iris_inst *inst,
 				 enum iris_buffer_type buffer_type)
 {
