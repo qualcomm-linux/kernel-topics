@@ -18,6 +18,5 @@ int iris_prepare_enable_clock(struct iris_core *core, enum platform_clk_type clk
 int iris_genpd_set_hwmode(struct iris_core *core, enum platform_pm_domain_type pd_type,
 			  bool hwmode);
 struct device *iris_create_cb_dev(struct iris_core *core, const char *name, const u32 *f_id);
-struct device *iris_get_cb_dev(struct iris_inst *inst, enum iris_buffer_type buffer_type);
 
 #endif
