@@ -16,14 +16,19 @@ dtb-$(CONFIG_ARCH_QCOM)	+= apq8096sg-db820c.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= apq8096-ifc6640.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= eliza-mtp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= glymur-crd.dtb
-dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk-dvt.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk-pvt.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk-camera-imx577.dtbo
 
-hamoa-iot-evk-camera-imx577-dtbs	:= hamoa-iot-evk.dtb hamoa-iot-evk-camera-imx577.dtbo
-hamoa-iot-evk-el2-dtbs	:= hamoa-iot-evk.dtb x1-el2.dtbo
+hamoa-iot-evk-camera-imx577-dtbs	:= hamoa-iot-evk-pvt.dtb hamoa-iot-evk-camera-imx577.dtbo
+hamoa-iot-evk-dvt-camera-imx577-dtbs	:= hamoa-iot-evk-dvt.dtb hamoa-iot-evk-camera-imx577.dtbo
+hamoa-iot-evk-el2-dtbs	:= hamoa-iot-evk-pvt.dtb x1-el2.dtbo
+hamoa-iot-evk-dvt-el2-dtbs	:= hamoa-iot-evk-dvt.dtb x1-el2.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk-camera-imx577.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk-dvt-camera-imx577.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk-el2.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk-dvt-el2.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-lenovo-ideacentre-mini-01q8x10.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-rdp432-c2.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-tplink-archer-ax55-v1.dtb
@@ -460,3 +465,16 @@ x1p42100-lenovo-thinkbook-16-el2-dtbs	:= x1p42100-lenovo-thinkbook-16.dtb x1-el2
 dtb-$(CONFIG_ARCH_QCOM)	+= x1p42100-lenovo-thinkbook-16.dtb x1p42100-lenovo-thinkbook-16-el2.dtb
 x1p64100-microsoft-denali-el2-dtbs	:= x1p64100-microsoft-denali.dtb x1-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= x1p64100-microsoft-denali.dtb x1p64100-microsoft-denali-el2.dtb
+
+hamoa-evk-camx-dtbs  := hamoa-iot-evk-pvt.dtb hamoa-evk-camx.dtbo
+hamoa-evk-dvt-camx-dtbs  := hamoa-iot-evk-dvt.dtb hamoa-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-evk-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-evk-dvt-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-evk-camx.dtbo
+
+hamoa-camx-el2-dtbs  := hamoa-iot-evk-el2.dtb hamoa-evk-camx.dtbo hamoa-camx-el2.dtbo
+hamoa-camx-dvt-el2-dtbs  := hamoa-iot-evk-dvt-el2.dtb hamoa-evk-camx.dtbo hamoa-camx-el2.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-camx-el2.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-camx-dvt-el2.dtb
