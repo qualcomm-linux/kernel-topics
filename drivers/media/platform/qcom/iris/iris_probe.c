@@ -131,20 +131,6 @@ static int iris_init_resets(struct iris_core *core)
 				     core->iris_platform_data->controller_rst_tbl_size);
 }
 
-static int iris_init_cb_devs(struct iris_core *core)
-{
-	if (core->iris_platform_data->init_cb_devs)
-		return core->iris_platform_data->init_cb_devs(core);
-
-	return 0;
-}
-
-static void iris_deinit_cb_devs(struct iris_core *core)
-{
-	if (core->iris_platform_data->deinit_cb_devs)
-		core->iris_platform_data->deinit_cb_devs(core);
-}
-
 static int iris_init_resources(struct iris_core *core)
 {
 	int ret;
@@ -215,7 +201,6 @@ static void iris_remove(struct platform_device *pdev)
 		return;
 
 	iris_core_deinit(core);
-	iris_deinit_cb_devs(core);
 
 	video_unregister_device(core->vdev_dec);
 	video_unregister_device(core->vdev_enc);
@@ -284,13 +269,9 @@ static int iris_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = iris_init_cb_devs(core);
-	if (ret)
-		return ret;
-
 	ret = v4l2_device_register(dev, &core->v4l2_dev);
 	if (ret)
-		goto err_deinit_cb;
+		return ret;
 
 	ret = iris_register_video_device(core, DECODER);
 	if (ret)
@@ -304,11 +285,9 @@ static int iris_probe(struct platform_device *pdev)
 
 	dma_mask = core->iris_platform_data->dma_mask;
 
-	if (device_iommu_mapped(core->dev)) {
-		ret = dma_set_mask_and_coherent(core->dev, dma_mask);
-		if (ret)
-			goto err_vdev_unreg_enc;
-	}
+	ret = dma_set_mask_and_coherent(dev, dma_mask);
+	if (ret)
+		goto err_vdev_unreg_enc;
 
 	dma_set_max_seg_size(&pdev->dev, DMA_BIT_MASK(32));
 	dma_set_seg_boundary(&pdev->dev, DMA_BIT_MASK(32));
@@ -327,8 +306,6 @@ err_vdev_unreg_dec:
 	video_unregister_device(core->vdev_dec);
 err_v4l2_unreg:
 	v4l2_device_unregister(&core->v4l2_dev);
-err_deinit_cb:
-	iris_deinit_cb_devs(core);
 
 	return ret;
 }
