@@ -39,25 +39,25 @@ static int iris_vpu_ar50lt_power_off_controller(struct iris_core *core)
 	iris_disable_unprepare_clock(core, IRIS_AHB_CLK);
 	iris_disable_unprepare_clock(core, IRIS_AXI_VCODEC_CLK);
 	iris_disable_unprepare_clock(core, IRIS_CTRL_CLK);
-	iris_disable_power_domains(core, IRIS_CTRL_POWER_DOMAIN);
+	iris_disable_power_domains(core, core->pmdomain_tbl->pd_devs[IRIS_CTRL_POWER_DOMAIN]);
 
 	return 0;
 }
 
 static void iris_vpu_ar50lt_power_off_hw(struct iris_core *core)
 {
-	iris_genpd_set_hwmode(core, IRIS_VCODEC_POWER_DOMAIN, false);
+	dev_pm_genpd_set_hwmode(core->pmdomain_tbl->pd_devs[IRIS_VCODEC_POWER_DOMAIN], false);
 	iris_disable_unprepare_clock(core, IRIS_THROTTLE_CLK);
 	iris_disable_unprepare_clock(core, IRIS_VCODEC_AHB_CLK);
 	iris_disable_unprepare_clock(core, IRIS_VCODEC_CLK);
-	iris_disable_power_domains(core, IRIS_VCODEC_POWER_DOMAIN);
+	iris_disable_power_domains(core, core->pmdomain_tbl->pd_devs[IRIS_VCODEC_POWER_DOMAIN]);
 }
 
 static int iris_vpu_ar50lt_power_on_controller(struct iris_core *core)
 {
 	int ret;
 
-	ret = iris_enable_power_domains(core, IRIS_CTRL_POWER_DOMAIN);
+	ret = iris_enable_power_domains(core, core->pmdomain_tbl->pd_devs[IRIS_CTRL_POWER_DOMAIN]);
 	if (ret)
 		return ret;
 
@@ -80,7 +80,7 @@ err_disable_axi_clock:
 err_disable_ctrl_clock:
 	iris_disable_unprepare_clock(core, IRIS_CTRL_CLK);
 err_disable_power:
-	iris_disable_power_domains(core, IRIS_CTRL_POWER_DOMAIN);
+	iris_disable_power_domains(core, core->pmdomain_tbl->pd_devs[IRIS_CTRL_POWER_DOMAIN]);
 
 	return ret;
 }
@@ -89,7 +89,8 @@ static int iris_vpu_ar50lt_power_on_hw(struct iris_core *core)
 {
 	int ret;
 
-	ret = iris_enable_power_domains(core, IRIS_VCODEC_POWER_DOMAIN);
+	ret = iris_enable_power_domains(core,
+					core->pmdomain_tbl->pd_devs[IRIS_VCODEC_POWER_DOMAIN]);
 	if (ret)
 		return ret;
 
@@ -112,7 +113,7 @@ err_disable_hw_ahb_clock:
 err_disable_hw_clock:
 	iris_disable_unprepare_clock(core, IRIS_VCODEC_CLK);
 err_disable_power:
-	iris_disable_power_domains(core, IRIS_VCODEC_POWER_DOMAIN);
+	iris_disable_power_domains(core, core->pmdomain_tbl->pd_devs[IRIS_VCODEC_POWER_DOMAIN]);
 
 	return ret;
 }

@@ -295,12 +295,6 @@ struct iris_firmware_desc {
 	const char *fwname;
 };
 
-struct platform_pd_data {
-	enum platform_pm_domain_type *pd_types;
-	const char **pd_names;
-	u32 pd_count;
-};
-
 struct iris_platform_data {
 	const struct iris_firmware_desc *firmware_desc_gen1, *firmware_desc_gen2;
 
@@ -309,7 +303,8 @@ struct iris_platform_data {
 	unsigned int icc_tbl_size;
 	const struct bw_info *bw_tbl_dec;
 	unsigned int bw_tbl_dec_size;
-	const struct platform_pd_data *pmdomain_tbl;
+	const char * const *pmdomain_tbl;
+	unsigned int pmdomain_tbl_size;
 	const char * const *opp_pd_tbl;
 	unsigned int opp_pd_tbl_size;
 	const struct platform_clk_data *clk_tbl;

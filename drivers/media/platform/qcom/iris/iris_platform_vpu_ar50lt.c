@@ -43,17 +43,7 @@ static const struct icc_info iris_icc_info_ar50lt[] = {
 	{ "video-mem",  1000, 6500000  },
 };
 
-static const struct platform_pd_data iris_pmdomain_table_ar50lt = {
-	.pd_types = (enum platform_pm_domain_type []) {
-		IRIS_CTRL_POWER_DOMAIN,
-		IRIS_VCODEC_POWER_DOMAIN,
-	},
-	.pd_names = (const char *[]) {
-		"venus",
-		"vcodec0",
-	},
-	.pd_count = 2,
-};
+static const char * const iris_pmdomain_table_ar50lt[] = { "venus", "vcodec0" };
 
 static const char * const iris_opp_pd_table_ar50lt[] = { "cx" };
 
@@ -101,7 +91,8 @@ const struct iris_platform_data qcm2290_data = {
 	.icc_tbl_size = ARRAY_SIZE(iris_icc_info_ar50lt),
 	.bw_tbl_dec = iris_bw_table_dec_ar50lt,
 	.bw_tbl_dec_size = ARRAY_SIZE(iris_bw_table_dec_ar50lt),
-	.pmdomain_tbl = &iris_pmdomain_table_ar50lt,
+	.pmdomain_tbl = iris_pmdomain_table_ar50lt,
+	.pmdomain_tbl_size = ARRAY_SIZE(iris_pmdomain_table_ar50lt),
 	.opp_pd_tbl = iris_opp_pd_table_ar50lt,
 	.opp_pd_tbl_size = ARRAY_SIZE(iris_opp_pd_table_ar50lt),
 	.clk_tbl = iris_clk_table_ar50lt,
