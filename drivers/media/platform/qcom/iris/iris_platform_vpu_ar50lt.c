@@ -49,10 +49,10 @@ static const char * const iris_opp_pd_table_ar50lt[] = { "cx" };
 
 static const struct platform_clk_data iris_clk_table_ar50lt[] = {
 	{IRIS_CTRL_CLK,    "core"         },
-	{IRIS_AXI_VCODEC_CLK,     "iface"        },
+	{IRIS_AXI_CLK,     "iface"        },
 	{IRIS_AHB_CLK,     "bus"          },
-	{IRIS_VCODEC_CLK,      "vcodec0_core" },
-	{IRIS_VCODEC_AHB_CLK,  "vcodec0_bus"  },
+	{IRIS_HW_CLK,      "vcodec0_core" },
+	{IRIS_HW_AHB_CLK,  "vcodec0_bus"  },
 	{IRIS_THROTTLE_CLK, "throttle"    },
 };
 
