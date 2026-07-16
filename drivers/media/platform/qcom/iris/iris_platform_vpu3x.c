@@ -104,47 +104,6 @@ static const struct tz_cp_config tz_cp_config_vpu3[] = {
 	},
 };
 
-static int sm8550_init_cb_devs(struct iris_core *core)
-{
-	const u32 f_id_np = 0; /* IRIS_NON_PIXEL_VCODEC */
-	const u32 f_id_p = 1;  /* IRIS_PIXEL */
-	struct device *dev;
-
-	dev = iris_create_cb_dev(core, "iris_non_pixel", &f_id_np);
-	if (IS_ERR(dev))
-		return PTR_ERR(dev);
-
-	core->dev_np = dev;
-	core->dev_bs = core->dev_np;
-
-	dev = iris_create_cb_dev(core, "iris_pixel", &f_id_p);
-	if (IS_ERR(dev))
-		goto err_unreg_dev_np;
-
-	core->dev_p = dev;
-
-	return 0;
-
-err_unreg_dev_np:
-	platform_device_unregister(to_platform_device(core->dev_np));
-	core->dev_np = NULL;
-	core->dev_bs = NULL;
-
-	return PTR_ERR(dev);
-}
-
-static void sm8550_deinit_cb_devs(struct iris_core *core)
-{
-	if (core->dev_np)
-		platform_device_unregister(to_platform_device(core->dev_np));
-	if (core->dev_p)
-		platform_device_unregister(to_platform_device(core->dev_p));
-
-	core->dev_np = NULL;
-	core->dev_bs = NULL;
-	core->dev_p = NULL;
-}
-
 /*
  * Shares most of SM8550 data except:
  * - inst_caps to platform_inst_cap_qcs8300
@@ -182,8 +141,6 @@ const struct iris_platform_data qcs8300_data = {
 const struct iris_platform_data sm8550_data = {
 	.firmware_desc_gen2 = &iris_vpu30_p4_gen2_desc,
 	.vpu_ops = &iris_vpu3_ops,
-	.init_cb_devs = sm8550_init_cb_devs,
-	.deinit_cb_devs = sm8550_deinit_cb_devs,
 	.icc_tbl = iris_icc_info_vpu3x,
 	.icc_tbl_size = ARRAY_SIZE(iris_icc_info_vpu3x),
 	.clk_rst_tbl = sm8550_clk_reset_table,
