@@ -32,11 +32,6 @@ enum domain_type {
 
 struct qcom_ubwc_cfg_data;
 
-enum iris_vcodec_core_id {
-	IRIS_VCODEC0 = 1,
-	IRIS_VCODEC1,
-};
-
 /**
  * struct iris_core - holds core parameters valid for all instances
  *
