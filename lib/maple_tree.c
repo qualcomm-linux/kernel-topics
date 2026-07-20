@@ -1171,6 +1171,8 @@ static void mas_lock_check(struct ma_state *mas)
 {
 #ifdef CONFIG_LOCKDEP
 	struct lockdep_map *map;
+	u32 seq;
+
 	if (!mas_is_active(mas))
 		return;
 
@@ -1182,8 +1184,12 @@ static void mas_lock_check(struct ma_state *mas)
 #endif /* CONFIG_RCU_STRICT_GRACE_PERIOD */
 
 	map = mas_lockdep_map(mas);
-	if (map && lock_is_held(map))
-		WARN_ON_ONCE(mas->ld_seq != lock_sequence(map));
+	if (!map)
+		return;
+
+	seq = lock_sequence(map);
+	if (seq != UINT_MAX && mas->ld_seq != UINT_MAX)
+		WARN_ON_ONCE(mas->ld_seq != seq);
 #endif /* CONFIG_LOCKDEP */
 
 }
@@ -1201,8 +1207,8 @@ static void mas_init_lock_check(struct ma_state *mas)
 #endif /* CONFIG_RCU_STRICT_GRACE_PERIOD */
 
 	map = mas_lockdep_map(mas);
-	if (map && lock_is_held(map))
-		mas->ld_seq = lock_sequence(mas_lockdep_map(mas));
+	if (map) /* Update regardless of lock state */
+		mas->ld_seq = lock_sequence(map);
 #endif /* CONFIG_LOCKDEP */
 
 }
