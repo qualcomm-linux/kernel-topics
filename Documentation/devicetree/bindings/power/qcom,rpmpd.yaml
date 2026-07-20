@@ -36,6 +36,7 @@ properties:
           - qcom,msm8996-rpmpd
           - qcom,msm8998-rpmpd
           - qcom,nord-rpmhpd
+          # - qcom,nordau-rpmhpd (driver support only, binding entry not yet added)
           - qcom,qcm2290-rpmpd
           - qcom,qcs404-rpmpd
           - qcom,qcs615-rpmhpd
