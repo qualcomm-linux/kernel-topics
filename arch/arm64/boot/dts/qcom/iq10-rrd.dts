@@ -10,6 +10,9 @@
 
 #include "nord-embedded.dtsi"
 
+#include "pmm8650au-iq10.dtsi"
+#include "kai_mv-iq10.dtsi"
+
 / {
 	model = "Qualcomm Technologies, Inc. IQ10 RRD";
 	compatible = "qcom,iq10-rrd", "qcom,nord";
