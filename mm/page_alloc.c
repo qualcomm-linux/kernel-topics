@@ -2172,12 +2172,15 @@ bool pageblock_unisolate_and_move_free_pages(struct zone *zone, struct page *pag
 
 #endif /* CONFIG_MEMORY_ISOLATION */
 
-static inline bool boost_watermark(struct zone *zone)
+/*
+ * Helper for boosting watermarks. Called with zone->lock held.
+ * Use max_boost to limit the boost to a percentage of the high watermark.
+ */
+static inline bool __boost_watermark(struct zone *zone, unsigned long amount,
+				     unsigned long max_boost)
 {
-	unsigned long max_boost;
+	lockdep_assert_held(&zone->lock);
 
-	if (!watermark_boost_factor)
-		return false;
 	/*
 	 * Don't bother in zones that are unlikely to produce results.
 	 * On small machines, including kdump capture kernels running
@@ -2186,9 +2189,6 @@ static inline bool boost_watermark(struct zone *zone)
 	 */
 	if ((pageblock_nr_pages * 4) > zone_managed_pages(zone))
 		return false;
-
-	max_boost = mult_frac(zone->_watermark[WMARK_HIGH],
-			watermark_boost_factor, 10000);
 
 	/*
 	 * high watermark may be uninitialised if fragmentation occurs
@@ -2203,10 +2203,68 @@ static inline bool boost_watermark(struct zone *zone)
 
 	max_boost = max(pageblock_nr_pages, max_boost);
 
-	zone->watermark_boost = min(zone->watermark_boost + pageblock_nr_pages,
-		max_boost);
+	zone->watermark_boost = min(zone->watermark_boost + amount,
+				    max_boost);
 
 	return true;
+}
+
+/*
+ * Boost watermarks to increase reclaim pressure when fragmentation occurs
+ * and we fall back to other migratetypes.
+ */
+static inline bool boost_watermark(struct zone *zone)
+{
+	if (!watermark_boost_factor)
+		return false;
+
+	return __boost_watermark(zone, pageblock_nr_pages,
+			mult_frac(zone->_watermark[WMARK_HIGH],
+				  watermark_boost_factor, 10000));
+}
+
+/*
+ * Boost watermarks by ~0.1% of zone size on atomic allocation pressure.
+ * This provides zone-proportional safety buffers: ~1MB per 1GB of zone
+ * size. Max boost ceiling is fixed at ~10% of high watermark.
+ *
+ * This emergency reserve is independent of watermark_boost_factor.
+ */
+static inline bool boost_watermark_atomic(struct zone *zone)
+{
+	return __boost_watermark(zone,
+			max(pageblock_nr_pages, zone_managed_pages(zone) / 1000),
+			zone->_watermark[WMARK_HIGH] / 10);
+}
+
+static void boost_zones_for_atomic(struct alloc_context *ac, gfp_t gfp_mask)
+{
+	struct zoneref *z;
+	struct zone *zone;
+	unsigned long now = jiffies;
+
+	for_each_zone_zonelist_nodemask(zone, z, ac->zonelist,
+					ac->highest_zoneidx, ac->nodemask) {
+		unsigned long flags;
+		bool should_wake = false;
+
+		/*
+		 * Check and update the per-zone debounce timestamp under
+		 * zone->lock so concurrent callers on other CPUs (e.g. a
+		 * multi-queue NIC spreading GFP_ATOMIC allocations across
+		 * several softirqs) cannot all observe a stale timestamp
+		 * and pile onto the same zone within the same window.
+		 */
+		spin_lock_irqsave(&zone->lock, flags);
+		if (time_after(now, zone->last_boost_jiffies + HZ)) {
+			zone->last_boost_jiffies = now;
+			should_wake = boost_watermark_atomic(zone);
+		}
+		spin_unlock_irqrestore(&zone->lock, flags);
+
+		if (should_wake)
+			wakeup_kswapd(zone, gfp_mask, 0, ac->highest_zoneidx);
+	}
 }
 
 /*
@@ -4823,6 +4881,10 @@ restart:
 	compact_priority = DEF_COMPACT_PRIORITY;
 	cpuset_mems_cookie = read_mems_allowed_begin();
 	zonelist_iter_cookie = zonelist_iter_begin();
+
+	/* Boost watermarks for atomic requests entering slowpath */
+	if (((gfp_mask & GFP_ATOMIC) == GFP_ATOMIC) && order == 0 && !can_direct_reclaim)
+		boost_zones_for_atomic(ac, gfp_mask);
 
 	/*
 	 * For costly allocations, try direct compaction first, as it's likely
