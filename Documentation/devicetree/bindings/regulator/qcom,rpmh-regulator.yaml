@@ -68,6 +68,7 @@ description: |
 properties:
   compatible:
     enum:
+      # - qcom,kai_mv-rpmh-regulators (driver support only, binding entry not yet added)
       - qcom,pm6150-rpmh-regulators
       - qcom,pm6150l-rpmh-regulators
       - qcom,pm6350-rpmh-regulators
@@ -99,6 +100,7 @@ properties:
       - qcom,pmh0110-rpmh-regulators
       - qcom,pmi8998-rpmh-regulators
       - qcom,pmm8155au-rpmh-regulators
+      # - qcom,pmm8650au-rpmh-regulators (driver support only, binding entry not yet added)
       - qcom,pmm8654au-rpmh-regulators
       - qcom,pmr735a-rpmh-regulators
       - qcom,pmr735b-rpmh-regulators
