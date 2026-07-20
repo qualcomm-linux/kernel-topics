@@ -1,0 +1,285 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ */
+
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/spmi/spmi.h>
+
+&spmi_bus {
+	kai_mv_e: pmic@4 {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0x4 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_e_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0x4 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_e_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_e_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
+	kai_mv_f: pmic@5 {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0x5 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_f_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0x5 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_f_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_f_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
+	kai_mv_g: pmic@6 {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0x6 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_g_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0x6 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_g_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_g_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
+	kai_mv_h: pmic@7 {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0x7 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_h_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0x7 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_h_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_h_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
+	kai_mv_i: pmic@8 {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0x8 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_i_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0x8 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_i_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_i_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
+	kai_mv_j: pmic@9 {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0x9 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_j_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0x9 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_j_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_j_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
+	kai_mv_k: pmic@a {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0xa SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_k_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0xa 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_k_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_k_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
+	kai_mv_l: pmic@b {
+		compatible = "qcom,kai_mv", "qcom,spmi-pmic";
+		reg = <0xb SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		kai_mv_l_temp_alarm: temp-alarm@a00 {
+			compatible = "qcom,spmi-temp-alarm";
+			reg = <0xa00>;
+			interrupts = <0xb 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		kai_mv_l_gpios: gpio@8800 {
+			compatible = "qcom,kai_mv-gpio", "qcom,spmi-gpio";
+			reg = <0x8800>;
+			gpio-controller;
+			gpio-ranges = <&kai_mv_l_gpios 0 0 12>;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+};
+
+/ {
+	thermal-zones {
+		kai_mv_e_thermal: kai-e-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_e_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+
+		kai_mv_f_thermal: kai-f-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_f_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+
+		kai_mv_g_thermal: kai-g-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_g_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+
+		kai_mv_h_thermal: kai-h-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_h_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+
+		kai_mv_i_thermal: kai-i-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_i_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+
+		kai_mv_j_thermal: kai-j-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_j_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+
+		kai_mv_k_thermal: kai-k-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_k_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+
+		kai_mv_l_thermal: kai-l-thermal {
+			polling-delay-passive = <100>;
+			thermal-sensors = <&kai_mv_l_temp_alarm>;
+			trips {
+				trip0 { temperature = <95000>; hysteresis = <0>; type = "passive"; };
+				trip1 { temperature = <115000>; hysteresis = <0>; type = "hot"; };
+				trip2 { temperature = <145000>; hysteresis = <0>; type = "critical"; };
+			};
+		};
+	};
+};
