@@ -886,6 +886,121 @@
 			#clock-cells = <1>;
 		};
 
+		rpmhpd: power-controller {
+			compatible = "qcom,nordau-rpmhpd";
+
+			operating-points-v2 = <&rpmhpd_opp_table>;
+
+			#power-domain-cells = <1>;
+
+			rpmhpd_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				rpmhpd_opp_ret: opp-ret {
+					opp-level = <RPMH_REGULATOR_LEVEL_RETENTION>;
+				};
+
+				rpmhpd_opp_low_svs_d3: opp-low-svs-d3 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D3>;
+				};
+
+				rpmhpd_opp_low_svs_d2_1: opp-low-svs-d2-1 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D2_1>;
+				};
+
+				rpmhpd_opp_low_svs_d2: opp-low-svs-d2 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D2>;
+				};
+
+				rpmhpd_opp_low_svs_d1_1: opp-low-svs-d1-1 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D1_1>;
+				};
+
+				rpmhpd_opp_low_svs_d1: opp-low-svs-d1 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D1>;
+				};
+
+				rpmhpd_opp_low_svs_d0: opp-low-svs-d0 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D0>;
+				};
+
+				rpmhpd_opp_low_svs: opp-low-svs {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS>;
+				};
+
+				rpmhpd_opp_low_svs_l0: opp-low-svs-l0 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_L0>;
+				};
+
+				rpmhpd_opp_low_svs_l1: opp-low-svs-l1 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_L1>;
+				};
+
+				rpmhpd_opp_low_svs_l2: opp-low-svs-l2 {
+					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_L2>;
+				};
+
+				rpmhpd_opp_svs: opp-svs {
+					opp-level = <RPMH_REGULATOR_LEVEL_SVS>;
+				};
+
+				rpmhpd_opp_svs_l0: opp-svs-l0 {
+					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L0>;
+				};
+
+				rpmhpd_opp_svs_l1: opp-svs-l1 {
+					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L1>;
+				};
+
+				rpmhpd_opp_svs_l2: opp-svs-l2 {
+					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L2>;
+				};
+
+				rpmhpd_opp_nom: opp-nom {
+					opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
+				};
+
+				rpmhpd_opp_nom_l1: opp-nom-l1 {
+					opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
+				};
+
+				rpmhpd_opp_nom_l2: opp-nom-l2 {
+					opp-level = <RPMH_REGULATOR_LEVEL_NOM_L2>;
+				};
+
+				rpmhpd_opp_turbo: opp-turbo {
+					opp-level = <RPMH_REGULATOR_LEVEL_TURBO>;
+				};
+
+				rpmhpd_opp_turbo_l0: opp-turbo-l0 {
+					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L0>;
+				};
+
+				rpmhpd_opp_turbo_l1: opp-turbo-l1 {
+					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
+				};
+
+				rpmhpd_opp_turbo_l2: opp-turbo-l2 {
+					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L2>;
+				};
+
+				rpmhpd_opp_turbo_l3: opp-turbo-l3 {
+					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L3>;
+				};
+
+				rpmhpd_opp_turbo_l4: opp-turbo-l4 {
+					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L4>;
+				};
+
+				rpmhpd_opp_turbo_l5: opp-turbo-l5 {
+					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L5>;
+				};
+
+				rpmhpd_opp_super_turbo_no_cpr: opp-super-turbo-no-cpr {
+					opp-level = <RPMH_REGULATOR_LEVEL_SUPER_TURBO_NO_CPR>;
+				};
+			};
+		};
 	};
 
 	nsp_data_noc_0: interconnect@1f200000 {
