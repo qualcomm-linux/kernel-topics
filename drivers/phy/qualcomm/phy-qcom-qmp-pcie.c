@@ -3484,7 +3484,7 @@ static inline void qphy_clrbits(void __iomem *base, u32 offset, u32 val)
 
 /* list of clocks required by phy */
 static const char * const qmp_pciephy_clk_l[] = {
-	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux", "phy_b_aux",
+	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux",
 };
 
 /* list of regulators */
@@ -3511,14 +3511,6 @@ static const char * const sdm845_pciephy_reset_l[] = {
 
 static const char * const sm8550_pciephy_nocsr_reset_l[] = {
 	"phy_nocsr",
-};
-
-static const char * const glymur_pciephy_reset_l[] = {
-	"phy", "phy_b"
-};
-
-static const char * const glymur_pciephy_nocsr_reset_l[] = {
-	"phy_nocsr", "phy_b_nocsr",
 };
 
 static const struct qmp_pcie_offsets qmp_pcie_offsets_qhp = {
@@ -4850,23 +4842,6 @@ static const struct qmp_phy_cfg glymur_qmp_gen4x2_pciephy_cfg = {
 	.phy_status		= PHYSTATUS_4_20,
 };
 
-static const struct qmp_phy_cfg glymur_qmp_gen5x8_pciephy_cfg = {
-	.lanes = 8,
-
-	.offsets		= &qmp_pcie_offsets_v8_50,
-
-	.reset_list		= glymur_pciephy_reset_l,
-	.num_resets		= ARRAY_SIZE(glymur_pciephy_reset_l),
-	.nocsr_reset_list	= glymur_pciephy_nocsr_reset_l,
-	.num_nocsr_resets	= ARRAY_SIZE(glymur_pciephy_nocsr_reset_l),
-	.vreg_list		= glymur_qmp_phy_vreg_l,
-	.num_vregs		= ARRAY_SIZE(glymur_qmp_phy_vreg_l),
-
-	.regs			= pciephy_v8_50_regs_layout,
-
-	.phy_status		= PHYSTATUS_4_20,
-};
-
 static void qmp_pcie_init_port_b(struct qmp_pcie *qmp, const struct qmp_phy_cfg_tbls *tbls)
 {
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
@@ -5650,9 +5625,6 @@ static const struct of_device_id qmp_pcie_of_match_table[] = {
 	}, {
 		.compatible = "qcom,glymur-qmp-gen5x4-pcie-phy",
 		.data = &glymur_qmp_gen5x4_pciephy_cfg,
-	}, {
-		.compatible = "qcom,glymur-qmp-gen5x8-pcie-phy",
-		.data = &glymur_qmp_gen5x8_pciephy_cfg,
 	}, {
 		.compatible = "qcom,ipq6018-qmp-pcie-phy",
 		.data = &ipq6018_pciephy_cfg,
