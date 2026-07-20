@@ -886,55 +886,6 @@
 			#clock-cells = <1>;
 		};
 
-		rpmhpd: power-controller {
-			compatible = "qcom,nord-rpmhpd";
-			#power-domain-cells = <1>;
-			operating-points-v2 = <&rpmhpd_opp_table>;
-
-			rpmhpd_opp_table: opp-table {
-				compatible = "operating-points-v2";
-
-				rpmhpd_opp_ret: opp-0 {
-					opp-level = <RPMH_REGULATOR_LEVEL_RETENTION>;
-				};
-
-				rpmhpd_opp_min_svs: opp-1 {
-					opp-level = <RPMH_REGULATOR_LEVEL_MIN_SVS>;
-				};
-
-				rpmhpd_opp_low_svs: opp2 {
-					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS>;
-				};
-
-				rpmhpd_opp_svs: opp3 {
-					opp-level = <RPMH_REGULATOR_LEVEL_SVS>;
-				};
-
-				rpmhpd_opp_svs_l1: opp-4 {
-					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L1>;
-				};
-
-				rpmhpd_opp_nom: opp-5 {
-					opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
-				};
-
-				rpmhpd_opp_nom_l1: opp-6 {
-					opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
-				};
-
-				rpmhpd_opp_nom_l2: opp-7 {
-					opp-level = <RPMH_REGULATOR_LEVEL_NOM_L2>;
-				};
-
-				rpmhpd_opp_turbo: opp-8 {
-					opp-level = <RPMH_REGULATOR_LEVEL_TURBO>;
-				};
-
-				rpmhpd_opp_turbo_l1: opp-9 {
-					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
-				};
-			};
-		};
 	};
 
 	nsp_data_noc_0: interconnect@1f200000 {
