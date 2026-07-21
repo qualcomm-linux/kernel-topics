@@ -5091,7 +5091,7 @@
 				};
 
 				gpuss-critical {
-					temperature = <120000>;
+					temperature = <118000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
