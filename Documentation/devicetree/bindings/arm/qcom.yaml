@@ -939,6 +939,7 @@ properties:
       - items:
           - enum:
               - qcom,qcs615-ride
+              - qcom,talos-lyra-evk
               - qcom,talos-evk
           - const: qcom,qcs615
           - const: qcom,sm6150
