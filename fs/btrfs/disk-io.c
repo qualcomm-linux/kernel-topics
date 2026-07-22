@@ -2047,7 +2047,7 @@ static int btrfs_replay_log(struct btrfs_fs_info *fs_info,
 	if (IS_ERR(log_tree_root->node)) {
 		ret = PTR_ERR(log_tree_root->node);
 		log_tree_root->node = NULL;
-		btrfs_err(fs_info, "failed to read log tree with error: %d", ret);
+		btrfs_err(fs_info, "failed to read log tree with error: %pe", ERR_PTR(ret));
 		btrfs_put_root(log_tree_root);
 		return ret;
 	}
@@ -2057,7 +2057,7 @@ static int btrfs_replay_log(struct btrfs_fs_info *fs_info,
 	btrfs_put_root(log_tree_root);
 	if (unlikely(ret)) {
 		ASSERT(BTRFS_FS_ERROR(fs_info) != 0);
-		btrfs_err(fs_info, "failed to recover log trees with error: %d", ret);
+		btrfs_err(fs_info, "failed to recover log trees with error: %pe", ERR_PTR(ret));
 		return ret;
 	}
 
@@ -2298,8 +2298,8 @@ static int btrfs_read_roots(struct btrfs_fs_info *fs_info)
 
 	return 0;
 out:
-	btrfs_warn(fs_info, "failed to read root (objectid=%llu): %d",
-		   location.objectid, ret);
+	btrfs_warn(fs_info, "failed to read root (objectid=%llu): %pe",
+		   location.objectid, ERR_PTR(ret));
 	return ret;
 }
 
@@ -2973,8 +2973,8 @@ static int btrfs_uuid_rescan_kthread(void *data)
 	ret = btrfs_uuid_tree_iterate(fs_info);
 	if (ret < 0) {
 		if (ret != -EINTR)
-			btrfs_warn(fs_info, "iterating uuid_tree failed %d",
-				   ret);
+			btrfs_warn(fs_info, "iterating uuid_tree failed %pe",
+				   ERR_PTR(ret));
 		up(&fs_info->uuid_tree_rescan_sem);
 		return ret;
 	}
@@ -3077,7 +3077,7 @@ int btrfs_start_pre_rw_mount(struct btrfs_fs_info *fs_info)
 		ret = btrfs_rebuild_free_space_tree(fs_info);
 		if (ret) {
 			btrfs_warn(fs_info,
-				   "failed to rebuild free space tree: %d", ret);
+				   "failed to rebuild free space tree: %pe", ERR_PTR(ret));
 			return ret;
 		}
 	}
@@ -3088,7 +3088,7 @@ int btrfs_start_pre_rw_mount(struct btrfs_fs_info *fs_info)
 		ret = btrfs_delete_free_space_tree(fs_info);
 		if (ret) {
 			btrfs_warn(fs_info,
-				   "failed to disable free space tree: %d", ret);
+				   "failed to disable free space tree: %pe", ERR_PTR(ret));
 			return ret;
 		}
 	}
@@ -3099,7 +3099,8 @@ int btrfs_start_pre_rw_mount(struct btrfs_fs_info *fs_info)
 	 */
 	ret = btrfs_delete_orphan_free_space_entries(fs_info);
 	if (ret < 0) {
-		btrfs_err(fs_info, "failed to delete orphan free space tree entries: %d", ret);
+		btrfs_err(fs_info, "failed to delete orphan free space tree entries: %pe",
+			  ERR_PTR(ret));
 		return ret;
 	}
 	/*
@@ -3133,7 +3134,7 @@ int btrfs_start_pre_rw_mount(struct btrfs_fs_info *fs_info)
 	ret = btrfs_recover_relocation(fs_info);
 	mutex_unlock(&fs_info->cleaner_mutex);
 	if (ret < 0) {
-		btrfs_warn(fs_info, "failed to recover relocation: %d", ret);
+		btrfs_warn(fs_info, "failed to recover relocation: %pe", ERR_PTR(ret));
 		return ret;
 	}
 
@@ -3143,7 +3144,7 @@ int btrfs_start_pre_rw_mount(struct btrfs_fs_info *fs_info)
 		ret = btrfs_create_free_space_tree(fs_info);
 		if (ret) {
 			btrfs_warn(fs_info,
-				"failed to create free space tree: %d", ret);
+				"failed to create free space tree: %pe", ERR_PTR(ret));
 			return ret;
 		}
 	}
@@ -3171,7 +3172,7 @@ int btrfs_start_pre_rw_mount(struct btrfs_fs_info *fs_info)
 		ret = btrfs_create_uuid_tree(fs_info);
 		if (ret) {
 			btrfs_warn(fs_info,
-				   "failed to create the UUID tree %d", ret);
+				   "failed to create the UUID tree %pe", ERR_PTR(ret));
 			return ret;
 		}
 	}
@@ -3544,7 +3545,7 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 	ret = btrfs_read_sys_array(fs_info);
 	mutex_unlock(&fs_info->chunk_mutex);
 	if (ret) {
-		btrfs_err(fs_info, "failed to read the system array: %d", ret);
+		btrfs_err(fs_info, "failed to read the system array: %pe", ERR_PTR(ret));
 		goto fail_sb_buffer;
 	}
 
@@ -3563,7 +3564,7 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 
 	ret = btrfs_read_chunk_tree(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to read chunk tree: %d", ret);
+		btrfs_err(fs_info, "failed to read chunk tree: %pe", ERR_PTR(ret));
 		goto fail_tree_roots;
 	}
 
@@ -3593,7 +3594,7 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 	ret = btrfs_get_dev_zone_info_all_devices(fs_info);
 	if (ret) {
 		btrfs_err(fs_info,
-			  "zoned: failed to read device zone info: %d", ret);
+			  "zoned: failed to read device zone info: %pe", ERR_PTR(ret));
 		goto fail_block_groups;
 	}
 
@@ -3616,72 +3617,73 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 	ret = btrfs_verify_dev_extents(fs_info);
 	if (ret) {
 		btrfs_err(fs_info,
-			  "failed to verify dev extents against chunks: %d",
-			  ret);
+			  "failed to verify dev extents against chunks: %pe",
+			  ERR_PTR(ret));
 		goto fail_block_groups;
 	}
 	ret = btrfs_recover_balance(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to recover balance: %d", ret);
+		btrfs_err(fs_info, "failed to recover balance: %pe", ERR_PTR(ret));
 		goto fail_block_groups;
 	}
 
 	ret = btrfs_init_dev_stats(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to init dev_stats: %d", ret);
+		btrfs_err(fs_info, "failed to init dev_stats: %pe", ERR_PTR(ret));
 		goto fail_block_groups;
 	}
 
 	ret = btrfs_init_dev_replace(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to init dev_replace: %d", ret);
+		btrfs_err(fs_info, "failed to init dev_replace: %pe", ERR_PTR(ret));
 		goto fail_block_groups;
 	}
 
 	ret = btrfs_check_zoned_mode(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to initialize zoned mode: %d",
-			  ret);
+		btrfs_err(fs_info, "failed to initialize zoned mode: %pe",
+			  ERR_PTR(ret));
 		goto fail_block_groups;
 	}
 
 	ret = btrfs_sysfs_add_fsid(fs_devices);
 	if (ret) {
-		btrfs_err(fs_info, "failed to init sysfs fsid interface: %d",
-				ret);
+		btrfs_err(fs_info, "failed to init sysfs fsid interface: %pe",
+			  ERR_PTR(ret));
 		goto fail_block_groups;
 	}
 
 	ret = btrfs_sysfs_add_mounted(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to init sysfs interface: %d", ret);
+		btrfs_err(fs_info, "failed to init sysfs interface: %pe", ERR_PTR(ret));
 		goto fail_fsdev_sysfs;
 	}
 
 	ret = btrfs_init_space_info(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to initialize space info: %d", ret);
+		btrfs_err(fs_info, "failed to initialize space info: %pe", ERR_PTR(ret));
 		goto fail_sysfs;
 	}
 
 	ret = btrfs_read_block_groups(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to read block groups: %d", ret);
+		btrfs_err(fs_info, "failed to read block groups: %pe", ERR_PTR(ret));
 		goto fail_sysfs;
 	}
 
 	if (btrfs_fs_incompat(fs_info, REMAP_TREE)) {
 		ret = btrfs_populate_fully_remapped_bgs_list(fs_info);
 		if (ret) {
-			btrfs_err(fs_info, "failed to populate fully_remapped_bgs list: %d", ret);
+			btrfs_err(fs_info, "failed to populate fully_remapped_bgs list: %pe",
+				  ERR_PTR(ret));
 			goto fail_sysfs;
 		}
 	}
 
 	ret = btrfs_init_writeback_bio_size(fs_info);
 	if (ret) {
-		btrfs_err(fs_info, "failed to get optimum writeback size: %d",
-			  ret);
+		btrfs_err(fs_info, "failed to get optimum writeback size: %pe",
+			  ERR_PTR(ret));
 		goto fail_sysfs;
 	}
 
@@ -3737,7 +3739,7 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 	fs_info->fs_root = btrfs_get_fs_root(fs_info, BTRFS_FS_TREE_OBJECTID, true);
 	if (IS_ERR(fs_info->fs_root)) {
 		ret = PTR_ERR(fs_info->fs_root);
-		btrfs_err(fs_info, "failed to read fs tree: %d", ret);
+		btrfs_err(fs_info, "failed to read fs tree: %pe", ERR_PTR(ret));
 		fs_info->fs_root = NULL;
 		goto fail_qgroup;
 	}
@@ -3758,7 +3760,7 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 		btrfs_info(fs_info, "checking UUID tree");
 		ret = btrfs_check_uuid_tree(fs_info);
 		if (ret) {
-			btrfs_err(fs_info, "failed to check the UUID tree: %d", ret);
+			btrfs_err(fs_info, "failed to check the UUID tree: %pe", ERR_PTR(ret));
 			close_ctree(fs_info);
 			return ret;
 		}
@@ -3874,8 +3876,8 @@ static int write_dev_supers(struct btrfs_device *device,
 			continue;
 		} else if (ret < 0) {
 			btrfs_err(device->fs_info,
-			  "couldn't get super block location for mirror %d error %d",
-			  i, ret);
+			  "couldn't get super block location for mirror %d error %pe",
+			  i, ERR_PTR(ret));
 			atomic_inc(&device->sb_write_errors);
 			continue;
 		}
@@ -3893,8 +3895,8 @@ static int write_dev_supers(struct btrfs_device *device,
 					    GFP_NOFS);
 		if (IS_ERR(folio)) {
 			btrfs_err(device->fs_info,
-			  "couldn't get super block page for bytenr %llu error %ld",
-			  bytenr, PTR_ERR(folio));
+			  "couldn't get super block page for bytenr %llu error %pe",
+			  bytenr, folio);
 			atomic_inc(&device->sb_write_errors);
 			continue;
 		}
@@ -4500,7 +4502,7 @@ void __cold close_ctree(struct btrfs_fs_info *fs_info)
 		if (!btrfs_is_shutdown(fs_info)) {
 			ret = btrfs_commit_super(fs_info);
 			if (ret)
-				btrfs_err(fs_info, "commit super block returned %d", ret);
+				btrfs_err(fs_info, "commit super block returned %pe", ERR_PTR(ret));
 		}
 	}
 
