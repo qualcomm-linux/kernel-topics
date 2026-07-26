@@ -11,6 +11,7 @@
 / {
 	aliases {
 		serial0 = &uart0;
+		mmc0 = &sdhc_1;
 	};
 
 	chosen {
@@ -220,6 +221,26 @@
 	firmware-name = "qcom/qcs615/cdsp.mbn";
 
 	status = "okay";
+};
+
+&sdhc_1 {
+        pinctrl-0 = <&sdc1_state_on>;
+        pinctrl-1 = <&sdc1_state_off>;
+        pinctrl-names = "default", "sleep";
+
+        bus-width = <8>;
+        mmc-ddr-1_8v;
+        mmc-hs200-1_8v;
+        mmc-hs400-1_8v;
+        mmc-hs400-enhanced-strobe;
+        vmmc-supply = <&vreg_l17a>;
+        vqmmc-supply = <&vreg_s4a>;
+
+        non-removable;
+        no-sd;
+        no-sdio;
+
+        status = "okay";
 };
 
 &uart0 {
