@@ -40,6 +40,31 @@
         remote-endpoint = <&dp0_connector_in>;
 };
 
+&i2c5 {
+	status = "okay";
+
+	expander0: gpio@20 {
+		compatible = "kinetic,kts1622", "nxp,pca9555";
+		reg = <0x20>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	expander1: gpio@21 {
+		compatible = "kinetic,kts1622", "nxp,pca9555";
+		reg = <0x21>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	expander2: gpio@38 {
+		compatible = "ti,tca9538";
+		reg = <0x38>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+};
+
 &pon_pwrkey {
 	status = "okay";
 };
