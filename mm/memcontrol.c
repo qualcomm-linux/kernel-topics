@@ -3583,13 +3583,15 @@ bool __memcg_slab_post_alloc_hook(struct kmem_cache *s, struct list_lru *lru,
 
 		slab = virt_to_slab(p[i]);
 
+		if (!slab_obj_exts(slab)) {
+			if (is_kfence_address(p[i]))
+				continue;
+			if (alloc_slab_obj_exts(slab, s, flags, slab_alloc_flags))
+				continue;
+		}
+
 		if (IS_ENABLED(CONFIG_DEBUG_VM) && WARN_ON_ONCE(!slab_needs_objcg(slab)))
 			continue;
-
-		if (!slab_obj_exts(slab) &&
-		    alloc_slab_obj_exts(slab, s, flags, slab_alloc_flags)) {
-			continue;
-		}
 
 		/*
 		 * if we fail and size is 1, memcg_alloc_abort_single() will
