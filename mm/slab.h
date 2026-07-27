@@ -81,10 +81,11 @@ struct freelist_counters {
 #ifdef CONFIG_64BIT
 					/*
 					 * Some optimizations use free bits in 'counters' field
-					 * to save memory. If these free bits are not available,
-					 * such optimizations are disabled.
+					 * to save memory or CPU. If these free bits are not
+					 * available, such optimizations are disabled.
 					 */
 					unsigned obj_exts_in_object:1;
+					unsigned obj_exts_needs_objcg:1;
 #endif
 				};
 			};
@@ -584,6 +585,32 @@ static inline bool slab_obj_ext_has_codetag(void)
 }
 #endif
 
+#ifdef CONFIG_MEMCG
+static inline bool cache_needs_objcg(struct kmem_cache *cache)
+{
+	return (cache->flags & SLAB_MAY_ACCOUNT);
+}
+
+static inline bool slab_needs_objcg(struct slab *slab)
+{
+#ifdef CONFIG_64BIT
+	return slab->obj_exts_needs_objcg;
+#else
+	return cache_needs_objcg(slab->slab_cache);
+#endif
+}
+#else
+static inline bool cache_needs_objcg(struct kmem_cache *cache)
+{
+	return false;
+}
+
+static inline bool slab_needs_objcg(struct slab *slab)
+{
+	return false;
+}
+#endif
+
 static inline size_t cache_obj_ext_size(struct kmem_cache *s)
 {
 	size_t sz = 0;
@@ -711,6 +738,8 @@ slab_obj_ext(struct kmem_cache *s, struct slab *slab, unsigned long obj_exts,
 static inline struct obj_cgroup *
 slab_obj_ext_objcg(struct slab *slab, struct slabobj_ext *obj_ext)
 {
+	VM_WARN_ON_ONCE(!slab_needs_objcg(slab));
+
 	/* if objcg exists, it comes first, so we don't need to do anything */
 	return obj_ext->_objcg;
 }
@@ -719,6 +748,8 @@ static inline void
 slab_obj_ext_set_objcg(struct slab *slab, struct slabobj_ext *obj_ext,
 		       struct obj_cgroup *objcg)
 {
+	VM_WARN_ON_ONCE(!slab_needs_objcg(slab));
+
 	/* if objcg exists, it comes first, so we don't need to do anything */
 	obj_ext->_objcg = objcg;
 }
