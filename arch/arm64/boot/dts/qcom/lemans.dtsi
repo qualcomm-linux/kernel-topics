@@ -18,7 +18,6 @@
 #include <dt-bindings/interconnect/qcom,osm-l3.h>
 #include <dt-bindings/interconnect/qcom,sa8775p-rpmh.h>
 #include <dt-bindings/mailbox/qcom-ipcc.h>
-#include <dt-bindings/media/qcom,sm8550-iris.h>
 #include <dt-bindings/firmware/qcom,scm.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/soc/qcom,gpr.h>
@@ -5068,8 +5067,8 @@
 			resets = <&gcc GCC_VIDEO_AXI0_CLK_ARES>;
 			reset-names = "bus";
 
-			iommu-map = <IRIS_NON_PIXEL_VCODEC &apps_smmu 0x0880 0x0400 0x1>,
-				 <IRIS_PIXEL &apps_smmu 0x0887 0x0400 0x1>;
+			iommus = <&apps_smmu 0x0880 0x0400>,
+				 <&apps_smmu 0x0887 0x0400>;
 			dma-coherent;
 
 			status = "disabled";
