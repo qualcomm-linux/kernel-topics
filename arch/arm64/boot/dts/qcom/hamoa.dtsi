@@ -17,7 +17,6 @@
 #include <dt-bindings/interconnect/qcom,x1e80100-rpmh.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/mailbox/qcom-ipcc.h>
-#include <dt-bindings/media/qcom,sm8550-iris.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/phy/phy-qcom-mipi-csi2.h>
 #include <dt-bindings/phy/phy-qcom-qmp.h>
@@ -5508,8 +5507,8 @@
 			resets = <&gcc GCC_VIDEO_AXI0_CLK_ARES>;
 			reset-names = "bus";
 
-			iommu-map = <IRIS_NON_PIXEL_VCODEC &apps_smmu 0x1940 0x0 0x1>,
-				 <IRIS_PIXEL &apps_smmu 0x1947 0x0 0x1>;
+			iommus = <&apps_smmu 0x1940 0>,
+				 <&apps_smmu 0x1947 0>;
 			dma-coherent;
 
 			/*
