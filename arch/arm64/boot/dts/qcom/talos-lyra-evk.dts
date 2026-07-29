@@ -39,6 +39,14 @@
         remote-endpoint = <&dp0_connector_in>;
 };
 
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/qcs615/a612_zap.mbn";
+};
+
 &pon_pwrkey {
 	status = "okay";
 };
