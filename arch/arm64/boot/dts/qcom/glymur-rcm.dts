@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ */
+
+/dts-v1/;
+
+#include "glymur-crd.dts"
+
+/ {
+	model = "Qualcomm Technologies, Inc. Glymur RCM";
+	compatible = "qcom,glymur-rcm", "qcom,glymur";
+
+	/delete-node/ vreg_edp_3p3;
+};
+
+/delete-node/ &mdss;
+/delete-node/ &mdss_dp3_phy;
