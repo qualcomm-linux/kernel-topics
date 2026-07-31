@@ -5455,6 +5455,9 @@
 
 			maximum-speed = "high-speed";
 
+			qcom,select-utmi-as-pipe-clk;
+			usb-role-switch;
+
 			status = "disabled";
 		};
 
