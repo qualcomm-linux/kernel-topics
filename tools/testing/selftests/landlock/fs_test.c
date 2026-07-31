@@ -7228,6 +7228,46 @@ TEST_F_FORK(layout2_overlay, same_content_different_file)
 	}
 }
 
+TEST_F_FORK(layout2_overlay, rename_in_overlay_without_make_reg)
+{
+	struct stat st;
+	const char *merge_fl1_renamed = MERGE_DATA "/fl1_renamed";
+
+	if (self->skip_test)
+		SKIP(return, "overlayfs is not supported (test)");
+
+	/*
+	 * In this test, merge_fl1 is a FIFO file.  MAKE_REG is restricted, but
+	 * MAKE_FIFO is allowed.  Despite MAKE_REG being restricted, the rename
+	 * on the OverlayFS works and creates a whiteout file in the underlying
+	 * upper file system.
+	 */
+	ASSERT_EQ(0, unlink(merge_fl1));
+	ASSERT_EQ(0, mknod(merge_fl1, S_IFIFO, 0));
+	enforce_fs(_metadata, LANDLOCK_ACCESS_FS_MAKE_REG, NULL);
+
+	/*
+	 * Execute a regular file rename within OverlayFS.
+	 * merge_fl1 originates from lower layer, so this triggers a copy-up
+	 * and creation of a whiteout in the upper layer.
+	 */
+	EXPECT_EQ(0, rename(merge_fl1, merge_fl1_renamed));
+
+	/* Check that the rename worked. */
+	EXPECT_EQ(0, stat(merge_fl1_renamed, &st));
+	EXPECT_EQ(-1, stat(merge_fl1, &st));
+	EXPECT_EQ(ENOENT, errno);
+
+	/*
+	 * Check that the whiteout object on the underlying "upper" filesystem
+	 * exists after the rename.  This is OK because it was done with the
+	 * credentials of the OverlayFS.
+	 */
+	EXPECT_EQ(0, stat(UPPER_DATA "/fl1", &st));
+	EXPECT_TRUE(S_ISCHR(st.st_mode));
+	EXPECT_EQ(0, st.st_rdev);
+}
+
 FIXTURE(layout3_fs)
 {
 	bool has_created_dir;
