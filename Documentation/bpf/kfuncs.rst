@@ -250,6 +250,34 @@ Or::
                 ...
         }
 
+2.3.7 __const_map and __map Annotations
+---------------------------------------
+
+These annotations are used for ``struct bpf_map *`` arguments and distinguish a
+verifier-known map from an opaque one.
+
+``__const_map`` indicates a map must be known at the verification time, i.e. a
+concrete map fd the BPF program references directly.
+
+An example is given below::
+
+        __bpf_kfunc int bpf_wq_init(struct bpf_wq *wq, void *p__const_map,
+                                    unsigned int flags)
+        {
+                ...
+        }
+
+``__map`` indicates an opaque ``struct bpf_map *`` that may be resolved
+at run time. The argument may take either a map fd or a ``PTR_TO_BTF_ID``
+``struct bpf_map`` pointer.
+
+An example is given below::
+
+        __bpf_kfunc void *bpf_arena_alloc_pages(void *p__map, ...)
+        {
+                ...
+        }
+
 .. _BPF_kfunc_nodef:
 
 2.4 Using an existing kernel function
@@ -273,21 +301,28 @@ flags on a set of kfuncs as follows::
         BTF_KFUNCS_END(bpf_task_set)
 
 This set encodes the BTF ID of each kfunc listed above, and encodes the flags
-along with it. Ofcourse, it is also allowed to specify no flags.
+along with it. It is also allowed to specify no flags.
 
 kfunc definitions should also always be annotated with the ``__bpf_kfunc``
-macro. This prevents issues such as the compiler inlining the kfunc if it's a
-static kernel function, or the function being elided in an LTO build as it's
-not used in the rest of the kernel. Developers should not manually add
-annotations to their kfunc to prevent these issues. If an annotation is
-required to prevent such an issue with your kfunc, it is a bug and should be
-added to the definition of the macro so that other kfuncs are similarly
-protected. An example is given below::
+macro. This prevents issues such as the compiler inlining the kfunc, or the
+function being elided in an LTO build as it's not used in the rest of the
+kernel. Developers should not manually add annotations to their kfunc to prevent
+these issues. If an annotation is required to prevent such an issue with your
+kfunc, it is a bug and should be added to the definition of the macro so that
+other kfuncs are similarly protected. An example is given below::
 
         __bpf_kfunc struct task_struct *bpf_get_task_pid(s32 pid)
         {
         ...
         }
+
+Note that kfuncs must not be declared ``static``. A kfunc can be called from a
+BPF program ``*.c`` file outside the compilation unit that defines it, so its
+externally visible name must remain available for BTF ID lookup. ``static``
+linkage allows the compiler to rename the function, which can break this
+BTF-based kfunc resolution. Further note that sparse may warn that an otherwise
+unreferenced kfunc should be static. Such warnings should be ignored for kfunc
+definitions.
 
 2.5.1 KF_ACQUIRE flag
 ---------------------
@@ -404,7 +439,7 @@ Example declaration:
 .. code-block:: c
 
 	__bpf_kfunc int bpf_task_work_schedule_signal(struct task_struct *task, struct bpf_task_work *tw,
-						      void *map__map, bpf_task_work_callback_t callback,
+						      void *map__const_map, bpf_task_work_callback_t callback,
 						      struct bpf_prog_aux *aux) { ... }
 
 Example usage in BPF program:
