@@ -1042,6 +1042,8 @@ unsigned long shmem_swap_usage(struct vm_area_struct *vma)
 	struct inode *inode = file_inode(vma->vm_file);
 	struct shmem_inode_info *info = SHMEM_I(inode);
 	struct address_space *mapping = inode->i_mapping;
+	const pgoff_t pgoff = vma_start_pgoff(vma);
+	const pgoff_t pgoff_end = vma_end_pgoff(vma);
 	unsigned long swapped;
 
 	/* Be careful as we don't hold info->lock */
@@ -1055,12 +1057,11 @@ unsigned long shmem_swap_usage(struct vm_area_struct *vma)
 	if (!swapped)
 		return 0;
 
-	if (!vma->vm_pgoff && vma->vm_end - vma->vm_start >= inode->i_size)
+	if (!pgoff && vma->vm_end - vma->vm_start >= inode->i_size)
 		return swapped << PAGE_SHIFT;
 
 	/* Here comes the more involved part */
-	return shmem_partial_swap_usage(mapping, vma->vm_pgoff,
-					vma->vm_pgoff + vma_pages(vma));
+	return shmem_partial_swap_usage(mapping, pgoff, pgoff_end);
 }
 
 /*
@@ -1297,7 +1298,8 @@ static int shmem_getattr(struct mnt_idmap *idmap,
 	struct inode *inode = path->dentry->d_inode;
 	struct shmem_inode_info *info = SHMEM_I(inode);
 
-	if (info->alloced - info->swapped != inode->i_mapping->nrpages)
+	/* Fast-path hint; recalc under info->lock corrects any stale read. */
+	if (data_race(info->alloced - info->swapped != inode->i_mapping->nrpages))
 		shmem_recalc_inode(inode, 0, 0);
 
 	if (info->fsflags & FS_APPEND_FL)
@@ -1438,7 +1440,10 @@ static void shmem_evict_inode(struct inode *inode)
 	simple_xattrs_free(&sbinfo->xa_cache, &info->xattrs, sbinfo->max_inodes ? &freed : NULL);
 
 	shmem_free_inode(inode->i_sb, freed);
-	WARN_ON(inode->i_blocks);
+	if (inode->i_blocks)
+		pr_warn("%s: ino=%llu i_blocks=%llu alloced=%lu swapped=%lu nrpages=%lu\n",
+			__func__, inode->i_ino, inode->i_blocks,
+			info->alloced, info->swapped, inode->i_mapping->nrpages);
 	clear_inode(inode);
 #ifdef CONFIG_TMPFS_QUOTA
 	dquot_free_inode(inode);
@@ -1592,13 +1597,13 @@ start_over:
 
 /**
  * shmem_writeout - Write the folio to swap
+ * @ctx: swap I/O context
  * @folio: The folio to write
- * @plug: swap plug
  * @folio_list: list to put back folios on split
  *
  * Move the folio from the page cache to the swap cache.
  */
-int shmem_writeout(struct folio *folio, struct swap_iocb **plug,
+int shmem_writeout(struct swap_io_ctx *ctx, struct folio *folio,
 		struct list_head *folio_list)
 {
 	struct address_space *mapping = folio->mapping;
@@ -1710,7 +1715,7 @@ try_split:
 		shmem_delete_from_page_cache(folio, swp_to_radix_entry(folio->swap));
 
 		BUG_ON(folio_mapped(folio));
-		error = swap_writeout(folio, plug);
+		error = swap_writeout(ctx, folio);
 		if (error != AOP_WRITEPAGE_ACTIVATE) {
 			/* folio has been unlocked */
 			return error;
@@ -1746,7 +1751,17 @@ redirty:
 	folio_mark_dirty(folio);
 	return AOP_WRITEPAGE_ACTIVATE;	/* Return with folio locked */
 }
-EXPORT_SYMBOL_GPL(shmem_writeout);
+
+int shmem_write_folio(struct folio *folio)
+{
+	struct swap_io_ctx ctx = {};
+	int err;
+
+	err = shmem_writeout(&ctx, folio, NULL);
+	swap_write_submit(&ctx);
+	return err;
+}
+EXPORT_SYMBOL_GPL(shmem_write_folio);
 
 #if defined(CONFIG_NUMA) && defined(CONFIG_TMPFS)
 static void shmem_show_mpol(struct seq_file *seq, struct mempolicy *mpol)
@@ -2849,7 +2864,7 @@ static struct mempolicy *shmem_get_policy(struct vm_area_struct *vma,
 	 * by page order, as in shmem_get_pgoff_policy() and get_vma_policy()).
 	 */
 	*ilx = inode->i_ino;
-	index = ((addr - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
+	index = linear_page_index(vma, addr);
 	return mpol_shared_policy_lookup(&SHMEM_I(inode)->policy, index);
 }
 
