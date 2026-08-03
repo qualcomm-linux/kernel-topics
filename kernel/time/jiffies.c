@@ -98,7 +98,7 @@ void __init register_refined_jiffies(long cycles_per_second)
 	__clocksource_register(&refined_jiffies);
 }
 
-#ifdef CONFIG_PROC_SYSCTL
+#ifdef CONFIG_SYSCTL
 static ulong mult_hz(const ulong val)
 {
 	return val * HZ;
@@ -185,7 +185,7 @@ static int do_proc_int_conv_ms_jiffies_minmax(bool *negp, ulong *u_ptr,
 			     sysctl_u2k_int_conv_ms, sysctl_k2u_int_conv_ms);
 }
 
-#else // CONFIG_PROC_SYSCTL
+#else // CONFIG_SYSCTL
 static int do_proc_int_conv_jiffies(bool *negp, ulong *u_ptr, int *k_ptr,
 				    int dir, const struct ctl_table *tbl)
 {
