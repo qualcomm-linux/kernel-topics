@@ -317,8 +317,7 @@ unsigned int ntfs_make_symlink(struct ntfs_inode *ni)
 	} else
 		ni->flags &= ~FILE_ATTR_REPARSE_POINT;
 
-	if (reparse_attr)
-		kvfree(reparse_attr);
+	kvfree(reparse_attr);
 
 	return mode;
 }
@@ -358,8 +357,7 @@ unsigned int ntfs_reparse_tag_dt_types(struct ntfs_volume *vol, unsigned long mr
 		}
 	}
 
-	if (reparse_attr)
-		kvfree(reparse_attr);
+	kvfree(reparse_attr);
 
 	iput(vi);
 	return dt_type;
@@ -894,12 +892,7 @@ int ntfs_reparse_set_native_symlink(struct ntfs_inode *ni,
 
 	err = ntfs_set_ntfs_reparse_data(ni, (char *)reparse, total_reparse_len);
 	if (!err) {
-		int len = strlen(sub_name);
-
-		for (i = 0; i < len; i++) {
-			if (sub_name[i] == '\\')
-				sub_name[i] = '/';
-		}
+		strreplace(sub_name, '\\', '/');
 		ni->target = sub_name;
 		sub_name = NULL;
 		if (prt_sub_shared)
