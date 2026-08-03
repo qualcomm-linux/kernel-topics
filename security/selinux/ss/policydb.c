@@ -604,10 +604,15 @@ static int type_index(void *key, void *datum, void *datap)
 	typdatum = datum;
 	p = datap;
 
+	if (!typdatum->value || typdatum->value > p->p_types.nprim ||
+		typdatum->bounds > p->p_types.nprim) {
+		pr_err("SELinux: type %s had value %u bounds %u nprim %u\n",
+			(char *)key, typdatum->value, typdatum->bounds,
+			p->p_types.nprim);
+		return -EINVAL;
+	}
+
 	if (typdatum->primary) {
-		if (!typdatum->value || typdatum->value > p->p_types.nprim ||
-		    typdatum->bounds > p->p_types.nprim)
-			return -EINVAL;
 		p->sym_val_to_name[SYM_TYPES][typdatum->value - 1] = key;
 		p->type_val_to_struct[typdatum->value - 1] = typdatum;
 	}
@@ -1175,6 +1180,9 @@ static int perm_read(struct policydb *p, struct symtab *s, struct policy_file *f
 	rc = -EINVAL;
 	if (perdatum->value < 1 || perdatum->value > SEL_VEC_MAX)
 		goto bad;
+	/* indexes an nprim-sized array in security_get_permissions() */
+	if (perdatum->value > s->nprim)
+		goto bad;
 
 	rc = str_read(&key, GFP_KERNEL, fp, len);
 	if (rc)
@@ -1327,6 +1335,27 @@ static int read_cons_helper(struct policydb *p, struct constraint_node **nodep,
 				if (depth == (CEXPR_MAXDEPTH - 1))
 					return -EINVAL;
 				depth++;
+				switch (e->attr) {
+				case CEXPR_USER:
+				case CEXPR_TYPE:
+					if (e->op != CEXPR_EQ &&
+					    e->op != CEXPR_NEQ)
+						return -EINVAL;
+					break;
+				case CEXPR_ROLE:
+				case CEXPR_L1L2:
+				case CEXPR_L1H2:
+				case CEXPR_H1L2:
+				case CEXPR_H1H2:
+				case CEXPR_L1H1:
+				case CEXPR_L2H2:
+					if (e->op < CEXPR_EQ ||
+					    e->op > CEXPR_INCOMP)
+						return -EINVAL;
+					break;
+				default:
+					return -EINVAL;
+				}
 				break;
 			case CEXPR_NAMES:
 				if (!allowxtarget && (e->attr & CEXPR_XTARGET))
@@ -1334,6 +1363,20 @@ static int read_cons_helper(struct policydb *p, struct constraint_node **nodep,
 				if (depth == (CEXPR_MAXDEPTH - 1))
 					return -EINVAL;
 				depth++;
+				switch (e->attr &
+					~(CEXPR_TARGET|CEXPR_XTARGET)) {
+				case CEXPR_USER:
+				case CEXPR_ROLE:
+				case CEXPR_TYPE:
+					break;
+				default:
+					return -EINVAL;
+				}
+				if ((e->attr & (CEXPR_TARGET|CEXPR_XTARGET)) ==
+					(CEXPR_TARGET|CEXPR_XTARGET))
+					return -EINVAL;
+				if (e->op != CEXPR_EQ && e->op != CEXPR_NEQ)
+					return -EINVAL;
 				rc = ebitmap_read(&e->names, fp);
 				if (rc)
 					return rc;
@@ -1417,6 +1460,18 @@ static int class_read(struct policydb *p, struct symtab *s, struct policy_file *
 		if (!cladatum->comdatum) {
 			pr_err("SELinux:  unknown common %s\n",
 			       cladatum->comkey);
+			goto bad;
+		}
+
+		/*
+		 * security_get_permissions() maps the common's permissions
+		 * into an array sized by this class's nprim, so a class must
+		 * declare at least as many as the common it inherits.
+		 */
+		if (cladatum->permissions.nprim <
+		    cladatum->comdatum->permissions.nprim) {
+			pr_err("SELinux:  class %s has fewer permissions than common %s\n",
+			       key, cladatum->comkey);
 			goto bad;
 		}
 	}
