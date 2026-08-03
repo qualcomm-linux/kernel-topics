@@ -250,38 +250,43 @@ static const char *arm_cspmu_get_name(const struct arm_cspmu *cspmu)
 	struct device *dev;
 	struct acpi_apmt_node *apmt_node;
 	u8 pmu_type;
-	char *name;
 	char acpi_hid_string[ACPI_ID_LEN] = { 0 };
-	static atomic_t pmu_idx[ACPI_APMT_NODE_TYPE_COUNT] = { 0 };
+	static atomic_t pmu_idx;
+	u32 id;
 
 	dev = cspmu->dev;
 	apmt_node = arm_cspmu_apmt_node(dev);
 	if (!apmt_node)
 		return devm_kasprintf(dev, GFP_KERNEL, PMUNAME "_%u",
-				      atomic_fetch_inc(&pmu_idx[0]));
+				      atomic_fetch_inc(&pmu_idx));
 
 	pmu_type = apmt_node->type;
-
-	if (pmu_type >= ACPI_APMT_NODE_TYPE_COUNT) {
+	switch (pmu_type) {
+	default:
 		dev_err(dev, "unsupported PMU type-%u\n", pmu_type);
 		return NULL;
-	}
-
-	if (pmu_type == ACPI_APMT_NODE_TYPE_ACPI) {
+	case ACPI_APMT_NODE_TYPE_ACPI:
 		memcpy(acpi_hid_string,
 			&apmt_node->inst_primary,
 			sizeof(apmt_node->inst_primary));
-		name = devm_kasprintf(dev, GFP_KERNEL, "%s_%s_%s_%u", PMUNAME,
+		return devm_kasprintf(dev, GFP_KERNEL, "%s_%s_%s_%u", PMUNAME,
 				      arm_cspmu_type_str[pmu_type],
 				      acpi_hid_string,
 				      apmt_node->inst_secondary);
-	} else {
-		name = devm_kasprintf(dev, GFP_KERNEL, "%s_%s_%d", PMUNAME,
-				      arm_cspmu_type_str[pmu_type],
-				      atomic_fetch_inc(&pmu_idx[pmu_type]));
+	case ACPI_APMT_NODE_TYPE_MC:
+		id = apmt_node->id;
+		break;
+	case ACPI_APMT_NODE_TYPE_SMMU:
+	case ACPI_APMT_NODE_TYPE_PCIE_ROOT:
+		id = apmt_node->inst_primary;
+		break;
+	case ACPI_APMT_NODE_TYPE_CACHE:
+		id = apmt_node->inst_secondary;
+		break;
 	}
 
-	return name;
+	return devm_kasprintf(dev, GFP_KERNEL, "%s_%s_%u", PMUNAME,
+			      arm_cspmu_type_str[pmu_type], id);
 }
 
 static ssize_t arm_cspmu_cpumask_show(struct device *dev,
@@ -432,13 +437,15 @@ static int arm_cspmu_init_impl_ops(struct arm_cspmu *cspmu)
 				if (ret)
 					module_put(match->module);
 			} else {
-				WARN(1, "arm_cspmu failed to get module: %s\n",
+				dev_WARN(cspmu->dev, "Failed to get module: %s\n",
 					match->module_name);
 				ret = -EINVAL;
 			}
 		} else {
 			request_module_nowait(match->module_name);
-			ret = -EPROBE_DEFER;
+			ret = dev_err_probe(cspmu->dev, -EPROBE_DEFER,
+					    "Waiting for module %s to load\n",
+					    match->module_name);
 		}
 
 		mutex_unlock(&arm_cspmu_lock);
@@ -1249,8 +1256,11 @@ static int arm_cspmu_device_probe(struct platform_device *pdev)
 		return ret;
 
 	ret = arm_cspmu_request_irq(cspmu);
-	if (ret)
-		return ret;
+	if (ret) {
+		if (counter_size(cspmu) < 64)
+			return ret;
+		dev_info(cspmu->dev, "Continuing without IRQ\n");
+	}
 
 	ret = arm_cspmu_get_cpus(cspmu);
 	if (ret)
