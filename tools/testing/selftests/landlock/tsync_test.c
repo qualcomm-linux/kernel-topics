@@ -90,6 +90,39 @@ TEST(multi_threaded_success)
 	EXPECT_EQ(0, close(ruleset_fd));
 }
 
+TEST(multi_threaded_no_new_privs)
+{
+	pthread_t t1, t2;
+	bool no_new_privs1, no_new_privs2;
+	const int ruleset_fd = create_ruleset(_metadata);
+
+	disable_caps(_metadata);
+
+	ASSERT_EQ(0, pthread_create(&t1, NULL, idle, &no_new_privs1));
+	ASSERT_EQ(0, pthread_create(&t2, NULL, idle, &no_new_privs2));
+
+	/* No prior prctl(2) PR_SET_NO_NEW_PRIVS call. */
+	ASSERT_EQ(0, prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0));
+
+	EXPECT_EQ(0, landlock_restrict_self(
+			     ruleset_fd,
+			     LANDLOCK_RESTRICT_SELF_TSYNC |
+				     LANDLOCK_RESTRICT_SELF_NO_NEW_PRIVS));
+
+	EXPECT_EQ(1, prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0));
+
+	ASSERT_EQ(0, pthread_cancel(t1));
+	ASSERT_EQ(0, pthread_cancel(t2));
+	ASSERT_EQ(0, pthread_join(t1, NULL));
+	ASSERT_EQ(0, pthread_join(t2, NULL));
+
+	/* The no_new_privs flag was enabled on all threads. */
+	EXPECT_TRUE(no_new_privs1);
+	EXPECT_TRUE(no_new_privs2);
+
+	EXPECT_EQ(0, close(ruleset_fd));
+}
+
 TEST(multi_threaded_success_despite_diverging_domains)
 {
 	pthread_t t1, t2;

@@ -450,6 +450,25 @@ static int test_open(const char *const path, const int flags)
 	return test_open_rel(AT_FDCWD, path, flags);
 }
 
+/*
+ * Opens an anonymous O_TMPFILE inode in the directory dir.  O_TMPFILE is always
+ * combined with O_WRONLY or O_RDWR, so the caller must pass one of them in
+ * flags.
+ */
+static int test_tmpfile(const char *const dir, const int flags)
+{
+	int fd;
+
+	fd = open(dir, O_TMPFILE | flags | O_CLOEXEC, 0700);
+	if (fd < 0)
+		return errno;
+
+	if (close(fd) != 0)
+		return errno;
+
+	return 0;
+}
+
 TEST_F_FORK(layout1, no_restriction)
 {
 	ASSERT_EQ(0, test_open(dir_s1d1, O_RDONLY));
@@ -2140,6 +2159,238 @@ TEST_F_FORK(layout1, link)
 	ASSERT_EQ(0, link(file1_s1d3, file2_s1d3));
 }
 
+/*
+ * O_TMPFILE does not go through the path_mknod hook: vfs_tmpfile() creates the
+ * inode without calling security_path_mknod().  These tests verify that the
+ * resulting file is still mediated, via the file_open hook, so O_TMPFILE cannot
+ * be used to bypass Landlock.
+ */
+
+/*
+ * An O_TMPFILE open requires WRITE_FILE (and READ_FILE for O_RDWR) on the
+ * directory hierarchy, exactly like any other writable open.  It does not
+ * require (nor is it granted by) MAKE_REG: the anonymous inode is not yet a
+ * named file.  O_TMPFILE always implies write access, so a read-only request is
+ * rejected by the VFS with EINVAL before Landlock is consulted; Landlock must
+ * not change that into EACCES.
+ */
+TEST_F_FORK(layout1, open_tmpfile)
+{
+	const struct rule rules[] = {
+		/* Write allowed, but neither MAKE_REG nor READ_FILE. */
+		{
+			.path = dir_s1d1,
+			.access = LANDLOCK_ACCESS_FS_WRITE_FILE,
+		},
+		/* Both read and write allowed. */
+		{
+			.path = dir_s1d2,
+			.access = LANDLOCK_ACCESS_FS_READ_FILE |
+				  LANDLOCK_ACCESS_FS_WRITE_FILE,
+		},
+		/* File-creation right without write. */
+		{
+			.path = dir_s2d1,
+			.access = LANDLOCK_ACCESS_FS_MAKE_REG,
+		},
+		{},
+	};
+
+	/* Baseline: an unsandboxed O_TMPFILE open works. */
+	EXPECT_EQ(0, test_tmpfile(dir_s1d1, O_WRONLY));
+	EXPECT_EQ(0, test_tmpfile(dir_s2d1, O_RDWR));
+	EXPECT_EQ(0, test_tmpfile(dir_s3d1, O_RDWR));
+
+	/* O_TMPFILE requires write access: read-only is EINVAL at the VFS. */
+	EXPECT_EQ(EINVAL, test_tmpfile(dir_s1d1, O_RDONLY));
+
+	enforce_fs(_metadata,
+		   LANDLOCK_ACCESS_FS_READ_FILE |
+			   LANDLOCK_ACCESS_FS_WRITE_FILE |
+			   LANDLOCK_ACCESS_FS_MAKE_REG,
+		   rules);
+
+	/* Write is enough for an O_WRONLY tmpfile; MAKE_REG is not needed. */
+	EXPECT_EQ(0, test_tmpfile(dir_s1d1, O_WRONLY));
+	/* O_RDWR additionally needs READ_FILE, which is absent here. */
+	EXPECT_EQ(EACCES, test_tmpfile(dir_s1d1, O_RDWR));
+
+	/* Read and write allowed: both open modes succeed. */
+	EXPECT_EQ(0, test_tmpfile(dir_s1d2, O_WRONLY));
+	EXPECT_EQ(0, test_tmpfile(dir_s1d2, O_RDWR));
+
+	/* MAKE_REG without WRITE_FILE does not allow the open. */
+	EXPECT_EQ(EACCES, test_tmpfile(dir_s2d1, O_WRONLY));
+	EXPECT_EQ(EACCES, test_tmpfile(dir_s2d1, O_RDWR));
+
+	/* No rule at all: the open is denied. */
+	EXPECT_EQ(EACCES, test_tmpfile(dir_s3d1, O_WRONLY));
+	EXPECT_EQ(EACCES, test_tmpfile(dir_s3d1, O_RDWR));
+
+	/*
+	 * A read-only O_TMPFILE stays EINVAL under Landlock, whether the
+	 * directory is fully allowed or has no rule: the VFS rejects the flag
+	 * combination before the file_open hook, so Landlock never turns it
+	 * into EACCES.
+	 */
+	EXPECT_EQ(EINVAL, test_tmpfile(dir_s1d2, O_RDONLY));
+	EXPECT_EQ(EINVAL, test_tmpfile(dir_s3d1, O_RDONLY));
+}
+
+/*
+ * When the ruleset handles neither file read nor write access, Landlock has no
+ * opinion on an O_TMPFILE open and must not interfere with it.
+ */
+TEST_F_FORK(layout1, open_tmpfile_unhandled)
+{
+	const struct rule rules[] = {
+		{
+			.path = dir_s1d2,
+			.access = LANDLOCK_ACCESS_FS_READ_DIR,
+		},
+		{},
+	};
+
+	enforce_fs(_metadata, LANDLOCK_ACCESS_FS_READ_DIR, rules);
+
+	EXPECT_EQ(0, test_tmpfile(dir_s1d1, O_WRONLY));
+	EXPECT_EQ(0, test_tmpfile(dir_s1d3, O_RDWR));
+	EXPECT_EQ(0, test_tmpfile(dir_s3d1, O_RDWR));
+}
+
+/*
+ * Materializing an anonymous O_TMPFILE into its creation directory with
+ * linkat(AT_EMPTY_PATH) is gated by MAKE_REG on that directory, even though
+ * obtaining the writable tmpfile only required WRITE_FILE.  This is the check
+ * that stops O_TMPFILE from creating a named file where the sandbox forbids
+ * file creation.  Linking into the same directory does not involve reparenting,
+ * so REFER is not required.
+ */
+TEST_F_FORK(layout1, link_tmpfile)
+{
+	int fd;
+	const struct rule rules[] = {
+		/* Write only: the tmpfile opens but cannot be linked. */
+		{
+			.path = dir_s1d1,
+			.access = LANDLOCK_ACCESS_FS_WRITE_FILE,
+		},
+		/* Write and MAKE_REG: the tmpfile opens and can be linked. */
+		{
+			.path = dir_s2d1,
+			.access = LANDLOCK_ACCESS_FS_WRITE_FILE |
+				  LANDLOCK_ACCESS_FS_MAKE_REG,
+		},
+		{},
+	};
+
+	/* Frees names in the two directories for the new links. */
+	ASSERT_EQ(0, unlink(file1_s1d1));
+	ASSERT_EQ(0, unlink(file1_s2d1));
+
+	enforce_fs(_metadata,
+		   LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_MAKE_REG,
+		   rules);
+
+	/*
+	 * WRITE_FILE is enough to obtain the anonymous tmpfile.  linkat(2) with
+	 * AT_EMPTY_PATH needs no capability because the fd's open-time
+	 * credentials match the caller's.  Linking into the same directory does
+	 * not require REFER (no reparenting), only MAKE_REG, which is absent
+	 * here.
+	 */
+	fd = open(dir_s1d1, O_TMPFILE | O_WRONLY | O_CLOEXEC, 0700);
+	ASSERT_LE(0, fd);
+	ASSERT_EQ(-1, linkat(fd, "", AT_FDCWD, file1_s1d1, AT_EMPTY_PATH));
+	EXPECT_EQ(EACCES, errno);
+	EXPECT_EQ(0, close(fd));
+
+	/* With MAKE_REG on the directory, the same link is allowed. */
+	fd = open(dir_s2d1, O_TMPFILE | O_WRONLY | O_CLOEXEC, 0700);
+	ASSERT_LE(0, fd);
+	EXPECT_EQ(0, linkat(fd, "", AT_FDCWD, file1_s2d1, AT_EMPTY_PATH));
+	EXPECT_EQ(0, close(fd));
+}
+
+/*
+ * Linking a tmpfile into a different directory is a reparenting operation: like
+ * any cross-directory link it requires LANDLOCK_ACCESS_FS_REFER.  Without it,
+ * materializing the tmpfile outside its creation directory is denied with
+ * EXDEV, so a tmpfile cannot escape its origin hierarchy.
+ */
+TEST_F_FORK(layout1, link_tmpfile_reparent_without_refer)
+{
+	int fd;
+	const struct rule rules[] = {
+		/* Source directory: only the tmpfile open is allowed. */
+		{
+			.path = dir_s1d1,
+			.access = LANDLOCK_ACCESS_FS_WRITE_FILE,
+		},
+		/* Destination directory: file creation is allowed. */
+		{
+			.path = dir_s2d1,
+			.access = LANDLOCK_ACCESS_FS_MAKE_REG,
+		},
+		{},
+	};
+
+	/* Frees a name in the destination directory for the new link. */
+	ASSERT_EQ(0, unlink(file1_s2d1));
+
+	enforce_fs(_metadata,
+		   LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_MAKE_REG,
+		   rules);
+
+	fd = open(dir_s1d1, O_TMPFILE | O_WRONLY | O_CLOEXEC, 0700);
+	ASSERT_LE(0, fd);
+	/* Cross-directory link without REFER is denied with EXDEV. */
+	ASSERT_EQ(-1, linkat(fd, "", AT_FDCWD, file1_s2d1, AT_EMPTY_PATH));
+	EXPECT_EQ(EXDEV, errno);
+	EXPECT_EQ(0, close(fd));
+}
+
+/*
+ * With LANDLOCK_ACCESS_FS_REFER on both directories, a tmpfile created in one
+ * directory can be linked into another.  The destination needs only MAKE_REG
+ * (plus REFER), not WRITE_FILE: the reparenting check compares file access
+ * rights, and the tmpfile gains none by moving to a directory that grants only
+ * the directory-level creation right.
+ */
+TEST_F_FORK(layout1, link_tmpfile_reparent_with_refer)
+{
+	int fd;
+	const struct rule rules[] = {
+		/* Source: tmpfile open (write) and reparenting. */
+		{
+			.path = dir_s1d1,
+			.access = LANDLOCK_ACCESS_FS_WRITE_FILE |
+				  LANDLOCK_ACCESS_FS_REFER,
+		},
+		/* Destination: file creation and reparenting, but no write. */
+		{
+			.path = dir_s2d1,
+			.access = LANDLOCK_ACCESS_FS_MAKE_REG |
+				  LANDLOCK_ACCESS_FS_REFER,
+		},
+		{},
+	};
+
+	/* Frees a name in the destination directory for the new link. */
+	ASSERT_EQ(0, unlink(file1_s2d1));
+
+	enforce_fs(_metadata,
+		   LANDLOCK_ACCESS_FS_WRITE_FILE | LANDLOCK_ACCESS_FS_MAKE_REG |
+			   LANDLOCK_ACCESS_FS_REFER,
+		   rules);
+
+	fd = open(dir_s1d1, O_TMPFILE | O_WRONLY | O_CLOEXEC, 0700);
+	ASSERT_LE(0, fd);
+	/* REFER on both sides plus MAKE_REG on the destination allows it. */
+	EXPECT_EQ(0, linkat(fd, "", AT_FDCWD, file1_s2d1, AT_EMPTY_PATH));
+	EXPECT_EQ(0, close(fd));
+}
+
 static int test_rename(const char *const oldpath, const char *const newpath)
 {
 	if (rename(oldpath, newpath))
@@ -2245,6 +2496,25 @@ TEST_F_FORK(layout1, rename_file)
 			       RENAME_EXCHANGE));
 	ASSERT_EQ(0, renameat2(AT_FDCWD, file1_s2d2, AT_FDCWD, dir_s2d3,
 			       RENAME_EXCHANGE));
+}
+
+TEST_F_FORK(layout1, rename_whiteout_denied)
+{
+	/* The affected file is a FIFO. */
+	ASSERT_EQ(0, unlink(file1_s3d3));
+	ASSERT_EQ(0, mknod(file1_s3d3, S_IFIFO | 0600, 0));
+
+	/* Deny MAKE_REG, but allow MAKE_FIFO. */
+	enforce_fs(_metadata, LANDLOCK_ACCESS_FS_MAKE_REG, NULL);
+
+	/*
+	 * Try to rename a file with RENAME_WHITEOUT.
+	 * file1_s3d3 is in dir_s3d2 (tmpfs), so it supports RENAME_WHITEOUT.
+	 * Denied, because whiteout creation is guarded with MAKE_REG.
+	 */
+	EXPECT_EQ(-1, renameat2(AT_FDCWD, file1_s3d3, AT_FDCWD,
+				TMP_DIR "/s3d1/s3d2/s3d3/f2", RENAME_WHITEOUT));
+	EXPECT_EQ(EACCES, errno);
 }
 
 TEST_F_FORK(layout1, rename_dir)
@@ -3268,6 +3538,13 @@ TEST_F_FORK(layout1, make_char)
 	set_cap(_metadata, CAP_MKNOD);
 	test_make_file(_metadata, LANDLOCK_ACCESS_FS_MAKE_CHAR, S_IFCHR,
 		       makedev(1, 3));
+}
+
+TEST_F_FORK(layout1, make_whiteout)
+{
+	/* Creates a whiteout object (creation guarded by MAKE_REG). */
+	test_make_file(_metadata, LANDLOCK_ACCESS_FS_MAKE_REG, S_IFCHR,
+		       makedev(0, 0));
 }
 
 TEST_F_FORK(layout1, make_block)
@@ -6927,7 +7204,7 @@ TEST_F_FORK(layout2_overlay, same_content_different_file)
 		ASSERT_EQ(0, test_open(path_entry, O_RDWR));
 	}
 
-	/* Only allowes access to the merge hierarchy. */
+	/* Only allows access to the merge hierarchy. */
 	enforce_fs(_metadata, ACCESS_RW, layer5_merge_only);
 
 	/* Checks new accesses on lower layer. */
@@ -6949,6 +7226,46 @@ TEST_F_FORK(layout2_overlay, same_content_different_file)
 	for_each_path(merge_sub_files, path_entry, i) {
 		ASSERT_EQ(0, test_open(path_entry, O_RDWR));
 	}
+}
+
+TEST_F_FORK(layout2_overlay, rename_in_overlay_without_make_reg)
+{
+	struct stat st;
+	const char *merge_fl1_renamed = MERGE_DATA "/fl1_renamed";
+
+	if (self->skip_test)
+		SKIP(return, "overlayfs is not supported (test)");
+
+	/*
+	 * In this test, merge_fl1 is a FIFO file.  MAKE_REG is restricted, but
+	 * MAKE_FIFO is allowed.  Despite MAKE_REG being restricted, the rename
+	 * on the OverlayFS works and creates a whiteout file in the underlying
+	 * upper file system.
+	 */
+	ASSERT_EQ(0, unlink(merge_fl1));
+	ASSERT_EQ(0, mknod(merge_fl1, S_IFIFO, 0));
+	enforce_fs(_metadata, LANDLOCK_ACCESS_FS_MAKE_REG, NULL);
+
+	/*
+	 * Execute a regular file rename within OverlayFS.
+	 * merge_fl1 originates from lower layer, so this triggers a copy-up
+	 * and creation of a whiteout in the upper layer.
+	 */
+	EXPECT_EQ(0, rename(merge_fl1, merge_fl1_renamed));
+
+	/* Check that the rename worked. */
+	EXPECT_EQ(0, stat(merge_fl1_renamed, &st));
+	EXPECT_EQ(-1, stat(merge_fl1, &st));
+	EXPECT_EQ(ENOENT, errno);
+
+	/*
+	 * Check that the whiteout object on the underlying "upper" filesystem
+	 * exists after the rename.  This is OK because it was done with the
+	 * credentials of the OverlayFS.
+	 */
+	EXPECT_EQ(0, stat(UPPER_DATA "/fl1", &st));
+	EXPECT_TRUE(S_ISCHR(st.st_mode));
+	EXPECT_EQ(0, st.st_rdev);
 }
 
 FIXTURE(layout3_fs)
@@ -7436,7 +7753,7 @@ TEST_F(audit_layout1, make_char)
 
 	enforce_fs(_metadata, ACCESS_ALL, NULL);
 
-	EXPECT_EQ(-1, mknod(file1_s1d3, S_IFCHR | 0644, 0));
+	EXPECT_EQ(-1, mknod(file1_s1d3, S_IFCHR | 0644, makedev(7, 0)));
 	EXPECT_EQ(EACCES, errno);
 	EXPECT_EQ(0, matches_log_fs(_metadata, self->audit_fd, "fs\\.make_char",
 				    dir_s1d3));
