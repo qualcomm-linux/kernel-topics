@@ -70,7 +70,6 @@
 //! that you need to write `<-` instead of `:` for fields that you want to initialize in-place.
 //!
 //! ```rust
-//! # #![expect(clippy::disallowed_names)]
 //! # #![feature(allocator_api)]
 //! # #[path = "../examples/mutex.rs"] mod mutex; use mutex::*;
 //! # use core::pin::Pin;
@@ -94,7 +93,6 @@
 //! (or just the stack) to actually initialize a `Foo`:
 //!
 //! ```rust
-//! # #![expect(clippy::disallowed_names)]
 //! # #![feature(allocator_api)]
 //! # #[path = "../examples/mutex.rs"] mod mutex; use mutex::*;
 //! # use core::{alloc::AllocError, pin::Pin};
@@ -456,7 +454,6 @@ pub use ::pin_init_internal::MaybeZeroable;
 /// # Examples
 ///
 /// ```rust
-/// # #![expect(clippy::disallowed_names)]
 /// # #![feature(allocator_api)]
 /// # #[path = "../examples/mutex.rs"] mod mutex; use mutex::*;
 /// # use pin_init::*;
@@ -508,7 +505,6 @@ macro_rules! stack_pin_init {
 /// # Examples
 ///
 /// ```rust
-/// # #![expect(clippy::disallowed_names)]
 /// # #![feature(allocator_api)]
 /// # #[path = "../examples/error.rs"] mod error; use error::Error;
 /// # #[path = "../examples/mutex.rs"] mod mutex; use mutex::*;
@@ -535,7 +531,6 @@ macro_rules! stack_pin_init {
 /// ```
 ///
 /// ```rust
-/// # #![expect(clippy::disallowed_names)]
 /// # #![feature(allocator_api)]
 /// # #[path = "../examples/error.rs"] mod error; use error::Error;
 /// # #[path = "../examples/mutex.rs"] mod mutex; use mutex::*;
@@ -658,7 +653,6 @@ macro_rules! stack_try_pin_init {
 /// Users of `Foo` can now create it like this:
 ///
 /// ```rust
-/// # #![expect(clippy::disallowed_names)]
 /// # use pin_init::*;
 /// # use core::pin::Pin;
 /// # #[pin_data]
@@ -965,13 +959,11 @@ where
 {
     unsafe fn __pinned_init(self, slot: *mut T) -> Result<(), E> {
         // SAFETY: All requirements fulfilled since this function is `__pinned_init`.
-        unsafe { self.0.__pinned_init(slot)? };
-        // SAFETY: The above call initialized `slot` and we still have unique access.
-        let val = unsafe { &mut *slot };
-        // SAFETY: `slot` is considered pinned.
-        let val = unsafe { Pin::new_unchecked(val) };
-        // SAFETY: `slot` was initialized above.
-        (self.1)(val).inspect_err(|_| unsafe { core::ptr::drop_in_place(slot) })
+        let slot = unsafe { __internal::Slot::<__internal::Pinned, _>::new(slot) };
+        let mut guard = slot.init(self.0)?;
+        (self.1)(guard.let_binding())?;
+        core::mem::forget(guard);
+        Ok(())
     }
 }
 
@@ -1031,7 +1023,6 @@ pub unsafe trait Init<T: ?Sized, E = Infallible>: PinInit<T, E> {
     /// # Examples
     ///
     /// ```rust
-    /// # #![expect(clippy::disallowed_names)]
     /// use pin_init::{init, init_zeroed, Init};
     ///
     /// struct Foo {
@@ -1072,11 +1063,11 @@ where
 {
     unsafe fn __init(self, slot: *mut T) -> Result<(), E> {
         // SAFETY: All requirements fulfilled since this function is `__init`.
-        unsafe { self.0.__pinned_init(slot)? };
-        // SAFETY: The above call initialized `slot` and we still have unique access.
-        (self.1)(unsafe { &mut *slot }).inspect_err(|_|
-            // SAFETY: `slot` was initialized above.
-            unsafe { core::ptr::drop_in_place(slot) })
+        let slot = unsafe { __internal::Slot::<__internal::Unpinned, _>::new(slot) };
+        let mut guard = slot.init(self.0)?;
+        (self.1)(guard.let_binding())?;
+        core::mem::forget(guard);
+        Ok(())
     }
 }
 
@@ -1193,6 +1184,82 @@ pub fn uninit<T, E>() -> impl Init<MaybeUninit<T>, E> {
     unsafe { init_from_closure(|_| Ok(())) }
 }
 
+/// Array initializer from element initializer.
+struct ArrayInit<T: ?Sized, F>(F, __internal::PhantomInvariant<T>);
+
+// SAFETY: On success, all `N` elements of the array have been initialized. On error or panic, the
+// elements that have been initialized so far are dropped, thus leaving the array uninitialized and
+// ready to deallocate.
+unsafe impl<T, F, I, E, const N: usize> PinInit<[T; N], E> for ArrayInit<T, F>
+where
+    F: FnMut(usize) -> I,
+    I: PinInit<T, E>,
+{
+    unsafe fn __pinned_init(mut self, slot: *mut [T; N]) -> Result<(), E> {
+        /// # Invariants
+        ///
+        /// - `ptr[..num_init]` contains initialized elements of type `T`
+        /// - `ptr[num_init..N]` (where N is the size of the array) contains uninitialized memory
+        struct ArrayInitGuard<T> {
+            /// A pointer to the first element of the array.
+            ptr: *mut T,
+            /// The number of initialized elements in the array.
+            num_init: usize,
+        }
+
+        impl<T> Drop for ArrayInitGuard<T> {
+            #[inline]
+            fn drop(&mut self) {
+                // SAFETY: Per type invariant, `self.ptr[..self.num_init]` are initialized.
+                unsafe {
+                    core::ptr::drop_in_place(core::ptr::slice_from_raw_parts_mut(
+                        self.ptr,
+                        self.num_init,
+                    ))
+                };
+            }
+        }
+
+        // INVARIANT: nothing is initialized yet.
+        let mut guard = ArrayInitGuard {
+            ptr: slot.cast::<T>(),
+            num_init: 0,
+        };
+
+        for i in 0..N {
+            // INVARIANT: Elements `self.ptr[..self.num_init]` have been initialized
+            // thus far. This holds true for every `self.num_init = i`.
+            guard.num_init = i;
+
+            let init = (self.0)(i);
+            // SAFETY:
+            // - The subslot is derived from `slot` with a valid offset.
+            // - If `Err` is touched, the subslot is not touched further, the guard will drop
+            //   previously initialized elements only.
+            // - `slot` is pinned so is the subslot.
+            unsafe { init.__pinned_init(&raw mut (*slot)[i]) }?;
+        }
+
+        // Dismiss the drop guard now that all elements are initialized.
+        core::mem::forget(guard);
+        Ok(())
+    }
+}
+
+// SAFETY: Follows the `PinInit` impl. `__init` executes the same code as `__pinned_init`.
+unsafe impl<T, F, I, E, const N: usize> Init<[T; N], E> for ArrayInit<T, F>
+where
+    F: FnMut(usize) -> I,
+    I: Init<T, E>,
+{
+    #[inline(always)]
+    unsafe fn __init(self, slot: *mut [T; N]) -> Result<(), E> {
+        // SAFETY: `I: Init` cancels out the pinning requirement on subslots. The other safety
+        // requirements follow that of `__init`.
+        unsafe { self.__pinned_init(slot) }
+    }
+}
+
 /// Initializes an array by initializing each element via the provided initializer.
 ///
 /// # Examples
@@ -1204,31 +1271,12 @@ pub fn uninit<T, E>() -> impl Init<MaybeUninit<T>, E> {
 /// assert_eq!(array.len(), 1_000);
 /// ```
 pub fn init_array_from_fn<I, const N: usize, T, E>(
-    mut make_init: impl FnMut(usize) -> I,
+    make_init: impl FnMut(usize) -> I,
 ) -> impl Init<[T; N], E>
 where
     I: Init<T, E>,
 {
-    let init = move |slot: *mut [T; N]| {
-        let slot = slot.cast::<T>();
-        for i in 0..N {
-            let init = make_init(i);
-            // SAFETY: Since 0 <= `i` < N, it is still in bounds of `[T; N]`.
-            let ptr = unsafe { slot.add(i) };
-            // SAFETY: The pointer is derived from `slot` and thus satisfies the `__init`
-            // requirements.
-            if let Err(e) = unsafe { init.__init(ptr) } {
-                // SAFETY: The loop has initialized the elements `slot[0..i]` and since we return
-                // `Err` below, `slot` will be considered uninitialized memory.
-                unsafe { ptr::drop_in_place(ptr::slice_from_raw_parts_mut(slot, i)) };
-                return Err(e);
-            }
-        }
-        Ok(())
-    };
-    // SAFETY: The initializer above initializes every element of the array. On failure it drops
-    // any initialized elements and returns `Err`.
-    unsafe { init_from_closure(init) }
+    ArrayInit(make_init, __internal::PhantomInvariant::new())
 }
 
 /// Initializes an array by initializing each element via the provided initializer.
@@ -1247,31 +1295,12 @@ where
 /// assert_eq!(array.len(), 1_000);
 /// ```
 pub fn pin_init_array_from_fn<I, const N: usize, T, E>(
-    mut make_init: impl FnMut(usize) -> I,
+    make_init: impl FnMut(usize) -> I,
 ) -> impl PinInit<[T; N], E>
 where
     I: PinInit<T, E>,
 {
-    let init = move |slot: *mut [T; N]| {
-        let slot = slot.cast::<T>();
-        for i in 0..N {
-            let init = make_init(i);
-            // SAFETY: Since 0 <= `i` < N, it is still in bounds of `[T; N]`.
-            let ptr = unsafe { slot.add(i) };
-            // SAFETY: The pointer is derived from `slot` and thus satisfies the `__init`
-            // requirements.
-            if let Err(e) = unsafe { init.__pinned_init(ptr) } {
-                // SAFETY: The loop has initialized the elements `slot[0..i]` and since we return
-                // `Err` below, `slot` will be considered uninitialized memory.
-                unsafe { ptr::drop_in_place(ptr::slice_from_raw_parts_mut(slot, i)) };
-                return Err(e);
-            }
-        }
-        Ok(())
-    };
-    // SAFETY: The initializer above initializes every element of the array. On failure it drops
-    // any initialized elements and returns `Err`.
-    unsafe { pin_init_from_closure(init) }
+    ArrayInit(make_init, __internal::PhantomInvariant::new())
 }
 
 /// Construct an initializer in a closure and run it.
@@ -1510,10 +1539,13 @@ pub unsafe trait Zeroable {
     /// Whenever a type implements [`Zeroable`], this function should be preferred over
     /// [`core::mem::zeroed()`] or using `MaybeUninit<T>::zeroed().assume_init()`.
     ///
+    /// As const traits are not yet stable, [`pin_init::zeroed()`] can be used instead
+    /// when initialization is required in a `const` context.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use pin_init::{Zeroable, zeroed};
+    /// use pin_init::Zeroable;
     ///
     /// #[derive(Zeroable)]
     /// struct Point {
@@ -1521,10 +1553,11 @@ pub unsafe trait Zeroable {
     ///     y: u32,
     /// }
     ///
-    /// let point: Point = zeroed();
+    /// let point: Point = Zeroable::zeroed();
     /// assert_eq!(point.x, 0);
     /// assert_eq!(point.y, 0);
     /// ```
+    #[inline]
     fn zeroed() -> Self
     where
         Self: Sized,
@@ -1553,6 +1586,9 @@ pub fn init_zeroed<T: Zeroable>() -> impl Init<T> {
 /// Whenever a type implements [`Zeroable`], this function should be preferred over
 /// [`core::mem::zeroed()`] or using `MaybeUninit<T>::zeroed().assume_init()`.
 ///
+/// While const traits remain unstable, this function serves as the `const` version of
+/// [`Zeroable::zeroed()`].
+///
 /// # Examples
 ///
 /// ```
@@ -1568,6 +1604,7 @@ pub fn init_zeroed<T: Zeroable>() -> impl Init<T> {
 /// assert_eq!(point.x, 0);
 /// assert_eq!(point.y, 0);
 /// ```
+#[inline]
 pub const fn zeroed<T: Zeroable>() -> T {
     // SAFETY:By the type invariants of `Zeroable`, all zeroes is a valid bit pattern for `T`.
     unsafe { core::mem::zeroed() }
