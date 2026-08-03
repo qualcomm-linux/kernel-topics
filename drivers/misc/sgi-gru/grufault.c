@@ -31,7 +31,6 @@
 /* Return codes for vtop functions */
 #define VTOP_SUCCESS               0
 #define VTOP_INVALID               -1
-#define VTOP_RETRY                 -2
 
 
 /*
@@ -113,21 +112,6 @@ static void gru_unlock_gts(struct gru_thread_state *gts)
 }
 
 /*
- * Set a CB.istatus to active using a user virtual address. This must be done
- * just prior to a TFH RESTART. The new cb.istatus is an in-cache status ONLY.
- * If the line is evicted, the status may be lost. The in-cache update
- * is necessary to prevent the user from seeing a stale cb.istatus that will
- * change as soon as the TFH restart is complete. Races may cause an
- * occasional failure to clear the cb.istatus, but that is ok.
- */
-static void gru_cb_set_istatus_active(struct gru_instruction_bits *cbk)
-{
-	if (cbk) {
-		cbk->istatus = CBS_ACTIVE;
-	}
-}
-
-/*
  * Read & clear a TFM
  *
  * The GRU has an array of fault maps. A map is private to a cpu
@@ -166,13 +150,8 @@ static void get_clear_fault_map(struct gru_state *gru,
 }
 
 /*
- * Atomic (interrupt context) & non-atomic (user context) functions to
- * convert a vaddr into a physical address. The size of the page
- * is returned in pageshift.
- * 	returns:
- * 		  0 - successful
- * 		< 0 - error code
- * 		  1 - (atomic only) try again in non-atomic context
+ * Convert a user virtual address to a physical address in process context.
+ * The size of the page is returned in pageshift.
  */
 static int non_atomic_pte_lookup(struct vm_area_struct *vma,
 				 unsigned long vaddr, int write,
@@ -192,87 +171,22 @@ static int non_atomic_pte_lookup(struct vm_area_struct *vma,
 	return 0;
 }
 
-/*
- * atomic_pte_lookup
- *
- * Convert a user virtual address to a physical address
- * Only supports Intel large pages (2MB only) on x86_64.
- *	ZZZ - hugepage support is incomplete
- *
- * NOTE: mmap_lock is already held on entry to this function. This
- * guarantees existence of the page tables.
- */
-static int atomic_pte_lookup(struct vm_area_struct *vma, unsigned long vaddr,
-	int write, unsigned long *paddr, int *pageshift)
-{
-	pgd_t *pgdp;
-	p4d_t *p4dp;
-	pud_t *pudp;
-	pmd_t *pmdp;
-	pte_t pte;
-
-	pgdp = pgd_offset(vma->vm_mm, vaddr);
-	if (unlikely(pgd_none(*pgdp)))
-		goto err;
-
-	p4dp = p4d_offset(pgdp, vaddr);
-	if (unlikely(p4d_none(*p4dp)))
-		goto err;
-
-	pudp = pud_offset(p4dp, vaddr);
-	if (unlikely(pud_none(*pudp)))
-		goto err;
-
-	pmdp = pmd_offset(pudp, vaddr);
-	if (unlikely(pmd_none(*pmdp)))
-		goto err;
-#ifdef CONFIG_X86_64
-	if (unlikely(pmd_leaf(*pmdp)))
-		pte = ptep_get((pte_t *)pmdp);
-	else
-#endif
-		pte = *pte_offset_kernel(pmdp, vaddr);
-
-	if (unlikely(!pte_present(pte) ||
-		     (write && (!pte_write(pte) || !pte_dirty(pte)))))
-		return 1;
-
-	*paddr = pte_pfn(pte) << PAGE_SHIFT;
-#ifdef CONFIG_HUGETLB_PAGE
-	*pageshift = is_vm_hugetlb_page(vma) ? HPAGE_SHIFT : PAGE_SHIFT;
-#else
-	*pageshift = PAGE_SHIFT;
-#endif
-	return 0;
-
-err:
-	return 1;
-}
-
 static int gru_vtop(struct gru_thread_state *gts, unsigned long vaddr,
-		    int write, int atomic, unsigned long *gpa, int *pageshift)
+		    int write, unsigned long *gpa, int *pageshift)
 {
 	struct mm_struct *mm = gts->ts_mm;
 	struct vm_area_struct *vma;
 	unsigned long paddr;
-	int ret, ps;
+	int ps;
 
 	vma = find_vma(mm, vaddr);
 	if (!vma)
 		goto inval;
 
-	/*
-	 * Atomic lookup is faster & usually works even if called in non-atomic
-	 * context.
-	 */
-	rmb();	/* Must/check ms_range_active before loading PTEs */
-	ret = atomic_pte_lookup(vma, vaddr, write, &paddr, &ps);
-	if (ret) {
-		if (atomic)
-			goto upm;
-		if (non_atomic_pte_lookup(vma, vaddr, write, &paddr, &ps))
-			goto inval;
-	}
+	/* Order the caller's ms_range_active check before loading PTEs. */
+	rmb();
+	if (non_atomic_pte_lookup(vma, vaddr, write, &paddr, &ps))
+		goto inval;
 	if (is_gru_paddr(paddr))
 		goto inval;
 	paddr = paddr & ~((1UL << ps) - 1);
@@ -282,8 +196,6 @@ static int gru_vtop(struct gru_thread_state *gts, unsigned long vaddr,
 
 inval:
 	return VTOP_INVALID;
-upm:
-	return VTOP_RETRY;
 }
 
 
@@ -307,7 +219,7 @@ static void gru_flush_cache_cbe(struct gru_control_block_extended *cbe)
  * the end of the bcopy tranfer, whichever is smaller.
  */
 static void gru_preload_tlb(struct gru_state *gru,
-			struct gru_thread_state *gts, int atomic,
+			struct gru_thread_state *gts,
 			unsigned long fault_vaddr, int asid, int write,
 			unsigned char tlb_preload_count,
 			struct gru_tlb_fault_handle *tfh,
@@ -329,13 +241,13 @@ static void gru_preload_tlb(struct gru_state *gru,
 	vaddr = min(vaddr, fault_vaddr + tlb_preload_count * PAGE_SIZE);
 
 	while (vaddr > fault_vaddr) {
-		ret = gru_vtop(gts, vaddr, write, atomic, &gpa, &pageshift);
+		ret = gru_vtop(gts, vaddr, write, &gpa, &pageshift);
 		if (ret || tfh_write_only(tfh, gpa, GAA_RAM, vaddr, asid, write,
 					  GRU_PAGESIZE(pageshift)))
 			return;
 		gru_dbg(grudev,
-			"%s: gid %d, gts 0x%p, tfh 0x%p, vaddr 0x%lx, asid 0x%x, rw %d, ps %d, gpa 0x%lx\n",
-			atomic ? "atomic" : "non-atomic", gru->gs_gid, gts, tfh,
+			"gid %d, gts 0x%p, tfh 0x%p, vaddr 0x%lx, asid 0x%x, rw %d, ps %d, gpa 0x%lx\n",
+			gru->gs_gid, gts, tfh,
 			vaddr, asid, write, pageshift, gpa);
 		vaddr -= PAGE_SIZE;
 		STAT(tlb_preload_page);
@@ -343,13 +255,13 @@ static void gru_preload_tlb(struct gru_state *gru,
 }
 
 /*
- * Drop a TLB entry into the GRU. The fault is described by info in an TFH.
- *	Input:
- *		cb    Address of user CBR. Null if not running in user context
- * 	Return:
- * 		  0 = dropin, exception, or switch to UPM successful
- * 		  1 = range invalidate active
- * 		< 0 = error code
+ * Drop a TLB entry into the GRU. The fault is described by info in a TFH.
+ * Input:
+ *	cbk	Address of the user CBR
+ * Return:
+ *	  0 = dropin, exception, or switch to UPM successful
+ *	  1 = retry required
+ *	< 0 = error code
  *
  */
 static int gru_try_dropin(struct gru_state *gru,
@@ -359,7 +271,7 @@ static int gru_try_dropin(struct gru_state *gru,
 {
 	struct gru_control_block_extended *cbe = NULL;
 	unsigned char tlb_preload_count = gts->ts_tlb_preload_count;
-	int pageshift = 0, asid, write, ret, atomic = !cbk, indexway;
+	int pageshift = 0, asid, write, ret, indexway;
 	unsigned long gpa = 0, vaddr = 0;
 
 	/*
@@ -391,7 +303,7 @@ static int gru_try_dropin(struct gru_state *gru,
 	}
 	if (tfh->state == TFHSTATE_IDLE)
 		goto failidle;
-	if (tfh->state == TFHSTATE_MISS_FMM && cbk)
+	if (tfh->state == TFHSTATE_MISS_FMM)
 		goto failfmm;
 
 	write = (tfh->cause & TFHCAUSE_TLB_MOD) != 0;
@@ -410,33 +322,36 @@ static int gru_try_dropin(struct gru_state *gru,
 	if (atomic_read(&gts->ts_gms->ms_range_active))
 		goto failactive;
 
-	ret = gru_vtop(gts, vaddr, write, atomic, &gpa, &pageshift);
+	ret = gru_vtop(gts, vaddr, write, &gpa, &pageshift);
 	if (ret == VTOP_INVALID)
 		goto failinval;
-	if (ret == VTOP_RETRY)
-		goto failupm;
 
 	if (!(gts->ts_sizeavail & GRU_SIZEAVAIL(pageshift))) {
 		gts->ts_sizeavail |= GRU_SIZEAVAIL(pageshift);
-		if (atomic || !gru_update_cch(gts)) {
+		if (!gru_update_cch(gts)) {
 			gts->ts_force_cch_reload = 1;
 			goto failupm;
 		}
 	}
 
 	if (unlikely(cbe) && pageshift == PAGE_SHIFT) {
-		gru_preload_tlb(gru, gts, atomic, vaddr, asid, write, tlb_preload_count, tfh, cbe);
+		gru_preload_tlb(gru, gts, vaddr, asid, write, tlb_preload_count, tfh, cbe);
 		gru_flush_cache_cbe(cbe);
 	}
 
-	gru_cb_set_istatus_active(cbk);
+	/*
+	 * Set CB.istatus active in cache before restarting the TFH to avoid
+	 * exposing stale pre-restart status. Cacheline eviction may lose the
+	 * update, but an occasional stale status is harmless.
+	 */
+	cbk->istatus = CBS_ACTIVE;
 	gts->ustats.tlbdropin++;
 	tfh_write_restart(tfh, gpa, GAA_RAM, vaddr, asid, write,
 			  GRU_PAGESIZE(pageshift));
 	gru_dbg(grudev,
-		"%s: gid %d, gts 0x%p, tfh 0x%p, vaddr 0x%lx, asid 0x%x, indexway 0x%x,"
+		"gid %d, gts 0x%p, tfh 0x%p, vaddr 0x%lx, asid 0x%x, indexway 0x%x,"
 		" rw %d, ps %d, gpa 0x%lx\n",
-		atomic ? "atomic" : "non-atomic", gru->gs_gid, gts, tfh, vaddr, asid,
+		gru->gs_gid, gts, tfh, vaddr, asid,
 		indexway, write, pageshift, gpa);
 	STAT(tlb_dropin);
 	return 0;
@@ -445,15 +360,12 @@ failnoasid:
 	/* No asid (delayed unload). */
 	STAT(tlb_dropin_fail_no_asid);
 	gru_dbg(grudev, "FAILED no_asid tfh: 0x%p, vaddr 0x%lx\n", tfh, vaddr);
-	if (!cbk)
-		tfh_user_polling_mode(tfh);
-	else
-		gru_flush_cache(tfh);
+	gru_flush_cache(tfh);
 	gru_flush_cache_cbe(cbe);
 	return -EAGAIN;
 
 failupm:
-	/* Atomic failure switch CBR to UPM */
+	/* CCH update failure switches the CBR back to UPM. */
 	tfh_user_polling_mode(tfh);
 	gru_flush_cache_cbe(cbe);
 	STAT(tlb_dropin_fail_upm);
@@ -472,8 +384,7 @@ failnoexception:
 	/* TFH status did not show exception pending */
 	gru_flush_cache(tfh);
 	gru_flush_cache_cbe(cbe);
-	if (cbk)
-		gru_flush_cache(cbk);
+	gru_flush_cache(cbk);
 	STAT(tlb_dropin_fail_no_exception);
 	gru_dbg(grudev, "FAILED non-exception tfh: 0x%p, status %d, state %d\n",
 		tfh, tfh->status, tfh->state);
@@ -483,14 +394,13 @@ failidle:
 	/* TFH state was idle  - no miss pending */
 	gru_flush_cache(tfh);
 	gru_flush_cache_cbe(cbe);
-	if (cbk)
-		gru_flush_cache(cbk);
+	gru_flush_cache(cbk);
 	STAT(tlb_dropin_fail_idle);
 	gru_dbg(grudev, "FAILED idle tfh: 0x%p, state %d\n", tfh, tfh->state);
 	return 0;
 
 failinval:
-	/* All errors (atomic & non-atomic) switch CBR to EXCEPTION state */
+	/* Invalid translations switch the CBR to EXCEPTION state. */
 	tfh_exception(tfh);
 	gru_flush_cache_cbe(cbe);
 	STAT(tlb_dropin_fail_invalid);
@@ -498,11 +408,8 @@ failinval:
 	return -EFAULT;
 
 failactive:
-	/* Range invalidate active. Switch to UPM iff atomic */
-	if (!cbk)
-		tfh_user_polling_mode(tfh);
-	else
-		gru_flush_cache(tfh);
+	/* Retry after the active range invalidation completes. */
+	gru_flush_cache(tfh);
 	gru_flush_cache_cbe(cbe);
 	STAT(tlb_dropin_fail_range_active);
 	gru_dbg(grudev, "FAILED range active: tfh 0x%p, vaddr 0x%lx\n",
@@ -569,19 +476,9 @@ static irqreturn_t gru_intr(int chiplet, int blade)
 			continue;
 		}
 
-		/*
-		 * This is running in interrupt context. Trylock the mmap_lock.
-		 * If it fails, retry the fault in user context.
-		 */
+		/* Address translation may sleep, so retry the fault in user context. */
 		gts->ustats.fmm_tlbmiss++;
-		if (!gts->ts_force_cch_reload &&
-					mmap_read_trylock(gts->ts_mm)) {
-			gru_try_dropin(gru, gts, tfh, NULL);
-			mmap_read_unlock(gts->ts_mm);
-		} else {
-			tfh_user_polling_mode(tfh);
-			STAT(intr_mm_lock_failed);
-		}
+		tfh_user_polling_mode(tfh);
 	}
 	return IRQ_HANDLED;
 }
