@@ -360,8 +360,15 @@ static int ipip_fill_forward_path(struct net_device_path_ctx *ctx,
 	const struct iphdr *tiph = &tunnel->parms.iph;
 	struct rtable *rt;
 
-	rt = ip_route_output(dev_net(ctx->dev), tiph->daddr, 0, 0, 0,
-			     RT_SCOPE_UNIVERSE);
+	if (tunnel->collect_md)
+		return -EOPNOTSUPP;
+
+	if (tunnel->parms.iph.tos & 0x1)
+		return -EOPNOTSUPP;
+
+	rt = ip_route_output(dev_net(ctx->dev), tiph->daddr, tiph->saddr,
+			     inet_dsfield_to_dscp(tiph->tos),
+			     tunnel->parms.link, RT_SCOPE_UNIVERSE);
 	if (IS_ERR(rt))
 		return PTR_ERR(rt);
 
