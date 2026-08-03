@@ -139,6 +139,21 @@ inode_share            Enable inode page sharing for this filesystem.  Inodes wi
                        page cache.
 ===================    =========================================================
 
+File-backed mounts
+==================
+
+When CONFIG_EROFS_FS_BACKED_BY_FILE is enabled, EROFS file-backed images
+can be mounted directly without a loopback block device.  The backing file
+can be given either as a path, or as an already-opened file descriptor.
+
+When a file descriptor is used, the kernel resolves its path and records it
+so that /proc/mounts and similar interfaces can still report the mount
+source.
+
+Only regular files are accepted as backing files; to mount an image that
+resides on a block device, use the traditional block device mount path
+instead.
+
 Sysfs Entries
 =============
 
