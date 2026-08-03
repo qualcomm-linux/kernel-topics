@@ -121,7 +121,7 @@ struct af_alg_async_req {
  * @iv:			IV for cipher operation
  * @state:		Existing state for continuing operation
  * @aead_assoclen:	Length of AAD for AEAD cipher operations
- * @completion:		Work queue for synchronous operation
+ * @wait:		For waiting for completion of async crypto ops
  * @used:		TX bytes sent to kernel. This variable is used to
  *			ensure that user space cannot cause the kernel
  *			to allocate too much memory in sendmsg operation.
@@ -161,8 +161,16 @@ struct af_alg_ctx {
 	unsigned int inflight;
 };
 
+struct af_alg_allowlist_entry {
+	const char *name;
+	bool privileged;
+};
+
 int af_alg_register_type(const struct af_alg_type *type);
 int af_alg_unregister_type(const struct af_alg_type *type);
+
+int af_alg_check_restriction(const char *name,
+			     const struct af_alg_allowlist_entry allowlist[]);
 
 int af_alg_release(struct socket *sock);
 void af_alg_release_parent(struct sock *sk);
@@ -177,10 +185,11 @@ static inline struct alg_sock *alg_sk(struct sock *sk)
 }
 
 /**
- * Size of available buffer for sending data from user space to kernel.
+ * af_alg_sndbuf - Size of available buffer for sending data from user space to kernel.
  *
- * @sk socket of connection to user space
- * @return number of bytes still available
+ * @sk: socket of connection to user space
+ *
+ * Returns: number of bytes still available
  */
 static inline int af_alg_sndbuf(struct sock *sk)
 {
@@ -192,10 +201,11 @@ static inline int af_alg_sndbuf(struct sock *sk)
 }
 
 /**
- * Can the send buffer still be written to?
+ * af_alg_writable - Can the send buffer still be written to?
  *
- * @sk socket of connection to user space
- * @return true => writable, false => not writable
+ * @sk: socket of connection to user space
+ *
+ * Returns: true => writable, false => not writable
  */
 static inline bool af_alg_writable(struct sock *sk)
 {
@@ -203,10 +213,11 @@ static inline bool af_alg_writable(struct sock *sk)
 }
 
 /**
- * Size of available buffer used by kernel for the RX user space operation.
+ * af_alg_rcvbuf - Size of available buffer used by kernel for the RX user space operation.
  *
- * @sk socket of connection to user space
- * @return number of bytes still available
+ * @sk: socket of connection to user space
+ *
+ * Returns: number of bytes still available
  */
 static inline int af_alg_rcvbuf(struct sock *sk)
 {
@@ -218,10 +229,11 @@ static inline int af_alg_rcvbuf(struct sock *sk)
 }
 
 /**
- * Can the RX buffer still be written to?
+ * af_alg_readable - Can the RX buffer still be read from?
  *
- * @sk socket of connection to user space
- * @return true => writable, false => not writable
+ * @sk: socket of connection to user space
+ *
+ * Returns: true => readable, false => not readable
  */
 static inline bool af_alg_readable(struct sock *sk)
 {
