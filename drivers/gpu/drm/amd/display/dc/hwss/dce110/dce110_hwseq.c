@@ -607,11 +607,10 @@ dce110_translate_regamma_to_hw_format(const struct dc_transfer_func *output_tf,
 }
 
 static bool
-dce110_set_output_transfer_func(struct dc *dc, struct pipe_ctx *pipe_ctx,
-				const struct dc_stream_state *stream)
+dce110_set_output_transfer_func(struct set_output_transfer_func_params *params)
 {
-	(void)dc;
-	struct transform *xfm = pipe_ctx->plane_res.xfm;
+	struct transform *xfm = params->xfm;
+	const struct dc_stream_state *stream = params->stream;
 
 	xfm->funcs->opp_power_on_regamma_lut(xfm, true);
 	xfm->regamma_params.hw_points_num = GAMMA_HW_POINTS_NUM;
@@ -2823,23 +2822,26 @@ static void program_surface_visibility(const struct dc *dc,
 
 }
 
-static void program_gamut_remap(struct pipe_ctx *pipe_ctx)
+static void program_gamut_remap(struct program_gamut_remap_params *params)
 {
+	struct transform *xfm = params->xfm;
+	const struct dc_stream_state *stream = params->stream;
 	int i = 0;
 	struct xfm_grph_csc_adjustment adjust;
+
 	memset(&adjust, 0, sizeof(adjust));
 	adjust.gamut_adjust_type = GRAPHICS_GAMUT_ADJUST_TYPE_BYPASS;
 
 
-	if (pipe_ctx->stream->gamut_remap_matrix.enable_remap == true) {
+	if (stream->gamut_remap_matrix.enable_remap == true) {
 		adjust.gamut_adjust_type = GRAPHICS_GAMUT_ADJUST_TYPE_SW;
 
 		for (i = 0; i < CSC_TEMPERATURE_MATRIX_SIZE; i++)
 			adjust.temperature_matrix[i] =
-				pipe_ctx->stream->gamut_remap_matrix.matrix[i];
+				stream->gamut_remap_matrix.matrix[i];
 	}
 
-	pipe_ctx->plane_res.xfm->funcs->transform_set_gamut_remap(pipe_ctx->plane_res.xfm, &adjust);
+	xfm->funcs->transform_set_gamut_remap(xfm, &adjust);
 }
 static void update_plane_addr(const struct dc *dc,
 		struct pipe_ctx *pipe_ctx)
@@ -3185,13 +3187,13 @@ static void dce110_program_front_end_for_pipe(
 				plane_state->rotation);
 
 	/* Moved programming gamma from dc to hwss */
-	if (pipe_ctx->plane_state->update_flags.bits.full_update ||
-			pipe_ctx->plane_state->update_flags.bits.in_transfer_func_change ||
-			pipe_ctx->plane_state->update_flags.bits.gamma_change)
+	if (pipe_ctx->plane_state->update_bits.full_update ||
+			pipe_ctx->plane_state->update_bits.in_transfer_func_change ||
+			pipe_ctx->plane_state->update_bits.gamma_change)
 		hws->funcs.set_input_transfer_func(dc, pipe_ctx, pipe_ctx->plane_state);
 
-	if (pipe_ctx->plane_state->update_flags.bits.full_update)
-		hws->funcs.set_output_transfer_func(dc, pipe_ctx, pipe_ctx->stream);
+	if (pipe_ctx->plane_state->update_bits.full_update)
+		hwss_set_output_transfer_func(dc, pipe_ctx);
 
 	DC_LOG_SURFACE(
 			"Pipe:%d %p: addr hi:0x%x, "

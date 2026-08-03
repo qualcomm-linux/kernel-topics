@@ -27,6 +27,7 @@
 #include "dcn303_resource.h"
 #include "dcn303/dcn303_dccg.h"
 #include "irq/dcn303/irq_service_dcn303.h"
+#include "basics/conversion.h"
 
 #include "dcn30/dcn30_dio_link_encoder.h"
 #include "dcn30/dcn30_dio_stream_encoder.h"
@@ -1322,7 +1323,6 @@ static bool dcn303_resource_construct(
 	dc->caps.post_blend_color_processing = true;
 	dc->caps.force_dp_tps4_for_cp2520 = true;
 	dc->caps.hdmi_hpo = true;
-	dc->config.skip_frl_pretraining = true;
 	dc->caps.extended_aux_timeout_support = true;
 	dc->caps.dmcub_support = true;
 	dc->caps.max_v_total = (1 << 15) - 1;
@@ -1361,6 +1361,7 @@ static bool dcn303_resource_construct(
 	dc->caps.color.mpc.ogam_rom_caps.pq = 0;
 	dc->caps.color.mpc.ogam_rom_caps.hlg = 0;
 	dc->caps.color.mpc.ocsc = 1;
+	dc->caps.color.mpc.max_gamut_remap_coeff = dc_fixpt_from_fraction(S3D12_MAX, DIVIDER);
 
 	dc->caps.dp_hdmi21_pcon_support = true;
 
