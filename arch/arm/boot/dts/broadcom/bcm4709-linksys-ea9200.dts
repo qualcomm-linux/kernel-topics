@@ -26,7 +26,7 @@
 
 	nvram@1c080000 {
 		compatible = "brcm,nvram";
-		reg = <0x1c080000 0x180000>;
+		reg = <0x1c080000 0x100000>;
 
 		et2macaddr: et2macaddr {
 			#nvmem-cell-cells = <1>;
@@ -90,6 +90,63 @@
 			gpios = <&chipcommon 8 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "default-on";
 		};
+	};
+};
+
+&pcie_bridge0 {
+	pcie@0,0 {
+		device_type = "pci";
+		reg = <0x0000 0 0 0 0>;
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		pcie@1,0 {
+			device_type = "pci";
+			reg = <0x800 0 0 0 0>;
+
+			#address-cells = <3>;
+			#size-cells = <2>;
+			ranges;
+
+			wifi@0,0 {
+				compatible = "brcm,bcm4366-fmac", "brcm,bcm4329-fmac";
+				reg = <0x0000 0 0 0 0>;
+				ieee80211-freq-limit = <5170000 5250000>;
+				brcm,ccode-map = "JP-JP-78", "US-Q2-86";
+				nvmem-cells = <&et2macaddr 2>;
+				nvmem-cell-names = "mac-address";
+			};
+		};
+
+		pcie@2,0 {
+			device_type = "pci";
+			reg = <0x1000 0 0 0 0>;
+
+			#address-cells = <3>;
+			#size-cells = <2>;
+			ranges;
+
+			wifi@0,0 {
+				compatible = "brcm,bcm4366-fmac", "brcm,bcm4329-fmac";
+				reg = <0x0000 0 0 0 0>;
+				brcm,ccode-map = "JP-JP-78", "US-Q2-86";
+				nvmem-cells = <&et2macaddr 3>;
+				nvmem-cell-names = "mac-address";
+			};
+		};
+	};
+};
+
+&pcie_bridge1 {
+	wifi@0,0 {
+		compatible = "brcm,bcm4366-fmac", "brcm,bcm4329-fmac";
+		reg = <0x0000 0 0 0 0>;
+		ieee80211-freq-limit = <5735000 5835000>;
+		brcm,ccode-map = "JP-JP-78", "US-Q2-86";
+		nvmem-cells = <&et2macaddr 4>;
+		nvmem-cell-names = "mac-address";
 	};
 };
 
