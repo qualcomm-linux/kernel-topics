@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 /* kselftest for allocinfo ioctl
- * allocinfo ioctl retrives allocinfo data through ioctl
+ * allocinfo ioctl retrieves allocinfo data through ioctl
  * Copyright (C) 2026 Google, Inc.
  */
 
