@@ -291,7 +291,7 @@ static bool matches_filter(struct codetag *ct, struct allocinfo_filter *filter,
 
 	if (filter->mask & ALLOCINFO_FILTER_MASK_INACCURATE) {
 		inaccurate = !!(ct->flags & CODETAG_FLAG_INACCURATE);
-		if (inaccurate != !!(filter->fields.inaccurate))
+		if (inaccurate != !!(filter->inaccurate))
 			return false;
 	}
 
