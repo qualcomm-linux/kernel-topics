@@ -216,6 +216,25 @@ err_out:
 	return swap;
 }
 
+static bool is_swap_available(unsigned long size)
+{
+	unsigned long swap_total = 0;
+	char buffer[256];
+	FILE *fp;
+
+	fp = fopen("/proc/meminfo", "r");
+	if (!fp)
+		return false;
+
+	while (fgets(buffer, sizeof(buffer), fp)) {
+		if (sscanf(buffer, "SwapTotal: %lu kB", &swap_total) == 1)
+			break;
+	}
+	fclose(fp);
+
+	return swap_total >= (size / 1024);
+}
+
 static void *alloc_mapping(int nr)
 {
 	void *p;
@@ -734,6 +753,13 @@ static void collapse_swapin_single_pte(struct collapse_context *c, struct mem_op
 {
 	void *p;
 
+	if (!is_swap_available(page_size)) {
+		ksft_print_msg("No swap available...");
+		skip("Skip");
+		ksft_test_result_skip("%s\n", __func__);
+		return;
+	}
+
 	p = ops->setup_area(1);
 	ops->fault(p, 0, hpage_pmd_size);
 
@@ -759,6 +785,13 @@ static void collapse_max_ptes_swap(struct collapse_context *c, struct mem_ops *o
 {
 	int max_ptes_swap = thp_read_num("khugepaged/max_ptes_swap");
 	void *p;
+
+	if (!is_swap_available((max_ptes_swap + 1) * page_size)) {
+		ksft_print_msg("No swap available...");
+		skip("Skip");
+		ksft_test_result_skip("%s\n", __func__);
+		return;
+	}
 
 	p = ops->setup_area(1);
 	ops->fault(p, 0, hpage_pmd_size);
