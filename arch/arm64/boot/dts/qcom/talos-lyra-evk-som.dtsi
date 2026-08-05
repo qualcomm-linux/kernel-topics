@@ -11,6 +11,7 @@
 / {
 	aliases {
 		serial0 = &uart0;
+		mmc1 = &sdhc_2;
 	};
 
 	chosen {
@@ -226,3 +227,16 @@
 	status = "okay";
 };
 
+&sdhc_2 {
+	pinctrl-0 = <&sdc2_state_on>;
+	pinctrl-1 = <&sdc2_state_off>;
+	pinctrl-names = "default", "sleep";
+
+	bus-width = <4>;
+	cd-gpios = <&tlmm 99 GPIO_ACTIVE_LOW>;
+
+	vmmc-supply = <&vreg_l10a>;
+	vqmmc-supply = <&vreg_s4a>;
+
+	status = "okay";
+};
