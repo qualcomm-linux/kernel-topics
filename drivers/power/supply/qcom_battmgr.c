@@ -1009,6 +1009,16 @@ static const u8 x1e80100_usb_prop_map[] = {
 	[POWER_SUPPLY_PROP_USB_TYPE] = USB_ADAP_TYPE,
 };
 
+static const u8 x1e80100_usb_prop_map[] = {
+	[POWER_SUPPLY_PROP_ONLINE] = USB_ONLINE,
+	[POWER_SUPPLY_PROP_VOLTAGE_NOW] = USB_VOLT_NOW,
+	[POWER_SUPPLY_PROP_VOLTAGE_MAX] = USB_VOLT_MAX,
+	[POWER_SUPPLY_PROP_CURRENT_NOW] = USB_CURR_NOW,
+	[POWER_SUPPLY_PROP_CURRENT_MAX] = USB_CURR_MAX,
+	[POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT] = USB_INPUT_CURR_LIMIT,
+	[POWER_SUPPLY_PROP_USB_TYPE] = USB_ADAP_TYPE,
+};
+
 static int qcom_battmgr_usb_sm8350_update(struct qcom_battmgr *battmgr,
 					  enum power_supply_property psp)
 {
