@@ -6932,6 +6932,10 @@ static int lowmem_reserve_ratio_sysctl_handler(const struct ctl_table *table,
 	if (!write)
 		return proc_dointvec_minmax(table, write, buffer, length, ppos);
 
+	/*
+	 * proc_dointvec_max() works incrementally. Use a buffer and only set
+	 * the values if all of them parse cleanly.
+	 */
 	memcpy(ratio, sysctl_lowmem_reserve_ratio, sizeof(ratio));
 	tmp.data = ratio;
 
