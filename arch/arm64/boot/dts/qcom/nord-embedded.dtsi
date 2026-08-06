@@ -1706,7 +1706,7 @@
 	};
 
 	qup_uart17_default: qup-uart17-default-state {
-		pins = "gpio152", "gpio153";
+		pins = "gpio150", "gpio151", "gpio152", "gpio153";
 		function = "qup2_se3";
 		drive-strength = <2>;
 		bias-disable;
