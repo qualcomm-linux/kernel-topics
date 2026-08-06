@@ -218,6 +218,12 @@
 	status = "okay";
 };
 
+&remoteproc_mpss {
+	firmware-name = "qcom/qcs615/qdsp6sw.mbn";
+
+	status = "okay";
+};
+
 &rpmhcc {
 	clocks = <&xo_board_clk>;
 };
