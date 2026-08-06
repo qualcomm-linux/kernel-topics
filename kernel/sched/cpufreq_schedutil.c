@@ -194,10 +194,17 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 				  unsigned long util, unsigned long max)
 {
 	struct cpufreq_policy *policy = sg_policy->policy;
-	unsigned int freq;
+	unsigned int freq, ref;
 
-	freq = get_capacity_ref_freq(policy);
-	freq = map_util_freq(util, freq, max);
+	ref = get_capacity_ref_freq(policy);
+
+	/*
+	 * That fixed anchor governs how utilization is interpreted, but
+	 * the DVFS request is free to target the current policy ceiling.
+	 * Using ref alone would saturate the util->freq map at ref so
+	 * use policy->max to reach boost frequencies.
+	 */
+	freq = map_util_freq(util, max(ref, READ_ONCE(policy->max)), max);
 
 	if (freq == sg_policy->cached_raw_freq && !sg_policy->need_freq_update)
 		return sg_policy->next_freq;
