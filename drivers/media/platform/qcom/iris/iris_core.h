@@ -102,7 +102,7 @@ struct iris_core {
 	struct device				*np_dev;
 	struct device				*p_dev;
 	struct device				*fw_dev;
-	struct qcom_scm_pas_context		*pas_ctx;
+	struct qcom_pas_context		*pas_ctx;
 	void __iomem				*reg_base;
 	int					irq;
 	struct v4l2_device			v4l2_dev;
