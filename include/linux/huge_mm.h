@@ -391,9 +391,9 @@ static inline bool thp_disabled_by_hw(void)
 
 unsigned long thp_get_unmapped_area(struct file *filp, unsigned long addr,
 		unsigned long len, unsigned long pgoff, unsigned long flags);
-unsigned long thp_get_unmapped_area_vmflags(struct file *filp, unsigned long addr,
+unsigned long thp_get_unmapped_area_vmaflags(struct file *filp, unsigned long addr,
 		unsigned long len, unsigned long pgoff, unsigned long flags,
-		vm_flags_t vm_flags);
+		vma_flags_t vma_flags);
 
 enum split_type {
 	SPLIT_TYPE_UNIFORM,
@@ -471,6 +471,24 @@ void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 
 void __split_huge_pud(struct vm_area_struct *vma, pud_t *pud,
 		unsigned long address);
+
+/**
+ * pud_is_huge() - Is this PUD either a huge PUD entry or a software leaf entry?
+ * @pud: The PUD to check.
+ *
+ * This is similar to pmd_is_huge(), but it checks at the PUD level.
+ *
+ * Returns: true if this PUD is huge, false otherwise.
+ */
+static inline bool pud_is_huge(pud_t pud)
+{
+	if (pud_present(pud))
+		return pud_trans_huge(pud);
+	else if (!pud_none(pud))
+		return true;
+
+	return false;
+}
 
 #ifdef CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD
 int change_huge_pud(struct mmu_gather *tlb, struct vm_area_struct *vma,
@@ -617,18 +635,13 @@ static inline unsigned long thp_vma_allowable_orders(struct vm_area_struct *vma,
 #define thp_get_unmapped_area	NULL
 
 static inline unsigned long
-thp_get_unmapped_area_vmflags(struct file *filp, unsigned long addr,
-			      unsigned long len, unsigned long pgoff,
-			      unsigned long flags, vm_flags_t vm_flags)
+thp_get_unmapped_area_vmaflags(struct file *filp, unsigned long addr,
+			       unsigned long len, unsigned long pgoff,
+			       unsigned long flags, vma_flags_t vma_flags)
 {
 	return 0;
 }
 
-static inline bool
-can_split_folio(struct folio *folio, int caller_pins, int *pextra_pins)
-{
-	return false;
-}
 static inline int
 split_huge_page_to_list_to_order(struct page *page, struct list_head *list,
 		unsigned int new_order)
@@ -798,6 +811,11 @@ static inline bool pmd_is_huge(pmd_t pmd)
 {
 	return false;
 }
+
+static inline bool pud_is_huge(pud_t pud)
+{
+	return false;
+}
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 
 static inline bool is_pmd_order(unsigned int order)
@@ -805,15 +823,9 @@ static inline bool is_pmd_order(unsigned int order)
 	return order == HPAGE_PMD_ORDER;
 }
 
-static inline int split_folio_to_list_to_order(struct folio *folio,
-		struct list_head *list, int new_order)
-{
-	return split_huge_page_to_list_to_order(&folio->page, list, new_order);
-}
-
 static inline int split_folio_to_order(struct folio *folio, int new_order)
 {
-	return split_folio_to_list_to_order(folio, NULL, new_order);
+	return split_huge_page_to_list_to_order(&folio->page, NULL, new_order);
 }
 
 /**
