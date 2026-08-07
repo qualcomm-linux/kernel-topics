@@ -47,13 +47,13 @@ static __always_inline unsigned long __exit_to_user_mode_loop(struct pt_regs *re
 	 * items have been completed.
 	 */
 	while (ti_work & EXIT_TO_USER_MODE_WORK_LOOP) {
-
+		/* Check rseq slice extensions with IRQs disabled */
+		bool sched = (ti_work & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY)) &&
+			     !rseq_grant_slice_extension(ti_work, TIF_SLICE_EXT_DENY);
 		local_irq_enable();
 
-		if (ti_work & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY)) {
-			if (!rseq_grant_slice_extension(ti_work, TIF_SLICE_EXT_DENY))
-				schedule();
-		}
+		if (sched)
+			schedule();
 
 		if (ti_work & _TIF_UPROBE)
 			uprobe_notify_resume(regs);
