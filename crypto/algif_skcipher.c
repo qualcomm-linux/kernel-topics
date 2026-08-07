@@ -35,6 +35,24 @@
 #include <linux/string.h>
 #include <net/sock.h>
 
+static const struct af_alg_allowlist_entry skcipher_allowlist[] = {
+	{ "adiantum(xchacha12,aes)", false }, /* cryptsetup */
+	{ "adiantum(xchacha20,aes)", false }, /* cryptsetup */
+	{ "cbc(aes)", true }, /* iwd */
+	{ "cbc(des)", true }, /* iwd */
+	{ "cbc(des3_ede)", true }, /* iwd */
+	{ "cbc(paes)", false }, /* caam and others */
+	{ "ctr(aes)", true }, /* iwd */
+	{ "ecb(aes)", true }, /* iwd, bluez */
+	{ "ecb(des)", true }, /* iwd */
+	{ "hctr2(aes)", false }, /* cryptsetup */
+	{ "xts(aes)", false }, /* cryptsetup benchmark */
+	{ "xts(camellia)", false }, /* cryptsetup */
+	{ "xts(serpent)", false }, /* cryptsetup */
+	{ "xts(twofish)", false }, /* cryptsetup */
+	{},
+};
+
 static int skcipher_sendmsg(struct socket *sock, struct msghdr *msg,
 			    size_t size)
 {
@@ -311,6 +329,11 @@ static struct proto_ops algif_skcipher_ops_nokey = {
 static void *skcipher_bind(const char *name)
 {
 	u32 mask = AF_ALG_CRYPTOAPI_MASK;
+	int err;
+
+	err = af_alg_check_restriction(name, skcipher_allowlist);
+	if (err)
+		return ERR_PTR(err);
 
 	if (strcmp(name, "cbc(paes)") == 0)
 		mask = 0;
