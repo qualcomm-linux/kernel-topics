@@ -361,6 +361,11 @@ static void dup_variable_bug(efi_char16_t *str16, efi_guid_t *vendor_guid,
 	kfree(str8);
 }
 
+static void efivar_invalidate_cached_storage_space(void)
+{
+	efivar_storage_space = efivar_remaining_space = 0;
+}
+
 /**
  * efivar_init - build the initial list of EFI variables
  * @func: callback function to invoke for every variable
@@ -450,6 +455,7 @@ int efivar_init(int (*func)(efi_char16_t *, efi_guid_t, unsigned long, void *),
 	} while (status != EFI_NOT_FOUND);
 
 	efivar_unlock();
+	efivar_invalidate_cached_storage_space();
 free:
 	kfree(variable_name);
 
@@ -480,6 +486,8 @@ int efivar_entry_delete(struct efivar_entry *entry)
 					    &entry->var.VendorGuid,
 					    0, 0, NULL, false);
 	efivar_unlock();
+	efivar_invalidate_cached_storage_space();
+
 	if (!(status == EFI_SUCCESS || status == EFI_NOT_FOUND))
 		return efi_status_to_err(status);
 
@@ -620,6 +628,7 @@ int efivar_entry_set_get_size(struct efivar_entry *entry, u32 attributes,
 				    NULL, size, NULL);
 
 	efivar_unlock();
+	efivar_invalidate_cached_storage_space();
 
 	if (status && status != EFI_BUFFER_TOO_SMALL)
 		return efi_status_to_err(status);

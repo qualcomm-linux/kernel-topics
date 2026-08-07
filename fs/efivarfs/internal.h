@@ -31,6 +31,8 @@ struct efivar_entry {
 	bool removed;
 };
 
+extern u64 efivar_storage_space, efivar_remaining_space;
+
 static inline struct efivar_entry *efivar_entry(struct inode *inode)
 {
 	return container_of(inode, struct efivar_entry, vfs_inode);
