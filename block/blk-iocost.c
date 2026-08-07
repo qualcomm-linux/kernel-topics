@@ -1592,7 +1592,7 @@ static void ioc_lat_stat(struct ioc *ioc, u32 *missed_ppm_ar, u32 *rq_wait_pct_p
 	u64 rq_wait_ns = 0;
 	int cpu, rw;
 
-	for_each_online_cpu(cpu) {
+	for_each_possible_cpu(cpu) {
 		struct ioc_pcpu_stat *stat = per_cpu_ptr(ioc->pcpu_stat, cpu);
 		u64 this_rq_wait_ns;
 
@@ -3093,23 +3093,23 @@ static void ioc_pd_stat(struct blkg_policy_data *pd, struct seq_file *s)
 	struct ioc_gq *iocg = pd_to_iocg(pd);
 	struct ioc *ioc = iocg->ioc;
 
-	if (!ioc->enabled)
+	if (!data_race(ioc->enabled))
 		return;
 
 	if (iocg->level == 0) {
 		unsigned vp10k = DIV64_U64_ROUND_CLOSEST(
-			ioc->vtime_base_rate * 10000,
+			data_race(ioc->vtime_base_rate) * 10000,
 			VTIME_PER_USEC);
 		seq_printf(s, " cost.vrate=%u.%02u", vp10k / 100, vp10k % 100);
 	}
 
-	seq_printf(s, " cost.usage=%llu", iocg->last_stat.usage_us);
+	seq_printf(s, " cost.usage=%llu", data_race(iocg->last_stat.usage_us));
 
 	if (blkcg_debug_stats)
 		seq_printf(s, " cost.wait=%llu cost.indebt=%llu cost.indelay=%llu",
-			iocg->last_stat.wait_us,
-			iocg->last_stat.indebt_us,
-			iocg->last_stat.indelay_us);
+			data_race(iocg->last_stat.wait_us),
+			data_race(iocg->last_stat.indebt_us),
+			data_race(iocg->last_stat.indelay_us));
 }
 
 static u64 ioc_weight_prfill(struct seq_file *sf, struct blkg_policy_data *pd,
