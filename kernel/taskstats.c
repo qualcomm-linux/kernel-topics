@@ -361,8 +361,6 @@ static int parse(struct nlattr *na, struct cpumask *mask)
 	int len;
 	int ret;
 
-	if (na == NULL)
-		return 1;
 	len = nla_len(na);
 	if (len > TASKSTATS_CPUMASK_MAXLEN)
 		return -E2BIG;
@@ -450,36 +448,18 @@ static int cgroupstats_user_cmd(struct sk_buff *skb, struct genl_info *info)
 	return send_reply(rep_skb, info);
 }
 
-static int cmd_attr_register_cpumask(struct genl_info *info)
+static int cmd_attr_cpumask(struct genl_info *info, int attr,
+			    enum actions action)
 {
-	cpumask_var_t mask;
+	cpumask_var_t mask __free(free_cpumask_var) = CPUMASK_VAR_NULL;
 	int rc;
 
 	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
 		return -ENOMEM;
-	rc = parse(info->attrs[TASKSTATS_CMD_ATTR_REGISTER_CPUMASK], mask);
+	rc = parse(info->attrs[attr], mask);
 	if (rc < 0)
-		goto out;
-	rc = add_del_listener(info->snd_portid, mask, REGISTER);
-out:
-	free_cpumask_var(mask);
-	return rc;
-}
-
-static int cmd_attr_deregister_cpumask(struct genl_info *info)
-{
-	cpumask_var_t mask;
-	int rc;
-
-	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
-		return -ENOMEM;
-	rc = parse(info->attrs[TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK], mask);
-	if (rc < 0)
-		goto out;
-	rc = add_del_listener(info->snd_portid, mask, DEREGISTER);
-out:
-	free_cpumask_var(mask);
-	return rc;
+		return rc;
+	return add_del_listener(info->snd_portid, mask, action);
 }
 
 static size_t taskstats_packet_size(void)
@@ -554,9 +534,13 @@ err:
 static int taskstats_user_cmd(struct sk_buff *skb, struct genl_info *info)
 {
 	if (info->attrs[TASKSTATS_CMD_ATTR_REGISTER_CPUMASK])
-		return cmd_attr_register_cpumask(info);
+		return cmd_attr_cpumask(info,
+					TASKSTATS_CMD_ATTR_REGISTER_CPUMASK,
+					REGISTER);
 	else if (info->attrs[TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK])
-		return cmd_attr_deregister_cpumask(info);
+		return cmd_attr_cpumask(info,
+					TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK,
+					DEREGISTER);
 	else if (info->attrs[TASKSTATS_CMD_ATTR_PID])
 		return cmd_attr_pid(info);
 	else if (info->attrs[TASKSTATS_CMD_ATTR_TGID])
@@ -606,6 +590,7 @@ void taskstats_exit(struct task_struct *tsk, int group_dead)
 	struct sk_buff *rep_skb;
 	size_t size;
 	int is_thread_group;
+	unsigned long flags;
 
 	if (!family_registered)
 		return;
@@ -651,7 +636,10 @@ void taskstats_exit(struct task_struct *tsk, int group_dead)
 	if (!stats)
 		goto err;
 
+	/* This was racy before, copy the stats under siglock. */
+	spin_lock_irqsave(&tsk->sighand->siglock, flags);
 	memcpy(stats, tsk->signal->stats, sizeof(*stats));
+	spin_unlock_irqrestore(&tsk->sighand->siglock, flags);
 	stats->version = TASKSTATS_VERSION;
 
 send:
