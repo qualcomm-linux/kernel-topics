@@ -197,7 +197,7 @@ impl<T: Driver> Adapter<T> {
             // SAFETY:
             // - `driver.as_mut_ptr()` is a valid pointer to uninitialized data.
             // - `private_data.driver` is pinned.
-            let result = unsafe { data.__pinned_init(driver.as_mut_ptr()) };
+            let result = unsafe { pin_init::raw_try_init(driver.as_mut_ptr(), data) };
 
             *active = result.is_ok();
 
