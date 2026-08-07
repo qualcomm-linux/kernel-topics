@@ -230,6 +230,7 @@ static inline bool thp_vma_suitable_order(struct vm_area_struct *vma,
 
 	/* Don't have to check pgoff for anonymous vma */
 	if (!vma_is_anonymous(vma)) {
+		/* vma_start_pgoff() in mm.h so not available. */
 		if (!IS_ALIGNED((vma->vm_start >> PAGE_SHIFT) - vma->vm_pgoff,
 				hpage_size >> PAGE_SHIFT))
 			return false;
@@ -529,6 +530,8 @@ static inline bool folio_test_pmd_mappable(struct folio *folio)
 
 vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf);
 
+vm_fault_t do_huge_pmd_uffd_rwp(struct vm_fault *vmf);
+
 vm_fault_t do_huge_pmd_device_private(struct vm_fault *vmf);
 
 extern struct folio *huge_zero_folio;
@@ -567,7 +570,7 @@ static inline struct folio *get_persistent_huge_zero_folio(void)
 
 static inline bool thp_migration_supported(void)
 {
-	return IS_ENABLED(CONFIG_ARCH_ENABLE_THP_MIGRATION);
+	return IS_ENABLED(CONFIG_ARCH_HAS_PMD_SOFTLEAVES);
 }
 
 void split_huge_pmd_locked(struct vm_area_struct *vma, unsigned long address,
@@ -721,6 +724,11 @@ static inline spinlock_t *pud_trans_huge_lock(pud_t *pud,
 		struct vm_area_struct *vma)
 {
 	return NULL;
+}
+
+static inline vm_fault_t do_huge_pmd_uffd_rwp(struct vm_fault *vmf)
+{
+	return 0;
 }
 
 static inline vm_fault_t do_huge_pmd_numa_page(struct vm_fault *vmf)
