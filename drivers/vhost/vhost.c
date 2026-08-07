@@ -729,6 +729,17 @@ static void vhost_workers_free(struct vhost_dev *dev)
 
 	for (i = 0; i < dev->nvqs; i++)
 		rcu_assign_pointer(dev->vqs[i]->worker, NULL);
+
+	/*
+	 * vhost_vq_work_queue() reads vq->worker under rcu_read_lock(), so a
+	 * reader that fetched a worker before we cleared the pointers above
+	 * may still be queueing work on it.  Wait for those readers to
+	 * finish, then flush so any work they queued runs (clearing
+	 * VHOST_WORK_QUEUED) before the workers are freed.
+	 */
+	synchronize_rcu();
+	vhost_dev_flush(dev);
+
 	/*
 	 * Free the default worker we created and cleanup workers userspace
 	 * created but couldn't clean up (it forgot or crashed).
@@ -1658,6 +1669,10 @@ static int vhost_process_iotlb_msg(struct vhost_dev *dev, u32 asid,
 	case VHOST_IOTLB_INVALIDATE:
 		if (!dev->iotlb) {
 			ret = -EFAULT;
+			break;
+		}
+		if (!msg->size) {
+			ret = -EINVAL;
 			break;
 		}
 		vhost_vq_meta_reset(dev);
