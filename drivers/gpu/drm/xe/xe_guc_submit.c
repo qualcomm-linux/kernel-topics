@@ -800,9 +800,12 @@ static void xe_guc_exec_queue_group_cgp_update(struct xe_device *xe,
 	}
 }
 
+#define CGP_SYNC_REGISTRATION			BIT(0)
+
 static void xe_guc_exec_queue_group_cgp_sync(struct xe_guc *guc,
 					     struct xe_exec_queue *q,
-					     const u32 *action, u32 len)
+					     const u32 *action, u32 len,
+					     unsigned int flags)
 {
 	struct xe_exec_queue_group *group = q->multi_queue.group;
 	struct xe_device *xe = guc_to_xe(guc);
@@ -815,18 +818,32 @@ static void xe_guc_exec_queue_group_cgp_sync(struct xe_guc *guc,
 	 * Hence, no locking is required here.
 	 * Wait for any pending CGP_SYNC_DONE response before updating the
 	 * CGP page and sending CGP_SYNC message.
-	 *
-	 * FIXME: Support VF migration
 	 */
 	ret = wait_event_timeout(guc->ct.wq,
 				 !READ_ONCE(group->sync_pending) ||
-				 xe_guc_read_stopped(guc), HZ);
-	if (!ret || xe_guc_read_stopped(guc)) {
+				 xe_guc_read_stopped(guc) || vf_recovery(guc),
+				 HZ);
+	if ((!ret && !vf_recovery(guc)) || xe_guc_read_stopped(guc)) {
 		/* CGP_SYNC failed. Reset gt, cleanup the group */
 		xe_gt_warn(guc_to_gt(guc), "Wait for CGP_SYNC_DONE response failed!\n");
 		set_exec_queue_group_banned(q);
 		xe_gt_reset_async(q->gt);
 		xe_guc_exec_queue_group_trigger_cleanup(q);
+		return;
+	}
+
+	/*
+	 * If woken by VF migration recovery, do not touch the CGP or send: the
+	 * message would be lost and, for a registration, GuC must (re-)register
+	 * the context before its CGP entry may be read. Flag the queue so revert
+	 * replays it - a registration by re-registration, a dynamic update by a
+	 * replayed CGP_SYNC - and bail.
+	 */
+	if (vf_recovery(guc)) {
+		if (flags & CGP_SYNC_REGISTRATION)
+			q->guc->multi_queue.re_register = true;
+		else
+			q->guc->multi_queue.re_update = true;
 		return;
 	}
 
@@ -836,11 +853,24 @@ static void xe_guc_exec_queue_group_cgp_sync(struct xe_guc *guc,
 	xe_lrc_set_multi_queue_priority(q->lrc[0], priority);
 	xe_guc_exec_queue_group_cgp_update(xe, q);
 
+	/*
+	 * Record the nature of this outstanding sync so revert can replay it if
+	 * its CGP_SYNC_DONE is lost across a migration: a registration is
+	 * recovered by re-registration, a dynamic update by a replayed CGP_SYNC.
+	 */
+	if (flags & CGP_SYNC_REGISTRATION) {
+		q->guc->multi_queue.registering_cgp = true;
+		q->guc->multi_queue.updating_cgp = false;
+	} else {
+		q->guc->multi_queue.updating_cgp = true;
+		q->guc->multi_queue.registering_cgp = false;
+	}
+	WRITE_ONCE(group->cgp_update_q, q);
 	WRITE_ONCE(group->sync_pending, true);
 	xe_guc_ct_send(&guc->ct, action, len, G2H_LEN_DW_MULTI_QUEUE_CONTEXT, 1);
 }
 
-static void guc_exec_queue_send_cgp_sync(struct xe_exec_queue *q)
+static void guc_exec_queue_send_cgp_sync(struct xe_exec_queue *q, unsigned int flags)
 {
 #define MAX_MULTI_QUEUE_CGP_SYNC_SIZE	(2)
 	struct xe_guc *guc = exec_queue_to_guc(q);
@@ -854,7 +884,7 @@ static void guc_exec_queue_send_cgp_sync(struct xe_exec_queue *q)
 	xe_gt_assert(guc_to_gt(guc), len <= MAX_MULTI_QUEUE_CGP_SYNC_SIZE);
 #undef MAX_MULTI_QUEUE_CGP_SYNC_SIZE
 
-	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
+	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len, flags);
 }
 
 static void __register_exec_queue_group(struct xe_exec_queue *q,
@@ -882,7 +912,8 @@ static void __register_exec_queue_group(struct xe_exec_queue *q,
 	 * XE_GUC_ACTION_NOTIFY_MULTI_QUEUE_CONTEXT_CGP_SYNC_DONE response
 	 * from guc.
 	 */
-	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len);
+	xe_guc_exec_queue_group_cgp_sync(guc, q, action, len,
+					 CGP_SYNC_REGISTRATION);
 }
 
 static void __register_mlrc_exec_queue(struct xe_guc *guc,
@@ -1042,7 +1073,7 @@ static void register_exec_queue(struct xe_exec_queue *q, int ctx_type)
 		init_policies(guc, q);
 
 	if (xe_exec_queue_is_multi_queue_secondary(q))
-		guc_exec_queue_send_cgp_sync(q);
+		guc_exec_queue_send_cgp_sync(q, CGP_SYNC_REGISTRATION);
 }
 
 static u32 wq_space_until_wrap(struct xe_exec_queue *q)
@@ -1924,9 +1955,22 @@ static void __guc_exec_queue_process_msg_set_multi_queue_priority(struct xe_sche
 	struct xe_exec_queue *q = msg->private_data;
 
 	if (guc_exec_queue_allowed_to_change_state(q))
-		guc_exec_queue_send_cgp_sync(q);
+		guc_exec_queue_send_cgp_sync(q, 0);
 
 	kfree(msg);
+}
+
+static void __guc_exec_queue_process_msg_cgp_sync(struct xe_sched_msg *msg)
+{
+	struct xe_exec_queue *q = msg->private_data;
+
+	/*
+	 * Replay a dynamic CGP update lost across VF migration by re-issuing the
+	 * CGP update + CGP_SYNC (re-applies the current priority from
+	 * q->multi_queue.priority).
+	 */
+	if (guc_exec_queue_allowed_to_change_state(q))
+		guc_exec_queue_send_cgp_sync(q, 0);
 }
 
 #define CLEANUP				1	/* Non-zero values to catch uninitialized msg */
@@ -1934,6 +1978,7 @@ static void __guc_exec_queue_process_msg_set_multi_queue_priority(struct xe_sche
 #define SUSPEND				3
 #define RESUME				4
 #define SET_MULTI_QUEUE_PRIORITY	5
+#define CGP_SYNC_MSG			6
 #define OPCODE_MASK	0xf
 #define MSG_LOCKED	BIT(8)
 #define MSG_HEAD	BIT(9)
@@ -1959,6 +2004,9 @@ static void guc_exec_queue_process_msg(struct xe_sched_msg *msg)
 		break;
 	case SET_MULTI_QUEUE_PRIORITY:
 		__guc_exec_queue_process_msg_set_multi_queue_priority(msg);
+		break;
+	case CGP_SYNC_MSG:
+		__guc_exec_queue_process_msg_cgp_sync(msg);
 		break;
 	default:
 		XE_WARN_ON("Unknown message type");
@@ -2129,6 +2177,7 @@ static bool guc_exec_queue_try_add_msg(struct xe_exec_queue *q,
 #define STATIC_MSG_CLEANUP	0
 #define STATIC_MSG_SUSPEND	1
 #define STATIC_MSG_RESUME	2
+#define STATIC_MSG_CGP_SYNC	3
 static void guc_exec_queue_destroy(struct xe_exec_queue *q)
 {
 	struct xe_sched_msg *msg = q->guc->static_msgs + STATIC_MSG_CLEANUP;
@@ -2717,6 +2766,57 @@ static void guc_exec_queue_revert_pending_state_change(struct xe_guc *guc,
 			  q->guc->id);
 	}
 
+	/*
+	 * A registration time CGP update that bailed when woken by VF recovery.
+	 * Re-register the queue.
+	 */
+	if (q->guc->multi_queue.re_register) {
+		clear_exec_queue_registered(q);
+		q->guc->multi_queue.re_register = false;
+		xe_gt_dbg(guc_to_gt(guc), "Replay REGISTER (cgp) - guc_id=%d",
+			  q->guc->id);
+	}
+
+	/*
+	 * If a CGP update gets dropped during migration, CGP_SYNC_DONE will not
+	 * be received (sync_pending still set and this queue owns it). Recover
+	 * it the same way and clear the stuck sync_pending.
+	 */
+	if (xe_exec_queue_is_multi_queue(q)) {
+		struct xe_exec_queue_group *group = q->multi_queue.group;
+
+		if (q == READ_ONCE(group->cgp_update_q) &&
+		    READ_ONCE(group->sync_pending)) {
+			if (q->guc->multi_queue.registering_cgp) {
+				clear_exec_queue_registered(q);
+				xe_gt_dbg(guc_to_gt(guc), "Replay REGISTER (cgp sync) - guc_id=%d",
+					  q->guc->id);
+			} else if (q->guc->multi_queue.updating_cgp) {
+				q->guc->multi_queue.needs_cgp_sync = true;
+				xe_gt_dbg(guc_to_gt(guc), "Replay CGP_SYNC - guc_id=%d",
+					  q->guc->id);
+			}
+			q->guc->multi_queue.registering_cgp = false;
+			q->guc->multi_queue.updating_cgp = false;
+			WRITE_ONCE(group->cgp_update_q, NULL);
+			WRITE_ONCE(group->sync_pending, false);
+		}
+	}
+
+	/*
+	 * A dynamic-time CGP update that bailed when woken by VF recovery.
+	 * Replay the dynamic CGP update unless the queue is registered or being
+	 * re-registered, which re-does the CGP anyway.
+	 */
+	if (q->guc->multi_queue.re_update) {
+		q->guc->multi_queue.re_update = false;
+		if (exec_queue_registered(q)) {
+			q->guc->multi_queue.needs_cgp_sync = true;
+			xe_gt_dbg(guc_to_gt(guc), "Replay CGP_SYNC (re-update) - guc_id=%d",
+				  q->guc->id);
+		}
+	}
+
 	q->guc->resume_time = 0;
 }
 
@@ -2737,6 +2837,17 @@ static void lrc_parallel_clear(struct xe_lrc *lrc)
  * during VF resume flows. The function scans the queue state, make adjustments
  * as needed, and queues jobs / messages which replayed upon unpause.
  */
+static void guc_exec_queue_pause_prepare(struct xe_guc *guc, struct xe_exec_queue *q)
+{
+	struct xe_gpu_scheduler *sched = &q->guc->sched;
+
+	lockdep_assert_held(&guc->submission_state.lock);
+
+	/* Stop scheduling + flush any DRM scheduler operations */
+	xe_sched_submission_stop(sched);
+	cancel_delayed_work_sync(&sched->base.work_tdr);
+}
+
 static void guc_exec_queue_pause(struct xe_guc *guc, struct xe_exec_queue *q)
 {
 	struct xe_gpu_scheduler *sched = &q->guc->sched;
@@ -2744,10 +2855,6 @@ static void guc_exec_queue_pause(struct xe_guc *guc, struct xe_exec_queue *q)
 	int i;
 
 	lockdep_assert_held(&guc->submission_state.lock);
-
-	/* Stop scheduling + flush any DRM scheduler operations */
-	xe_sched_submission_stop(sched);
-	cancel_delayed_work_sync(&sched->base.work_tdr);
 
 	guc_exec_queue_revert_pending_state_change(guc, q);
 
@@ -2806,6 +2913,19 @@ void xe_guc_submit_pause_vf(struct xe_guc *guc)
 	xe_gt_assert(guc_to_gt(guc), vf_recovery(guc));
 
 	mutex_lock(&guc->submission_state.lock);
+	/*
+	 * Stop all schedulers before reverting any queue: in a multi-queue
+	 * group a secondary's run_job() can register the primary, which must
+	 * not race an in-progress revert.
+	 */
+	xa_for_each(&guc->submission_state.exec_queue_lookup, index, q) {
+		/* Prevent redundant attempts to stop parallel queues */
+		if (q->guc->id != index)
+			continue;
+
+		guc_exec_queue_pause_prepare(guc, q);
+	}
+
 	xa_for_each(&guc->submission_state.exec_queue_lookup, index, q) {
 		/* Prevent redundant attempts to stop parallel queues */
 		if (q->guc->id != index)
@@ -2921,6 +3041,16 @@ static void guc_exec_queue_replay_pending_state_change(struct xe_exec_queue *q)
 {
 	struct xe_gpu_scheduler *sched = &q->guc->sched;
 	struct xe_sched_msg *msg;
+
+	if (q->guc->multi_queue.needs_cgp_sync) {
+		msg = q->guc->static_msgs + STATIC_MSG_CGP_SYNC;
+
+		xe_sched_msg_lock(sched);
+		guc_exec_queue_try_add_msg_head(q, msg, CGP_SYNC_MSG);
+		xe_sched_msg_unlock(sched);
+
+		q->guc->multi_queue.needs_cgp_sync = false;
+	}
 
 	if (q->guc->needs_cleanup) {
 		msg = q->guc->static_msgs + STATIC_MSG_CLEANUP;
@@ -3405,7 +3535,8 @@ int xe_guc_exec_queue_cgp_context_error_handler(struct xe_guc *guc, u32 *msg,
 int xe_guc_exec_queue_cgp_sync_done_handler(struct xe_guc *guc, u32 *msg, u32 len)
 {
 	struct xe_device *xe = guc_to_xe(guc);
-	struct xe_exec_queue *q;
+	struct xe_exec_queue_group *group;
+	struct xe_exec_queue *q, *upd_q;
 	u32 guc_id = msg[0];
 
 	if (unlikely(len < 1)) {
@@ -3422,8 +3553,20 @@ int xe_guc_exec_queue_cgp_sync_done_handler(struct xe_guc *guc, u32 *msg, u32 le
 		return -EPROTO;
 	}
 
+	/*
+	 * The outstanding CGP update is now confirmed; clear the owning queue's
+	 * tracking so a later migration does not needlessly replay it.
+	 */
+	group = q->multi_queue.group;
+	upd_q = READ_ONCE(group->cgp_update_q);
+	if (upd_q) {
+		upd_q->guc->multi_queue.registering_cgp = false;
+		upd_q->guc->multi_queue.updating_cgp = false;
+		WRITE_ONCE(group->cgp_update_q, NULL);
+	}
+
 	/* Wakeup the serialized cgp update wait */
-	WRITE_ONCE(q->multi_queue.group->sync_pending, false);
+	WRITE_ONCE(group->sync_pending, false);
 	xe_guc_ct_wake_waiters(&guc->ct);
 
 	return 0;

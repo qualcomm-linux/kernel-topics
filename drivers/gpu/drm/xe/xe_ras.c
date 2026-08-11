@@ -156,6 +156,24 @@ static inline const char *comp_to_str(u8 component)
 	return xe_ras_components[component];
 }
 
+static bool ras_counter_is_valid(struct xe_device *xe, struct xe_ras_error_class *counter)
+{
+	u8 severity = counter->common.severity;
+	u8 component = counter->common.component;
+
+	if (!in_range(severity, XE_RAS_SEV_NOT_SUPPORTED + 1, XE_RAS_SEV_MAX - 1)) {
+		xe_err(xe, "sysctrl: unexpected severity %u\n", severity);
+		return false;
+	}
+
+	if (!in_range(component, XE_RAS_COMP_NOT_SUPPORTED + 1, XE_RAS_COMP_MAX - 1)) {
+		xe_err(xe, "sysctrl: unexpected component %u\n", component);
+		return false;
+	}
+
+	return true;
+}
+
 static struct pci_dev *find_usp_dev(struct pci_dev *pdev)
 {
 	struct pci_dev *vsp;
@@ -327,6 +345,9 @@ void xe_ras_counter_threshold_crossed(struct xe_device *xe,
 		severity = errors[id].common.severity;
 		component = errors[id].common.component;
 
+		if (!ras_counter_is_valid(xe, &errors[id]))
+			continue;
+
 		xe_warn(xe, "[RAS]: %s %s detected\n",
 			comp_to_str(component), sev_to_str(severity));
 	}
@@ -357,6 +378,9 @@ static int get_counter(struct xe_device *xe, struct xe_ras_error_class *counter,
 		       rlen, sizeof(response));
 		return -EIO;
 	}
+
+	if (!ras_counter_is_valid(xe, &response.counter))
+		return -EBADMSG;
 
 	common = &response.counter.common;
 	*value = response.value;
@@ -421,6 +445,9 @@ enum xe_ras_recovery_action xe_ras_process_errors(struct xe_device *xe)
 
 			component = arr->counter.common.component;
 			severity = arr->counter.common.severity;
+
+			if (!ras_counter_is_valid(xe, &arr->counter))
+				continue;
 
 			xe_info(xe, "[RAS]: %s %s detected\n", comp_to_str(component),
 				sev_to_str(severity));
@@ -531,6 +558,9 @@ int xe_ras_clear_counter(struct xe_device *xe, u8 severity, u8 component)
 	}
 
 	counter = &response.counter;
+
+	if (!ras_counter_is_valid(xe, counter))
+		return -EBADMSG;
 
 	xe_dbg(xe, "[RAS]: clear counter for %s %s\n", comp_to_str(counter->common.component),
 	       sev_to_str(counter->common.severity));
@@ -681,9 +711,6 @@ void xe_ras_init(struct xe_device *xe)
 {
 	int ret;
 
-	if (!xe->info.has_drm_ras)
-		return;
-
 	xe_drm_ras_init(xe);
 
 	if (!xe->info.has_sysctrl)
@@ -692,12 +719,6 @@ void xe_ras_init(struct xe_device *xe)
 	if (IS_ENABLED(CONFIG_PCIEAER))
 		ras_usp_aer_init(xe);
 
-	/*
-	 * During probe, process and log any errors detected by firmware while the driver was not
-	 * loaded. Critical errors such as Punit and CSC are reported through Pcode init failure,
-	 * causing the driver to enter survivability mode.
-	 */
-	xe_ras_process_errors(xe);
 	ret = devm_device_add_group(xe->drm.dev, &gpu_health_group);
 	if (ret)
 		xe_err(xe, "Failed to create GPU health sysfs, err=%d\n", ret);
