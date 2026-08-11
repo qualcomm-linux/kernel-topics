@@ -23,6 +23,8 @@
 #include "internal.h"
 #include "../internal.h"
 
+u64 efivar_storage_space, efivar_remaining_space;
+
 static int efivarfs_ops_notifier(struct notifier_block *nb, unsigned long event,
 				 void *data)
 {
@@ -82,15 +84,16 @@ static int efivarfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	const u32 attr = EFI_VARIABLE_NON_VOLATILE |
 			 EFI_VARIABLE_BOOTSERVICE_ACCESS |
 			 EFI_VARIABLE_RUNTIME_ACCESS;
-	u64 storage_space, remaining_space, max_variable_size;
 	u64 id = huge_encode_dev(dentry->d_sb->s_dev);
+	u64 max_variable_size;
 	efi_status_t status;
 
 	/* Some UEFI firmware does not implement QueryVariableInfo() */
-	storage_space = remaining_space = 0;
-	if (efi_rt_services_supported(EFI_RT_SUPPORTED_QUERY_VARIABLE_INFO)) {
-		status = efivar_query_variable_info(attr, &storage_space,
-						    &remaining_space,
+	if (efivar_storage_space == 0 &&
+	    efivar_remaining_space == 0 &&
+	    efi_rt_services_supported(EFI_RT_SUPPORTED_QUERY_VARIABLE_INFO)) {
+		status = efivar_query_variable_info(attr, &efivar_storage_space,
+						    &efivar_remaining_space,
 						    &max_variable_size);
 		if (status != EFI_SUCCESS && status != EFI_UNSUPPORTED)
 			pr_warn_ratelimited("query_variable_info() failed: 0x%lx\n",
@@ -104,8 +107,8 @@ static int efivarfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	 */
 	buf->f_bsize	= 1;
 	buf->f_namelen	= NAME_MAX;
-	buf->f_blocks	= storage_space;
-	buf->f_bfree	= remaining_space;
+	buf->f_blocks	= efivar_storage_space;
+	buf->f_bfree	= efivar_remaining_space;
 	buf->f_type	= dentry->d_sb->s_magic;
 	buf->f_fsid	= u64_to_fsid(id);
 
@@ -114,8 +117,8 @@ static int efivarfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	 * when the storage_paranoia x86 quirk is active. To use more, users
 	 * should boot the kernel with efi_no_storage_paranoia.
 	 */
-	if (remaining_space > efivar_reserved_space())
-		buf->f_bavail = remaining_space - efivar_reserved_space();
+	if (efivar_remaining_space > efivar_reserved_space())
+		buf->f_bavail = efivar_remaining_space - efivar_reserved_space();
 	else
 		buf->f_bavail = 0;
 
