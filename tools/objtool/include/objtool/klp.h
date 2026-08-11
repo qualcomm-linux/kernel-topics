@@ -23,11 +23,33 @@
 #define KLP_RELOCS_SEC	"__klp_relocs"
 #define KLP_STRINGS_SEC	".rodata.klp.str1.1"
 
+#define KLP_TOMBSTONE_PREFIX	".klp.tombstone."
+
 struct klp_reloc {
 	void *offset;
 	void *sym;
 	u32 type;
 };
+
+/*
+ * .klp.symid is used to correlate symbols between vmlinux.o and vmlinux, for
+ * calculating sympos to disambiguate duplicately-named symbols.
+ */
+#define KLP_SYMID_SEC	".klp.symid"
+
+struct klp_symid {
+	u64 id;
+	u64 addr;
+};
+
+struct objtool_file;
+struct elf;
+struct symbol;
+
+int klp_create_symid_sections(struct objtool_file *file);
+
+int klp_sympos_init(struct elf *orig);
+unsigned long klp_find_sympos(struct elf *elf, struct symbol *sym);
 
 int cmd_klp_checksum(int argc, const char **argv);
 int cmd_klp_diff(int argc, const char **argv);

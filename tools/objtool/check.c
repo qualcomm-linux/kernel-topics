@@ -15,6 +15,7 @@
 #include <objtool/arch.h>
 #include <objtool/disas.h>
 #include <objtool/check.h>
+#include <objtool/klp.h>
 #include <objtool/special.h>
 #include <objtool/trace.h>
 #include <objtool/warn.h>
@@ -4646,7 +4647,6 @@ static int validate_ibt(struct objtool_file *file)
 		    !strcmp(sec->name, ".kcfi_traps")			||
 		    !strcmp(sec->name, ".orc_unwind_ip")		||
 		    !strcmp(sec->name, ".retpoline_sites")		||
-		    !strcmp(sec->name, ".smp_locks")			||
 		    !strcmp(sec->name, ".static_call_sites")		||
 		    !strcmp(sec->name, "_error_injection_whitelist")	||
 		    !strcmp(sec->name, "_kprobe_blacklist")		||
@@ -4920,6 +4920,12 @@ int check(struct objtool_file *file)
 
 	if (opts.ibt) {
 		ret = create_ibt_endbr_seal_sections(file);
+		if (ret)
+			goto out;
+	}
+
+	if (opts.klp_symids) {
+		ret = klp_create_symid_sections(file);
 		if (ret)
 			goto out;
 	}
