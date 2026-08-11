@@ -10,7 +10,7 @@
 
 &mdss_mdp0 {
 	status = "okay";
-        connectors = <&smmu_sde_unsec &mdss_edp0>;
+	connectors = <&smmu_sde_unsec &sde_dsi &mdss_edp0>;
 };
 
 &mdss_edp0 {
@@ -57,4 +57,61 @@
                         drive-strength = <2>;
                 };
         };
+
+	pmx_sde: pmx_sde {
+		sde_dsi_active: sde_dsi_active {
+			mux {
+				pins = "gpio44";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio44";
+				drive-strength = <8>;
+				bias-disable = <0>;
+			};
+		};
+
+		sde_dsi_suspend: sde_dsi_suspend {
+			mux {
+				pins = "gpio44";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio44";
+				drive-strength = <2>;
+				bias-pull-down;
+			};
+		};
+	};
+};
+
+&mdss_dsi0 {
+	status = "okay";
+};
+
+&mdss_dsi_phy0 {
+	status = "okay";
+};
+
+&sde_dsi {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			ext_dsi_out: endpoint {
+				remote-endpoint = <&lt9611_a>;
+			};
+		};
+	};
+};
+
+&lt9611_a {
+	remote-endpoint = <&ext_dsi_out>;
 };
