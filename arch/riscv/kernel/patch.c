@@ -44,15 +44,16 @@ static __always_inline void *patch_map(void *addr, const unsigned int fixmap)
 	uintptr_t uintaddr = (uintptr_t) addr;
 	phys_addr_t phys;
 
+	if (!IS_ENABLED(CONFIG_STRICT_MODULE_RWX))
+		return addr;
+
 	if (core_kernel_text(uintaddr) || is_kernel_exittext(uintaddr)) {
 		phys = __pa_symbol(addr);
-	} else if (IS_ENABLED(CONFIG_STRICT_MODULE_RWX)) {
+	} else {
 		struct page *page = vmalloc_to_page(addr);
 
 		BUG_ON(!page);
 		phys = page_to_phys(page) + offset_in_page(addr);
-	} else {
-		return addr;
 	}
 
 	return (void *)set_fixmap_offset(fixmap, phys);
