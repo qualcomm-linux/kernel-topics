@@ -884,10 +884,39 @@ struct runlist_element *ntfs_mapping_pairs_decompress(const struct ntfs_volume *
 					ntfs_error(vol->sb, "lcn == -1");
 			}
 #endif
+			/* Check lcn is within the volume. */
+			if (unlikely(lcn >= (s64)vol->nr_clusters)) {
+				ntfs_error(vol->sb,
+						"LCN >= nr_clusters in mapping pairs array.");
+				goto err_out;
+			}
+
 			/* Check lcn is not below -1. */
 			if (unlikely(lcn < -1)) {
 				ntfs_error(vol->sb, "Invalid s64 < -1 in mapping pairs array.");
 				goto err_out;
+			}
+
+			if (lcn >= 0) {
+				s64 run_end;
+
+				/*
+				 * Ensure that the run stays within the volume.
+				 * A valid starting LCN is not sufficient because
+				 * the run length comes from disk.
+				 */
+				if (unlikely(check_add_overflow(lcn,
+						rl[rlpos].length,
+						&run_end))) {
+					ntfs_error(vol->sb,
+							"Run length overflow in mapping pairs array.");
+					goto err_out;
+				}
+				if (unlikely(run_end > (s64)vol->nr_clusters)) {
+					ntfs_error(vol->sb,
+							"Run extends beyond volume boundary.");
+					goto err_out;
+				}
 			}
 
 			/* chkdsk accepts zero-sized runs only for holes */
