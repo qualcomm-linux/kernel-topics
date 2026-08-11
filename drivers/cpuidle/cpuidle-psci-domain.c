@@ -78,7 +78,19 @@ static int psci_pd_init(struct device_node *np, bool use_osi)
 	/* Use governor for CPU PM domains if it has some states to manage. */
 	pd_gov = pd->states ? &pm_domain_cpu_gov : NULL;
 
-	ret = pm_genpd_init(pd, pd_gov, false);
+	/*
+	 * Start the domain in the OFF state when OSI is in use, so that
+	 * genpd's own status tracking (and its power-on notifier chain)
+	 * reflects reality from the outset instead of reporting ON before
+	 * any CPU in the domain has actually requested it. This is safe:
+	 * dt_idle_attach_cpu() runtime-resumes the domain for every CPU
+	 * that is already online by the time this driver probes, and the
+	 * PSCI cpuidle cpuhp callbacks power it on/off for CPUs that come
+	 * online/offline afterwards. When OSI isn't in use, GENPD_FLAG_ALWAYS_ON
+	 * above keeps the domain powered regardless of is_off, so this has
+	 * no effect there.
+	 */
+	ret = pm_genpd_init(pd, pd_gov, use_osi);
 	if (ret)
 		goto free_pd_prov;
 
