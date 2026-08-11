@@ -22,14 +22,20 @@
 
 use kernel::{
     clk::Clk,
-    device::{Bound, Core, Device},
+    device::{
+        Bound,
+        Core,
+        Device, //
+    },
     io::{
         mem::DevresIoMem,
         Io, //
     },
-    of, platform,
+    of,
+    platform,
     prelude::*,
-    pwm, time,
+    pwm,
+    time, //
 };
 
 const TH1520_MAX_PWM_NUM: u32 = 6;
