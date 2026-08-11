@@ -83,6 +83,35 @@ static char *escape_str(const char *orig)
 	return new;
 }
 
+/*
+ * Convert a build-tree object path to a runtime module name: strip
+ * directory components, replace '-' with '_', and remove file
+ * extensions.  Examples:
+ *
+ *   "arch/x86/kvm/kvm" -> "kvm"
+ *   "arch/x86/kvm/kvm-intel" -> "kvm_intel".
+ *
+ * Used by read_exports() to normalize Module.symvers entries and by
+ * __find_modname() as a fallback when .modinfo lacks a "name=" tag.
+ */
+static char *normalize_modname(char *name)
+{
+	char *slash = strrchr(name, '/');
+
+	if (slash)
+		name = slash + 1;
+
+	for (char *c = name; *c; c++) {
+		if (*c == '-')
+			*c = '_';
+		else if (*c == '.') {
+			*c = '\0';
+			break;
+		}
+	}
+	return name;
+}
+
 static int read_exports(void)
 {
 	const char *symvers = "Module.symvers";
@@ -149,6 +178,9 @@ static int read_exports(void)
 			ERROR_GLIBC("strdup");
 			return -1;
 		}
+
+		if (strcmp(export->mod, "vmlinux"))
+			export->mod = normalize_modname(export->mod);
 
 		export->sym = strdup(sym);
 		if (!export->sym) {
@@ -866,65 +898,6 @@ static int correlate_symbols(struct elfs *e)
 	return 0;
 }
 
-/* "sympos" is used by livepatch to disambiguate duplicate symbol names */
-static unsigned long find_sympos(struct elf *elf, struct symbol *sym)
-{
-	bool vmlinux = str_ends_with(objname, "vmlinux.o");
-	unsigned long sympos = 0, nr_matches = 0;
-	bool has_dup = false;
-	struct symbol *s;
-
-	if (sym->bind != STB_LOCAL)
-		return 0;
-
-	if (vmlinux && is_func_sym(sym)) {
-		/*
-		 * HACK: Unfortunately, symbol ordering can differ between
-		 * vmlinux.o and vmlinux due to the linker script emitting
-		 * .text.unlikely* before .text*.  Count .text.unlikely* first.
-		 *
-		 * TODO: Disambiguate symbols more reliably (checksums?)
-		 */
-		for_each_sym(elf, s) {
-			if (strstarts(s->sec->name, ".text.unlikely") &&
-			    !strcmp(s->name, sym->name)) {
-				nr_matches++;
-				if (s == sym)
-					sympos = nr_matches;
-				else
-					has_dup = true;
-			}
-		}
-		for_each_sym(elf, s) {
-			if (!strstarts(s->sec->name, ".text.unlikely") &&
-			    !strcmp(s->name, sym->name)) {
-				nr_matches++;
-				if (s == sym)
-					sympos = nr_matches;
-				else
-					has_dup = true;
-			}
-		}
-	} else {
-		for_each_sym(elf, s) {
-			if (!strcmp(s->name, sym->name)) {
-				nr_matches++;
-				if (s == sym)
-					sympos = nr_matches;
-				else
-					has_dup = true;
-			}
-		}
-	}
-
-	if (!sympos) {
-		ERROR("can't find sympos for %s", sym->name);
-		return ULONG_MAX;
-	}
-
-	return has_dup ? sympos : 0;
-}
-
 static int clone_sym_relocs(struct elfs *e, struct symbol *patched_sym);
 
 static struct symbol *__clone_symbol(struct elf *elf, struct symbol *patched_sym,
@@ -1158,18 +1131,7 @@ static const char *__find_modname(struct elfs *e)
 		return NULL;
 	}
 
-	for (char *c = name; *c; c++) {
-		if (*c == '/')
-			name = c + 1;
-		else if (*c == '-')
-			*c = '_';
-		else if (*c == '.') {
-			*c = '\0';
-			break;
-		}
-	}
-
-	return name;
+	return normalize_modname(name);
 }
 
 /* Get the object's module name as defined by the kernel (and klp_object) */
@@ -1341,6 +1303,7 @@ static int clone_reloc_klp(struct elfs *e, struct reloc *patched_reloc,
 	s64 addend = reloc_addend(patched_reloc);
 	const char *sym_modname, *sym_orig_name;
 	static struct section *klp_relocs;
+	char tombstone_name[SYM_NAME_LEN];
 	struct symbol *sym, *klp_sym;
 	unsigned long klp_reloc_off;
 	char sym_name[SYM_NAME_LEN];
@@ -1355,15 +1318,22 @@ static int clone_reloc_klp(struct elfs *e, struct reloc *patched_reloc,
 	/*
 	 * Keep the original reloc intact for now to avoid breaking objtool run
 	 * which relies on proper relocations for many of its features.  This
-	 * will be disabled later by "objtool klp post-link".
+	 * reloc now targets a functionally dead tombstone symbol and will be
+	 * disabled later by "objtool klp post-link".
 	 *
-	 * Convert it to UNDEF (and WEAK to avoid modpost warnings).
+	 * Convert the symbol to UNDEF/WEAK and rename to
+	 * .klp.tombstone.sym_name to prevent modpost from printing warnings or
+	 * creating false module dependencies.  The prefix is hidden from the
+	 * objtool run itself by read_symbols().
 	 */
 
 	sym = patched_sym->clone;
 	if (!sym) {
-		/* STB_WEAK: avoid modpost undefined symbol warnings */
-		sym = elf_create_symbol(e->out, patched_sym->name, NULL,
+		if (snprintf_check(tombstone_name, SYM_NAME_LEN,
+				   KLP_TOMBSTONE_PREFIX "%s", patched_sym->name))
+			return -1;
+
+		sym = elf_create_symbol(e->out, tombstone_name, NULL,
 					STB_WEAK, patched_sym->type, 0, 0);
 		if (!sym)
 			return -1;
@@ -1389,7 +1359,7 @@ static int clone_reloc_klp(struct elfs *e, struct reloc *patched_reloc,
 			return -1;
 
 		sym_orig_name = patched_sym->twin->name;
-		sympos = find_sympos(e->orig, patched_sym->twin);
+		sympos = klp_find_sympos(e->orig, patched_sym->twin);
 		if (sympos == ULONG_MAX)
 			return -1;
 	}
@@ -2007,7 +1977,7 @@ static int create_klp_sections(struct elfs *e)
 
 		/* klp_func_ext.sympos */
 		BUILD_BUG_ON(sizeof(sympos) != sizeof_field(struct klp_func_ext, sympos));
-		sympos = find_sympos(e->orig, sym->clone->twin);
+		sympos = klp_find_sympos(e->orig, sym->clone->twin);
 		if (sympos == ULONG_MAX)
 			return -1;
 		memcpy(func_data + offsetof(struct klp_func_ext, sympos), &sympos,
@@ -2159,6 +2129,9 @@ int cmd_klp_diff(int argc, const char **argv)
 	e.out = NULL;
 
 	if (!e.orig || !e.patched)
+		return -1;
+
+	if (klp_sympos_init(e.orig))
 		return -1;
 
 	if (read_exports())
