@@ -212,6 +212,7 @@ struct dml2_core_internal_watermarks {
 	double Z8StutterEnterPlusExitWatermark;
 	double USRRetrainingWatermark;
 	double temp_read_or_ppt_watermark_us;
+	double writeback_temp_read_or_ppt_watermark_us;
 };
 
 struct dml2_core_internal_mode_support_info {
@@ -1269,6 +1270,7 @@ struct dml2_core_calcs_CalculateWatermarksMALLUseAndDRAMSpeedChangeSupport_local
 	double FullDETBufferingTimeC;
 	double WritebackDRAMClockChangeLatencyMargin;
 	double WritebackFCLKChangeLatencyMargin;
+	double WritebackTempReadOrPptLatencyMargin;
 	double WritebackLatencyHiding;
 
 	unsigned int TotalActiveWriteback;
@@ -2329,9 +2331,9 @@ struct dml2_core_calcs_mode_support_ex {
 	const struct dml2_display_cfg *in_display_cfg;
 	const struct dml2_mcg_min_clock_table *min_clk_table;
 	int min_clk_index;
-	enum dml2_project_id project_id;
 	//unsigned int in_state_index;
 	struct dml2_core_internal_mode_support_info *out_evaluation_info;
+	const enum dml2_pstate_method *uclk_pstate_switch_modes;
 };
 
 struct core_display_cfg_support_info;
@@ -2342,7 +2344,6 @@ struct dml2_core_calcs_mode_programming_ex {
 	const struct dml2_mcg_min_clock_table *min_clk_table;
 	const struct core_display_cfg_support_info *cfg_support_info;
 	int min_clk_index;
-	enum dml2_project_id project_id;
 	struct dml2_display_cfg_programming *programming;
 };
 

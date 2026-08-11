@@ -746,6 +746,9 @@ static int ras_eeprom_update_header(struct ras_eeprom_control *control)
 	int res;
 
 	bad_page_count = ras_umc_get_badpage_count(ras_core);
+	ras_core_event_notify(ras_core, RAS_EVENT_ID__UPDATE_BAD_PAGE_NUM,
+			      &bad_page_count);
+
 	/* Modify the header if it exceeds.
 	 */
 	if (threshold_config != 0 &&
@@ -1258,6 +1261,11 @@ int ras_eeprom_check_storage_status(struct ras_core_context *ras_core)
 		} else {
 			RAS_DEV_ERR(ras_core->dev, "RAS records:%d exceed threshold:%d",
 				bad_page_count, control->record_threshold_count);
+			/* send the event when threshold is exceeded, and ignore the
+			 * return value here
+			 */
+			ras_core_event_notify(ras_core, RAS_EVENT_ID__DEVICE_RMA, NULL);
+
 			if ((control->record_threshold_config == WARN_NONSTOP_OVER_THRESHOLD) ||
 				(control->record_threshold_config == NONSTOP_OVER_THRESHOLD)) {
 				RAS_DEV_WARN(ras_core->dev,

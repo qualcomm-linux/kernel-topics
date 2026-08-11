@@ -37,6 +37,7 @@
 #include "dchubbub.h"
 #include "dccg.h"
 #include "abm.h"
+#include "clk_mgr.h"
 #include "dcn10/dcn10_hubbub.h"
 #include "dce/dmub_hw_lock_mgr.h"
 #include "link_service.h"
@@ -1028,20 +1029,20 @@ void hwss_build_fast_sequence(struct dc *dc,
 		current_mpc_pipe = current_pipe;
 		while (current_mpc_pipe) {
 			if (current_mpc_pipe->plane_state) {
-				if (dc->hwss.set_flip_control_gsl && current_mpc_pipe->plane_state->update_flags.raw) {
+				if (dc->hwss.set_flip_control_gsl && dc_pipe_update_bits_is_any_set(&current_mpc_pipe->plane_state->update_bits)) {
 					block_sequence[*num_steps].params.set_flip_control_gsl_params.hubp = current_mpc_pipe->plane_res.hubp;
 					block_sequence[*num_steps].params.set_flip_control_gsl_params.flip_immediate = current_mpc_pipe->plane_state->flip_immediate;
 					block_sequence[*num_steps].func = HUBP_SET_FLIP_CONTROL_GSL;
 					(*num_steps)++;
 				}
-				if (dc->hwss.program_triplebuffer && dc->debug.enable_tri_buf && current_mpc_pipe->plane_state->update_flags.raw) {
+				if (dc->hwss.program_triplebuffer && dc->debug.enable_tri_buf && dc_pipe_update_bits_is_any_set(&current_mpc_pipe->plane_state->update_bits)) {
 					block_sequence[*num_steps].params.program_triplebuffer_params.dc = dc;
 					block_sequence[*num_steps].params.program_triplebuffer_params.pipe_ctx = current_mpc_pipe;
 					block_sequence[*num_steps].params.program_triplebuffer_params.enableTripleBuffer = current_mpc_pipe->plane_state->triplebuffer_flips;
 					block_sequence[*num_steps].func = HUBP_PROGRAM_TRIPLEBUFFER;
 					(*num_steps)++;
 				}
-				if (dc->hwss.update_plane_addr && current_mpc_pipe->plane_state->update_flags.bits.addr_update) {
+				if (dc->hwss.update_plane_addr && current_mpc_pipe->plane_state->update_bits.addr_update) {
 					if (resource_is_pipe_type(current_mpc_pipe, OTG_MASTER) &&
 							stream_status->mall_stream_config.type == SUBVP_MAIN) {
 						block_sequence[*num_steps].params.subvp_save_surf_addr.dc_dmub_srv = dc->ctx->dmub_srv;
@@ -1057,7 +1058,7 @@ void hwss_build_fast_sequence(struct dc *dc,
 					(*num_steps)++;
 				}
 
-				if (hws->funcs.set_input_transfer_func && current_mpc_pipe->plane_state->update_flags.bits.gamma_change) {
+				if (hws->funcs.set_input_transfer_func && current_mpc_pipe->plane_state->update_bits.gamma_change) {
 					block_sequence[*num_steps].params.set_input_transfer_func_params.dc = dc;
 					block_sequence[*num_steps].params.set_input_transfer_func_params.pipe_ctx = current_mpc_pipe;
 					block_sequence[*num_steps].params.set_input_transfer_func_params.plane_state = current_mpc_pipe->plane_state;
@@ -1066,23 +1067,30 @@ void hwss_build_fast_sequence(struct dc *dc,
 				}
 
 				if (dc->hwss.program_gamut_remap &&
-						(current_mpc_pipe->plane_state->update_flags.bits.gamut_remap_change ||
+						(current_mpc_pipe->plane_state->update_bits.gamut_remap_change ||
 						 current_mpc_pipe->stream->update_flags.bits.gamut_remap)) {
-					block_sequence[*num_steps].params.program_gamut_remap_params.pipe_ctx = current_mpc_pipe;
+					struct program_gamut_remap_params *params = &block_sequence[*num_steps].params.program_gamut_remap_params;
+					params->dpp = current_mpc_pipe->plane_res.dpp;
+					params->mpc = dc->res_pool->mpc;
+					params->xfm = current_mpc_pipe->plane_res.xfm;
+					params->mpcc_id = current_mpc_pipe->plane_res.hubp->inst;
+					params->plane = current_mpc_pipe->plane_state;
+					params->stream = current_mpc_pipe->stream;
+					params->is_top_pipe = current_mpc_pipe->top_pipe == NULL;
 					block_sequence[*num_steps].func = DPP_PROGRAM_GAMUT_REMAP;
 					(*num_steps)++;
 				}
-				if (current_mpc_pipe->plane_state->update_flags.bits.input_csc_change) {
+				if (current_mpc_pipe->plane_state->update_bits.input_csc_change) {
 					block_sequence[*num_steps].params.setup_dpp_params.pipe_ctx = current_mpc_pipe;
 					block_sequence[*num_steps].func = DPP_SETUP_DPP;
 					(*num_steps)++;
 				}
-				if (current_mpc_pipe->plane_state->update_flags.bits.coeff_reduction_change) {
+				if (current_mpc_pipe->plane_state->update_bits.coeff_reduction_change) {
 					block_sequence[*num_steps].params.program_bias_and_scale_params.pipe_ctx = current_mpc_pipe;
 					block_sequence[*num_steps].func = DPP_PROGRAM_BIAS_AND_SCALE;
 					(*num_steps)++;
 				}
-				if (current_mpc_pipe->plane_state->update_flags.bits.cm_hist_change) {
+				if (current_mpc_pipe->plane_state->update_bits.cm_hist_change) {
 					block_sequence[*num_steps].params.control_cm_hist_params.dpp
 						= current_mpc_pipe->plane_res.dpp;
 					block_sequence[*num_steps].params.control_cm_hist_params.cm_hist_control
@@ -1095,7 +1103,7 @@ void hwss_build_fast_sequence(struct dc *dc,
 
 				if (current_mpc_pipe->plane_res.dpp &&
 						current_mpc_pipe->plane_res.dpp->funcs->set_cursor_matrix &&
-						current_mpc_pipe->plane_state->update_flags.bits.cursor_csc_color_matrix_change) {
+						current_mpc_pipe->plane_state->update_bits.cursor_csc_color_matrix_change) {
 					block_sequence[*num_steps].params.dpp_set_cursor_matrix_params.dpp = current_mpc_pipe->plane_res.dpp;
 					block_sequence[*num_steps].params.dpp_set_cursor_matrix_params.color_space = current_mpc_pipe->plane_state->color_space;
 					block_sequence[*num_steps].params.dpp_set_cursor_matrix_params.cursor_csc_color_matrix = &current_mpc_pipe->plane_state->cursor_csc_color_matrix;
@@ -1104,9 +1112,15 @@ void hwss_build_fast_sequence(struct dc *dc,
 				}
 			}
 			if (hws->funcs.set_output_transfer_func && current_mpc_pipe->stream->update_flags.bits.out_tf) {
-				block_sequence[*num_steps].params.set_output_transfer_func_params.dc = dc;
-				block_sequence[*num_steps].params.set_output_transfer_func_params.pipe_ctx = current_mpc_pipe;
-				block_sequence[*num_steps].params.set_output_transfer_func_params.stream = current_mpc_pipe->stream;
+				struct set_output_transfer_func_params *otf_params =
+					&block_sequence[*num_steps].params.set_output_transfer_func_params;
+
+				otf_params->dpp = current_mpc_pipe->plane_res.dpp;
+				otf_params->xfm = current_mpc_pipe->plane_res.xfm;
+				otf_params->mpc = dc->res_pool->mpc;
+				otf_params->mpcc_id = current_mpc_pipe->plane_res.hubp->inst;
+				otf_params->is_top_pipe = resource_is_pipe_type(current_mpc_pipe, OPP_HEAD);
+				otf_params->stream = current_mpc_pipe->stream;
 				block_sequence[*num_steps].func = DPP_SET_OUTPUT_TRANSFER_FUNC;
 				(*num_steps)++;
 			}
@@ -1176,7 +1190,7 @@ void hwss_build_fast_sequence(struct dc *dc,
 		while (current_mpc_pipe) {
 			if (!current_mpc_pipe->bottom_pipe && !current_mpc_pipe->next_odm_pipe &&
 					current_mpc_pipe->stream && current_mpc_pipe->plane_state &&
-					current_mpc_pipe->plane_state->update_flags.bits.addr_update &&
+					current_mpc_pipe->plane_state->update_bits.addr_update &&
 					!current_mpc_pipe->plane_state->skip_manual_trigger) {
 				if (dc->hwss.program_cursor_offload_now) {
 					block_sequence[*num_steps].params.program_cursor_update_now_params.dc = dc;
@@ -1235,7 +1249,8 @@ void hwss_execute_sequence(struct dc *dc,
 					params->set_input_transfer_func_params.plane_state);
 			break;
 		case DPP_PROGRAM_GAMUT_REMAP:
-			hwss_program_gamut_remap(params);
+			if (dc->hwss.program_gamut_remap)
+				dc->hwss.program_gamut_remap(&params->program_gamut_remap_params);
 			break;
 		case HUBP_ENABLE_3DLUT_FL:
 			hwss_hubp_enable_3dlut_fl(params);
@@ -1262,9 +1277,7 @@ void hwss_execute_sequence(struct dc *dc,
 			hwss_program_manual_trigger(params);
 			break;
 		case DPP_SET_OUTPUT_TRANSFER_FUNC:
-			hws->funcs.set_output_transfer_func(params->set_output_transfer_func_params.dc,
-					params->set_output_transfer_func_params.pipe_ctx,
-					params->set_output_transfer_func_params.stream);
+			hws->funcs.set_output_transfer_func(&params->set_output_transfer_func_params);
 			break;
 		case MPC_UPDATE_VISUAL_CONFIRM:
 			dc->hwss.update_visual_confirm_color(params->update_visual_confirm_params.dc,
@@ -1482,6 +1495,48 @@ void hwss_execute_sequence(struct dc *dc,
 		case HUBBUB_SOFT_RESET:
 			hwss_hubbub_soft_reset(params);
 			break;
+		case HUBBUB_PERFMON_RESET:
+			hwss_hubbub_perfmon_reset(params);
+			break;
+		case HUBBUB_PERFMON_ARM_OUT_OF_ORDER_BW:
+			hwss_hubbub_perfmon_arm_out_of_order_bw(params);
+			break;
+		case HUBBUB_PERFMON_START_OUT_OF_ORDER_BW:
+			hwss_hubbub_perfmon_start_out_of_order_bw(params);
+			break;
+		case HUBBUB_PERFMON_START_IN_ORDER_BW:
+			hwss_hubbub_perfmon_start_in_order_bw(params);
+			break;
+		case HUBBUB_PERFMON_START_MEMORY_LATENCIES:
+			hwss_hubbub_perfmon_start_memory_latencies(params);
+			break;
+		case HUBBUB_PERFMON_START_URGENT_ASSERTION_COUNT:
+			hwss_hubbub_perfmon_start_urgent_assertion_count(params);
+			break;
+		case HUBBUB_PERFMON_START_URGENT_RAMP_LATENCY:
+			hwss_hubbub_perfmon_start_urgent_ramp_latency(params);
+			break;
+		case HUBBUB_PERFMON_START_PREFETCH_DATA_SIZE:
+			hwss_hubbub_perfmon_start_prefetch_data_size(params);
+			break;
+		case HUBBUB_PERFMON_GET_OUT_OF_ORDER_BW:
+			hwss_hubbub_perfmon_get_out_of_order_bw(params);
+			break;
+		case HUBBUB_PERFMON_GET_IN_ORDER_BW:
+			hwss_hubbub_perfmon_get_in_order_bw(params);
+			break;
+		case HUBBUB_PERFMON_GET_MEMORY_LATENCIES:
+			hwss_hubbub_perfmon_get_memory_latencies(params);
+			break;
+		case HUBBUB_PERFMON_GET_URGENT_ASSERTION_COUNT:
+			hwss_hubbub_perfmon_get_urgent_assertion_count(params);
+			break;
+		case HUBBUB_PERFMON_GET_PREFETCH_DATA_SIZE:
+			hwss_hubbub_perfmon_get_prefetch_data_size(params);
+			break;
+		case HUBBUB_PERFMON_GET_URGENT_RAMP_LATENCY:
+			hwss_hubbub_perfmon_get_urgent_ramp_latency(params);
+			break;
 		case HUBP_CLK_CNTL:
 			hwss_hubp_clk_cntl(params);
 			break;
@@ -1668,6 +1723,21 @@ void hwss_execute_sequence(struct dc *dc,
 		case LINK_SET_DPMS_ON:
 			hwss_link_set_dpms_on(params);
 			break;
+		case CLK_MGR_SET_MAX_MEMCLK:
+			hwss_clk_mgr_set_max_memclk(params);
+			break;
+		case CLK_MGR_UPDATE_CLOCKS:
+			hwss_clk_mgr_update_clocks(params);
+			break;
+		case HUBBUB_PROGRAM_WATERMARKS:
+			hwss_hubbub_program_watermarks(params);
+			break;
+		case HUBBUB_PROGRAM_ARBITER:
+			hwss_hubbub_program_arbiter(params);
+			break;
+		case HUBBUB_PROGRAM_COMPBUF_SEGMENTS:
+			hwss_hubbub_program_compbuf_segments(params);
+			break;
 		default:
 			ASSERT(false);
 			break;
@@ -1763,7 +1833,14 @@ void hwss_add_dpp_program_gamut_remap(struct block_sequence_state *seq_state,
 		struct pipe_ctx *pipe_ctx)
 {
 	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
-		seq_state->steps[*seq_state->num_steps].params.program_gamut_remap_params.pipe_ctx = pipe_ctx;
+		struct program_gamut_remap_params *params = &seq_state->steps[*seq_state->num_steps].params.program_gamut_remap_params;
+		params->xfm = pipe_ctx->plane_res.xfm;
+		params->dpp = pipe_ctx->plane_res.dpp;
+		params->mpc = pipe_ctx->stream->ctx->dc->res_pool->mpc;
+		params->mpcc_id = pipe_ctx->plane_res.hubp->inst;
+		params->plane = pipe_ctx->plane_state;
+		params->stream = pipe_ctx->stream;
+		params->is_top_pipe = pipe_ctx->top_pipe == NULL;
 		seq_state->steps[*seq_state->num_steps].func = DPP_PROGRAM_GAMUT_REMAP;
 		(*seq_state->num_steps)++;
 	}
@@ -1798,16 +1875,36 @@ void hwss_add_optc_program_manual_trigger(struct block_sequence_state *seq_state
  * Helper function to add DPP set output transfer function to block sequence
  */
 void hwss_add_dpp_set_output_transfer_func(struct block_sequence_state *seq_state,
-		struct dc *dc,
-		struct pipe_ctx *pipe_ctx,
-		struct dc_stream_state *stream)
+		struct dc *dc, struct pipe_ctx *pipe_ctx)
 {
 	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
-		seq_state->steps[*seq_state->num_steps].params.set_output_transfer_func_params.dc = dc;
-		seq_state->steps[*seq_state->num_steps].params.set_output_transfer_func_params.pipe_ctx = pipe_ctx;
-		seq_state->steps[*seq_state->num_steps].params.set_output_transfer_func_params.stream = stream;
+		seq_state->steps[*seq_state->num_steps].params.set_output_transfer_func_params =
+		(struct set_output_transfer_func_params) {
+			.xfm = pipe_ctx->plane_res.xfm,
+			.dpp = pipe_ctx->plane_res.dpp,
+			.mpc = dc->res_pool->mpc,
+			.mpcc_id = pipe_ctx->plane_res.hubp->inst,
+			.is_top_pipe = resource_is_pipe_type(pipe_ctx, OPP_HEAD),
+			.stream = pipe_ctx->stream,
+		};
 		seq_state->steps[*seq_state->num_steps].func = DPP_SET_OUTPUT_TRANSFER_FUNC;
 		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_set_output_transfer_func(struct dc *dc, struct pipe_ctx *pipe_ctx)
+{
+	if (dc->hwseq->funcs.set_output_transfer_func) {
+		dc->hwseq->funcs.set_output_transfer_func(
+			&(struct set_output_transfer_func_params) {
+				.xfm = pipe_ctx->plane_res.xfm,
+				.dpp = pipe_ctx->plane_res.dpp,
+				.mpc = dc->res_pool->mpc,
+				.mpcc_id = pipe_ctx->plane_res.hubp->inst,
+				.is_top_pipe = resource_is_pipe_type(pipe_ctx, OPP_HEAD),
+				.stream = pipe_ctx->stream,
+			}
+		);
 	}
 }
 
@@ -3196,6 +3293,139 @@ void hwss_hubbub_soft_reset(union block_sequence_params *params)
 		params->hubbub_soft_reset_params.hubbub_soft_reset(hubbub, reset);
 }
 
+void hwss_hubbub_perfmon_reset(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_reset_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.reset)
+		hubbub->funcs->perfmon.reset(hubbub);
+}
+
+void hwss_hubbub_perfmon_arm_out_of_order_bw(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_arm_out_of_order_bw_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.arm_measuring_out_of_order_bandwidth)
+		hubbub->funcs->perfmon.arm_measuring_out_of_order_bandwidth(hubbub);
+}
+
+void hwss_hubbub_perfmon_start_out_of_order_bw(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_start_out_of_order_bw_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.start_measuring_out_of_order_bandwidth)
+		hubbub->funcs->perfmon.start_measuring_out_of_order_bandwidth(hubbub);
+}
+
+void hwss_hubbub_perfmon_start_in_order_bw(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_start_in_order_bw_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.start_measuring_in_order_bandwidth)
+		hubbub->funcs->perfmon.start_measuring_in_order_bandwidth(hubbub);
+}
+
+void hwss_hubbub_perfmon_start_memory_latencies(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_start_memory_latencies_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.start_measuring_memory_latencies)
+		hubbub->funcs->perfmon.start_measuring_memory_latencies(hubbub);
+}
+
+void hwss_hubbub_perfmon_start_urgent_assertion_count(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_start_urgent_assertion_count_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.start_measuring_urgent_assertion_count)
+		hubbub->funcs->perfmon.start_measuring_urgent_assertion_count(hubbub);
+}
+
+void hwss_hubbub_perfmon_start_urgent_ramp_latency(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_start_urgent_ramp_latency_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.start_measuring_urgent_ramp_latency)
+		hubbub->funcs->perfmon.start_measuring_urgent_ramp_latency(
+				hubbub,
+				&params->hubbub_perfmon_start_urgent_ramp_latency_params.latency_params);
+}
+
+void hwss_hubbub_perfmon_start_prefetch_data_size(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_start_prefetch_data_size_params.hubbub;
+
+	if (hubbub && hubbub->funcs->perfmon.start_measuring_prefetch_data_size)
+		hubbub->funcs->perfmon.start_measuring_prefetch_data_size(hubbub);
+}
+
+void hwss_hubbub_perfmon_get_out_of_order_bw(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_get_out_of_order_bw_params.hubbub;
+	uint32_t refclk_mhz  = params->hubbub_perfmon_get_out_of_order_bw_params.refclk_mhz;
+	uint32_t *mbps       = params->hubbub_perfmon_get_out_of_order_bw_params.bandwidth_mbps;
+	uint32_t *duration   = params->hubbub_perfmon_get_out_of_order_bw_params.duration_ns;
+
+	if (hubbub && hubbub->funcs->perfmon.get_out_of_order_bandwidth_mbps && mbps)
+		*mbps = hubbub->funcs->perfmon.get_out_of_order_bandwidth_mbps(
+				hubbub, refclk_mhz, duration);
+}
+
+void hwss_hubbub_perfmon_get_in_order_bw(union block_sequence_params *params)
+{
+	struct hubbub *hubbub     = params->hubbub_perfmon_get_in_order_bw_params.hubbub;
+	uint32_t refclk_mhz       = params->hubbub_perfmon_get_in_order_bw_params.refclk_mhz;
+	uint32_t min_duration_ns  = params->hubbub_perfmon_get_in_order_bw_params.min_duration_ns;
+	uint32_t *mbps            = params->hubbub_perfmon_get_in_order_bw_params.bandwidth_mbps;
+	uint32_t *duration        = params->hubbub_perfmon_get_in_order_bw_params.duration_ns;
+
+	if (hubbub && hubbub->funcs->perfmon.get_in_order_bandwidth_mbps && mbps)
+		*mbps = hubbub->funcs->perfmon.get_in_order_bandwidth_mbps(
+				hubbub, refclk_mhz, min_duration_ns, duration);
+}
+
+void hwss_hubbub_perfmon_get_memory_latencies(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_get_memory_latencies_params.hubbub;
+	uint32_t refclk_mhz  = params->hubbub_perfmon_get_memory_latencies_params.refclk_mhz;
+	struct dc_probe_latencies *result = params->hubbub_perfmon_get_memory_latencies_params.result;
+
+	if (hubbub && hubbub->funcs->perfmon.get_memory_latencies_ns && result)
+		hubbub->funcs->perfmon.get_memory_latencies_ns(
+				hubbub, refclk_mhz, &result->min_latency_ns, &result->max_latency_ns, &result->avg_latency_ns);
+}
+
+void hwss_hubbub_perfmon_get_urgent_assertion_count(union block_sequence_params *params)
+{
+	struct hubbub *hubbub   = params->hubbub_perfmon_get_urgent_assertion_count_params.hubbub;
+	uint32_t refclk_mhz    = params->hubbub_perfmon_get_urgent_assertion_count_params.refclk_mhz;
+	uint32_t *count         = params->hubbub_perfmon_get_urgent_assertion_count_params.assertion_count;
+
+	if (hubbub && hubbub->funcs->perfmon.get_urgent_assertion_count)
+		hubbub->funcs->perfmon.get_urgent_assertion_count(
+				hubbub, refclk_mhz, count, NULL, NULL);
+}
+
+void hwss_hubbub_perfmon_get_prefetch_data_size(union block_sequence_params *params)
+{
+	struct hubbub *hubbub     = params->hubbub_perfmon_get_prefetch_data_size_params.hubbub;
+	uint32_t *prefetch_size   = params->hubbub_perfmon_get_prefetch_data_size_params.prefetch_data_size;
+
+	if (hubbub && hubbub->funcs->perfmon.get_prefetch_data_size && prefetch_size)
+		*prefetch_size = hubbub->funcs->perfmon.get_prefetch_data_size(hubbub);
+}
+
+void hwss_hubbub_perfmon_get_urgent_ramp_latency(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_perfmon_get_urgent_ramp_latency_params.hubbub;
+	uint32_t refclk_mhz  = params->hubbub_perfmon_get_urgent_ramp_latency_params.refclk_mhz;
+	uint32_t *latency_ns = params->hubbub_perfmon_get_urgent_ramp_latency_params.latency_ns;
+
+	if (hubbub && hubbub->funcs->perfmon.get_urgent_ramp_latency_ns && latency_ns)
+		*latency_ns = hubbub->funcs->perfmon.get_urgent_ramp_latency_ns(
+				hubbub, refclk_mhz);
+}
+
 void hwss_hubp_clk_cntl(union block_sequence_params *params)
 {
 	struct hubp *hubp = params->hubp_clk_cntl_params.hubp;
@@ -3601,12 +3831,20 @@ void hwss_set_cursor_sdr_white_level(union block_sequence_params *params)
 		dc->hwss.set_cursor_sdr_white_level(pipe_ctx);
 }
 
-void hwss_program_gamut_remap(union block_sequence_params *params)
+void hwss_program_gamut_remap(struct pipe_ctx *pipe_ctx)
 {
-	struct dc *dc = params->program_gamut_remap_params.pipe_ctx->stream->ctx->dc;
+	struct dc *dc = pipe_ctx->stream->ctx->dc;
 
-	if (dc && dc->hwss.program_gamut_remap)
-		dc->hwss.program_gamut_remap(params->program_gamut_remap_params.pipe_ctx);
+	if (dc->hwss.program_gamut_remap)
+		dc->hwss.program_gamut_remap(&(struct program_gamut_remap_params) {
+			.xfm = pipe_ctx->plane_res.xfm,
+			.dpp = pipe_ctx->plane_res.dpp,
+			.mpc = dc->res_pool->mpc,
+			.mpcc_id = pipe_ctx->plane_res.hubp->inst,
+			.stream = pipe_ctx->stream,
+			.plane = pipe_ctx->plane_state,
+			.is_top_pipe = pipe_ctx->top_pipe == NULL,
+		});
 }
 
 void hwss_program_output_csc(union block_sequence_params *params)
@@ -3847,6 +4085,70 @@ void hwss_dsc_set_config_simple(union block_sequence_params *params)
 
 	if (dsc && dsc->funcs && dsc->funcs->dsc_set_config)
 		dsc->funcs->dsc_set_config(dsc, dsc_cfg, dsc_optc_cfg);
+}
+
+/*
+ * Clock manager executor functions
+ */
+void hwss_clk_mgr_set_max_memclk(union block_sequence_params *params)
+{
+	struct clk_mgr *clk_mgr = params->clk_mgr_set_max_memclk_params.clk_mgr;
+	unsigned int memclk_mhz = params->clk_mgr_set_max_memclk_params.memclk_mhz;
+
+	if (clk_mgr && clk_mgr->funcs && clk_mgr->funcs->set_max_memclk)
+		clk_mgr->funcs->set_max_memclk(clk_mgr, memclk_mhz);
+}
+
+void hwss_clk_mgr_update_clocks(union block_sequence_params *params)
+{
+	struct clk_mgr *clk_mgr = params->clk_mgr_update_clocks_params.clk_mgr;
+
+	if (clk_mgr && clk_mgr->funcs && clk_mgr->funcs->execute_clk_mgr_block_sequence)
+		clk_mgr->funcs->execute_clk_mgr_block_sequence(clk_mgr);
+}
+
+/*
+ * Hubbub executor functions
+ */
+void hwss_hubbub_program_watermarks(union block_sequence_params *params)
+{
+	struct dc *dc = params->hubbub_program_watermarks_params.dc;
+	struct hubbub *hubbub = params->hubbub_program_watermarks_params.hubbub;
+	union dcn_watermark_set *watermarks = params->hubbub_program_watermarks_params.watermarks;
+	unsigned int refclk_mhz = params->hubbub_program_watermarks_params.refclk_mhz;
+	bool safe_to_lower = params->hubbub_program_watermarks_params.safe_to_lower;
+
+	if (hubbub && hubbub->funcs && hubbub->funcs->program_watermarks) {
+		bool wm_changed = hubbub->funcs->program_watermarks(hubbub, watermarks, refclk_mhz, safe_to_lower);
+
+		if (dc && !safe_to_lower)
+			dc->optimized_required |= wm_changed;
+	}
+}
+
+void hwss_hubbub_program_arbiter(union block_sequence_params *params)
+{
+	struct dc *dc = params->hubbub_program_arbiter_params.dc;
+	struct hubbub *hubbub = params->hubbub_program_arbiter_params.hubbub;
+	struct dml2_display_arb_regs *arb_regs = params->hubbub_program_arbiter_params.arb_regs;
+	bool safe_to_lower = params->hubbub_program_arbiter_params.safe_to_lower;
+
+	if (hubbub && hubbub->funcs && hubbub->funcs->program_arbiter) {
+		bool arb_changed = hubbub->funcs->program_arbiter(hubbub, arb_regs, safe_to_lower);
+
+		if (dc && !safe_to_lower)
+			dc->optimized_required |= arb_changed;
+	}
+}
+
+void hwss_hubbub_program_compbuf_segments(union block_sequence_params *params)
+{
+	struct hubbub *hubbub = params->hubbub_program_compbuf_segments_params.hubbub;
+	unsigned int compbuf_size = params->hubbub_program_compbuf_segments_params.compbuf_size;
+	bool safe_to_lower = params->hubbub_program_compbuf_segments_params.safe_to_lower;
+
+	if (hubbub && hubbub->funcs && hubbub->funcs->program_compbuf_segments)
+		hubbub->funcs->program_compbuf_segments(hubbub, compbuf_size, safe_to_lower);
 }
 
 void hwss_add_dccg_set_dto_dscclk(struct block_sequence_state *seq_state,
@@ -4291,6 +4593,168 @@ void hwss_add_hubbub_soft_reset(struct block_sequence_state *seq_state,
 		seq_state->steps[*seq_state->num_steps].params.hubbub_soft_reset_params.hubbub = hubbub;
 		seq_state->steps[*seq_state->num_steps].params.hubbub_soft_reset_params.hubbub_soft_reset = hubbub_soft_reset;
 		seq_state->steps[*seq_state->num_steps].params.hubbub_soft_reset_params.reset = reset;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_reset(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_RESET;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_reset_params.hubbub = hubbub;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_arm_out_of_order_bw(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_ARM_OUT_OF_ORDER_BW;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_arm_out_of_order_bw_params.hubbub = hubbub;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_start_out_of_order_bw(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_START_OUT_OF_ORDER_BW;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_start_out_of_order_bw_params.hubbub = hubbub;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_start_in_order_bw(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_START_IN_ORDER_BW;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_start_in_order_bw_params.hubbub = hubbub;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_start_memory_latencies(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_START_MEMORY_LATENCIES;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_start_memory_latencies_params.hubbub = hubbub;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_start_urgent_assertion_count(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_START_URGENT_ASSERTION_COUNT;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_start_urgent_assertion_count_params.hubbub = hubbub;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_start_urgent_ramp_latency(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub,
+		const struct hubbub_urgent_latency_params *latency_params)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_START_URGENT_RAMP_LATENCY;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_start_urgent_ramp_latency_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_start_urgent_ramp_latency_params.latency_params =
+				*latency_params;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_start_prefetch_data_size(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_START_PREFETCH_DATA_SIZE;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_start_prefetch_data_size_params.hubbub = hubbub;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_get_out_of_order_bw(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub, uint32_t refclk_mhz,
+		uint32_t *bandwidth_mbps, uint32_t *duration_ns)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_GET_OUT_OF_ORDER_BW;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_out_of_order_bw_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_out_of_order_bw_params.refclk_mhz = refclk_mhz;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_out_of_order_bw_params.bandwidth_mbps = bandwidth_mbps;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_out_of_order_bw_params.duration_ns = duration_ns;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_get_in_order_bw(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub, uint32_t refclk_mhz, uint32_t min_duration_ns,
+		uint32_t *bandwidth_mbps, uint32_t *duration_ns)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_GET_IN_ORDER_BW;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_in_order_bw_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_in_order_bw_params.refclk_mhz = refclk_mhz;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_in_order_bw_params.min_duration_ns = min_duration_ns;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_in_order_bw_params.bandwidth_mbps = bandwidth_mbps;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_in_order_bw_params.duration_ns = duration_ns;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_get_memory_latencies(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub, uint32_t refclk_mhz,
+		struct dc_probe_latencies *result)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_GET_MEMORY_LATENCIES;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_memory_latencies_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_memory_latencies_params.refclk_mhz = refclk_mhz;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_memory_latencies_params.result = result;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_get_urgent_assertion_count(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub, uint32_t refclk_mhz,
+		uint32_t *assertion_count)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_GET_URGENT_ASSERTION_COUNT;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_urgent_assertion_count_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_urgent_assertion_count_params.refclk_mhz = refclk_mhz;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_urgent_assertion_count_params.assertion_count = assertion_count;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_get_prefetch_data_size(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub, uint32_t *prefetch_data_size)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_GET_PREFETCH_DATA_SIZE;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_prefetch_data_size_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_prefetch_data_size_params.prefetch_data_size = prefetch_data_size;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_perfmon_get_urgent_ramp_latency(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub, uint32_t refclk_mhz,
+		uint32_t *latency_ns)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PERFMON_GET_URGENT_RAMP_LATENCY;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_urgent_ramp_latency_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_urgent_ramp_latency_params.refclk_mhz = refclk_mhz;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_perfmon_get_urgent_ramp_latency_params.latency_ns = latency_ns;
 		(*seq_state->num_steps)++;
 	}
 }
@@ -4909,12 +5373,37 @@ void hwss_add_hpo_dp_stream_enc_update_dp_info_packets_sdp_line_num(struct block
 	}
 }
 
+/*
+ * Clock manager helper functions
+ */
 void hwss_add_hpo_dp_stream_enc_update_dp_info_packets(struct block_sequence_state *seq_state,
 		struct pipe_ctx *pipe_ctx)
 {
 	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
 		seq_state->steps[*seq_state->num_steps].func = HPO_DP_STREAM_ENC_UPDATE_DP_INFO_PACKETS;
 		seq_state->steps[*seq_state->num_steps].params.hpo_dp_stream_enc_update_dp_info_packets_params.pipe_ctx = pipe_ctx;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_clk_mgr_set_max_memclk(struct block_sequence_state *seq_state,
+		struct clk_mgr *clk_mgr,
+		unsigned int memclk_mhz)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = CLK_MGR_SET_MAX_MEMCLK;
+		seq_state->steps[*seq_state->num_steps].params.clk_mgr_set_max_memclk_params.clk_mgr = clk_mgr;
+		seq_state->steps[*seq_state->num_steps].params.clk_mgr_set_max_memclk_params.memclk_mhz = memclk_mhz;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_clk_mgr_update_clocks(struct block_sequence_state *seq_state,
+		struct clk_mgr *clk_mgr)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = CLK_MGR_UPDATE_CLOCKS;
+		seq_state->steps[*seq_state->num_steps].params.clk_mgr_update_clocks_params.clk_mgr = clk_mgr;
 		(*seq_state->num_steps)++;
 	}
 }
@@ -5022,6 +5511,26 @@ void hwss_add_setup_periodic_interrupt(struct block_sequence_state *seq_state,
 		(*seq_state->num_steps)++;
 	}
 }
+/*
+ * Hubbub helper functions
+ */
+void hwss_add_hubbub_program_watermarks(struct block_sequence_state *seq_state,
+		struct dc *dc,
+		struct hubbub *hubbub,
+		union dcn_watermark_set *watermarks,
+		unsigned int refclk_mhz,
+		bool safe_to_lower)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PROGRAM_WATERMARKS;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_watermarks_params.dc = dc;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_watermarks_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_watermarks_params.watermarks = watermarks;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_watermarks_params.refclk_mhz = refclk_mhz;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_watermarks_params.safe_to_lower = safe_to_lower;
+		(*seq_state->num_steps)++;
+	}
+}
 
 void hwss_add_dp_trace_source_sequence(struct block_sequence_state *seq_state,
 		struct dc_link *link,
@@ -5031,6 +5540,22 @@ void hwss_add_dp_trace_source_sequence(struct block_sequence_state *seq_state,
 		seq_state->steps[*seq_state->num_steps].func = DP_TRACE_SOURCE_SEQUENCE;
 		seq_state->steps[*seq_state->num_steps].params.dp_trace_source_sequence_params.link = link;
 		seq_state->steps[*seq_state->num_steps].params.dp_trace_source_sequence_params.source = source;
+		(*seq_state->num_steps)++;
+	}
+}
+
+void hwss_add_hubbub_program_arbiter(struct block_sequence_state *seq_state,
+		struct dc *dc,
+		struct hubbub *hubbub,
+		struct dml2_display_arb_regs *arb_regs,
+		bool safe_to_lower)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PROGRAM_ARBITER;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_arbiter_params.dc = dc;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_arbiter_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_arbiter_params.arb_regs = arb_regs;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_arbiter_params.safe_to_lower = safe_to_lower;
 		(*seq_state->num_steps)++;
 	}
 }
@@ -5116,6 +5641,19 @@ void hwss_add_disable_audio_stream(struct block_sequence_state *seq_state,
 	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
 		seq_state->steps[*seq_state->num_steps].func = DISABLE_AUDIO_STREAM;
 		seq_state->steps[*seq_state->num_steps].params.disable_audio_stream_params.pipe_ctx = pipe_ctx;
+		(*seq_state->num_steps)++;
+	}
+}
+void hwss_add_hubbub_program_compbuf_segments(struct block_sequence_state *seq_state,
+		struct hubbub *hubbub,
+		unsigned int compbuf_size,
+		bool safe_to_lower)
+{
+	if (*seq_state->num_steps < MAX_HWSS_BLOCK_SEQUENCE_SIZE) {
+		seq_state->steps[*seq_state->num_steps].func = HUBBUB_PROGRAM_COMPBUF_SEGMENTS;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_compbuf_segments_params.hubbub = hubbub;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_compbuf_segments_params.compbuf_size = compbuf_size;
+		seq_state->steps[*seq_state->num_steps].params.hubbub_program_compbuf_segments_params.safe_to_lower = safe_to_lower;
 		(*seq_state->num_steps)++;
 	}
 }
