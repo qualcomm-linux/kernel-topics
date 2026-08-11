@@ -294,7 +294,7 @@ struct exfat_inode_info {
 	/* on-disk position of directory entry or 0 */
 	loff_t i_pos;
 	loff_t valid_size;
-	/* page-aligned size that has been zeroed out for mmap */
+	/* block-aligned size zeroed in the page cache (>= valid_size) */
 	loff_t zeroed_size;
 	/* hash by i_location */
 	struct hlist_node i_hash_fat;
@@ -487,10 +487,10 @@ static inline u32 exfat_dentries_to_bytes(u32 dentry)
 /*
  * helpers for cluster size to dentry size conversion.
  */
-static inline u32 exfat_cluster_to_dentries(struct exfat_sb_info *sbi,
+static inline u64 exfat_cluster_to_dentries(struct exfat_sb_info *sbi,
 		u32 nr_clusters)
 {
-	return nr_clusters << (sbi->cluster_size_bits - DENTRY_SIZE_BITS);
+	return (u64)nr_clusters << (sbi->cluster_size_bits - DENTRY_SIZE_BITS);
 }
 
 static inline u32 exfat_dentries_to_cluster(struct exfat_sb_info *sbi,
