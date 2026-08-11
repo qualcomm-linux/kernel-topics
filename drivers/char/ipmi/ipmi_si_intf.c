@@ -39,6 +39,7 @@
 #include <linux/rcupdate.h>
 #include <linux/ipmi.h>
 #include <linux/ipmi_smi.h>
+#include <linux/async.h>
 #include "ipmi_si.h"
 #include "ipmi_si_sm.h"
 #include <linux/string.h>
@@ -2174,6 +2175,17 @@ static bool __init ipmi_smi_info_same(struct smi_info *e1, struct smi_info *e2)
 		e1->io.addr_data == e2->io.addr_data);
 }
 
+static ASYNC_DOMAIN_EXCLUSIVE(ipmi_si_async_domain);
+
+static void __init async_try_smi_init(void *data, async_cookie_t cookie)
+{
+	struct smi_info *smi = data;
+
+	mutex_lock(&smi_infos_lock);
+	try_smi_init(smi);
+	mutex_unlock(&smi_infos_lock);
+}
+
 static int __init init_ipmi_si(void)
 {
 	struct smi_info *e, *e2;
@@ -2219,8 +2231,13 @@ static int __init init_ipmi_si(void)
 				break;
 			}
 		}
-		if (!dup)
-			try_smi_init(e);
+		if (!dup) {
+			if (IS_ENABLED(CONFIG_IPMI_SI_ASYNC_INIT))
+				async_schedule_domain(async_try_smi_init, e,
+						      &ipmi_si_async_domain);
+			else
+				try_smi_init(e);
+		}
 	}
 
 	/*
@@ -2253,8 +2270,13 @@ static int __init init_ipmi_si(void)
 				break;
 			}
 		}
-		if (!dup)
-			try_smi_init(e);
+		if (!dup) {
+			if (IS_ENABLED(CONFIG_IPMI_SI_ASYNC_INIT))
+				async_schedule_domain(async_try_smi_init, e,
+						      &ipmi_si_async_domain);
+			else
+				try_smi_init(e);
+		}
 	}
 
 	initialized = true;
@@ -2400,6 +2422,8 @@ static void cleanup_ipmi_si(void)
 
 	if (!initialized)
 		return;
+
+	async_synchronize_full_domain(&ipmi_si_async_domain);
 
 	ipmi_si_pci_shutdown();
 
