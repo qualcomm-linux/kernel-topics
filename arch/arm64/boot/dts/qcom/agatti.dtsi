@@ -2013,7 +2013,7 @@
 			power-domain-names = "camss",
 					     "cx";
 
-			status = "disabled";
+			status = "okay";
 
 			ope_opp_table: opp-table {
 				compatible = "operating-points-v2";
