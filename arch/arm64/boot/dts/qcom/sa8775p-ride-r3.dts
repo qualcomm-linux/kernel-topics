@@ -15,3 +15,11 @@
 	model = "Qualcomm SA8775P Ride Rev3";
 	compatible = "qcom,sa8775p-ride-r3", "qcom,sa8775p";
 };
+
+&pcie0_phy {
+	vdda-refgen-supply = <&vreg_l7a>;
+};
+
+&pcie1_phy {
+	vdda-refgen-supply = <&vreg_l7a>;
+};

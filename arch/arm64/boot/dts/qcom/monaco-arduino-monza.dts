@@ -475,3 +475,13 @@
 
 	status = "okay";
 };
+
+&pcie0_phy {
+	vdda-qref-supply = <&vreg_l4a>;
+	vdda-refgen-supply = <&vreg_l7a>;
+};
+
+&pcie1_phy {
+	vdda-qref-supply = <&vreg_l4a>;
+	vdda-refgen-supply = <&vreg_l7a>;
+};

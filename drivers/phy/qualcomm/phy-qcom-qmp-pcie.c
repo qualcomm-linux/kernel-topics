@@ -3492,6 +3492,10 @@ static const char * const sa8775p_qmp_phy_vreg_l[] = {
 	"vdda-phy", "vdda-pll", "vdda-qref", "vdda-refgen",
 };
 
+static const char * const sa8775p_qmp_phy_vreg_l[] = {
+	"vdda-phy", "vdda-pll", "vdda-qref", "vdda-refgen", "refgen",
+};
+
 /* list of resets */
 static const char * const ipq8074_pciephy_reset_l[] = {
 	"phy", "common",
