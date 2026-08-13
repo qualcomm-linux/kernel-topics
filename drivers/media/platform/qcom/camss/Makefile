@@ -34,3 +34,5 @@ qcom-camss-objs += \
 		camss-video.o
 
 obj-$(CONFIG_VIDEO_QCOM_CAMSS) += qcom-camss.o
+
+obj-$(CONFIG_VIDEO_QCOM_CAMSS_OPE) += ope/
