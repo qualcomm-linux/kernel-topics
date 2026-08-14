@@ -400,11 +400,11 @@ static void tas2781_hda_playback_hook(struct device *dev, int action)
 		pm_runtime_get_sync(dev);
 		guard(mutex)(&tas_priv->codec_lock);
 		if (tas_priv->fw_state == TASDEVICE_DSP_FW_ALL_OK)
-			tasdevice_tuning_switch(tas_hda->priv, 0);
+			tasdevice_tuning_switch(tas_hda->priv, 0, false);
 	} else if (action == HDA_GEN_PCM_ACT_CLOSE) {
 		guard(mutex)(&tas_priv->codec_lock);
 		if (tas_priv->fw_state == TASDEVICE_DSP_FW_ALL_OK)
-			tasdevice_tuning_switch(tas_priv, 1);
+			tasdevice_tuning_switch(tas_priv, 1, false);
 		pm_runtime_put_autosuspend(dev);
 	}
 }
@@ -848,7 +848,7 @@ static int tas2781_runtime_suspend(struct device *dev)
 
 	if (tas_priv->fw_state == TASDEVICE_DSP_FW_ALL_OK
 		&& tas_priv->playback_started)
-		tasdevice_tuning_switch(tas_priv, 1);
+		tasdevice_tuning_switch(tas_priv, 1, false);
 
 	tas_priv->tasdevice[tas_priv->index].cur_book = -1;
 	tas_priv->tasdevice[tas_priv->index].cur_conf = -1;
@@ -865,7 +865,7 @@ static int tas2781_runtime_resume(struct device *dev)
 
 	if (tas_priv->fw_state == TASDEVICE_DSP_FW_ALL_OK
 		&& tas_priv->playback_started)
-		tasdevice_tuning_switch(tas_priv, 0);
+		tasdevice_tuning_switch(tas_priv, 0, false);
 
 	return 0;
 }
@@ -883,7 +883,7 @@ static int tas2781_system_suspend(struct device *dev)
 	/* Shutdown chip before system suspend */
 	if (tas_priv->fw_state == TASDEVICE_DSP_FW_ALL_OK
 		&& tas_priv->playback_started)
-		tasdevice_tuning_switch(tas_priv, 1);
+		tasdevice_tuning_switch(tas_priv, 1, false);
 
 	return 0;
 }
@@ -918,7 +918,7 @@ static int tas2781_system_resume(struct device *dev)
 		tas_priv->fw_state = TASDEVICE_DSP_FW_ALL_OK;
 
 		if (tas_priv->playback_started)
-			tasdevice_tuning_switch(tas_priv, 0);
+			tasdevice_tuning_switch(tas_priv, 0, false);
 	}
 
 	return ret;
