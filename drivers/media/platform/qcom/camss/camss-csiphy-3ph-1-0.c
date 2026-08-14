@@ -1902,6 +1902,10 @@ static int csiphy_init(struct csiphy_device *csiphy)
 	case CAMSS_GLYMUR:
 	case CAMSS_X1E80100:
 	case CAMSS_X1P42100:
+		regs->lane_regs = &lane_regs_x1e80100[0];
+		regs->lane_array_size = ARRAY_SIZE(lane_regs_x1e80100);
+		regs->offset = 0x1000;
+		break;
 	case CAMSS_8550:
 	case CAMSS_8650:
 		regs->offset = 0x1000;
