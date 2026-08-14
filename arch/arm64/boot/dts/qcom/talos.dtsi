@@ -1241,6 +1241,10 @@
 				power-domains = <&rpmhpd RPMHPD_CX>;
 				operating-points-v2 = <&qup_opp_table>;
 				status = "disabled";
+
+				port {
+					uart7_ep: endpoint {};
+				};
 			};
 		};
 

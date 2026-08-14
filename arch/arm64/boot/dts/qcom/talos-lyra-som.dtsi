@@ -280,12 +280,17 @@
 			reg = <0x20800 0x0 0x0 0x0 0x0>;
 			#address-cells = <3>;
 			#size-cells = <2>;
+			compatible = "pciclass,0604";
 			device_type = "pci";
 			ranges;
 			bus-range = <0x3 0xff>;
 
 			ep-pwr-en-gpio = <&tc9563 2 GPIO_ACTIVE_HIGH>;
 			ep-reset-gpio = <&tc9563 5 GPIO_ACTIVE_HIGH>;
+
+			port {
+				tc9563_pcie1_ep: endpoint {};
+			};
 		};
 
 		pcie@2,0 {
