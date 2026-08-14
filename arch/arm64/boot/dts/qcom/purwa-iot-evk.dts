@@ -719,10 +719,6 @@
 	};
 };
 
-&camss {
-	status = "okay";
-};
-
 &i2c3 {
 	clock-frequency = <400000>;
 
