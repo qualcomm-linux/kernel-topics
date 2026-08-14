@@ -8,6 +8,7 @@
 
 #include <dt-bindings/clock/qcom,x1e80100-camcc.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/media/video-interfaces.h>
 #include <dt-bindings/phy/phy.h>
 
 &{/} {
@@ -31,10 +32,9 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			csiphy1_ep: endpoint@0 {
-				clock-lanes = <7>;
+			camss_csiphy1_inep: endpoint@0 {
 				data-lanes = <0 1 2 3>;
-				remote-endpoint = <&imx577_ep>;
+				remote-endpoint = <&csiphy1_out_ep>;
 			};
 		};
 	};
@@ -67,7 +67,7 @@
 			imx577_ep: endpoint {
 				link-frequencies = /bits/ 64 <600000000>;
 				data-lanes = <0 1 2 3>;
-				remote-endpoint = <&csiphy1_ep>;
+				remote-endpoint = <&csiphy1_in_ep>;
 			};
 		};
 	};
@@ -78,4 +78,29 @@
 	vdda-1p2-supply = <&vreg_l1c_1p2>;
 
 	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			csiphy1_in_ep: endpoint {
+				bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;
+				data-lanes = <0 1 2 3>;
+				clock-lanes = <7>;
+				remote-endpoint = <&imx577_ep>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			csiphy1_out_ep: endpoint {
+				bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;
+				remote-endpoint = <&camss_csiphy1_inep>;
+			};
+		};
+	};
 };
