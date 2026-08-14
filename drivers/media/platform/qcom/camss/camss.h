@@ -101,7 +101,6 @@ enum camss_version {
 	CAMSS_GLYMUR,
 	CAMSS_KAANAPALI,
 	CAMSS_X1E80100,
-	CAMSS_X1P42100,
 };
 
 enum icc_count {
