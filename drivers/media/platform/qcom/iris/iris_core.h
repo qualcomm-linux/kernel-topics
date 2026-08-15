@@ -43,6 +43,7 @@ enum iris_vcodec_core_id {
 };
 
 struct qcom_ubwc_cfg_data;
+struct dentry;
 
 /**
  * struct iris_core - holds core parameters valid for all instances
@@ -83,7 +84,9 @@ struct qcom_ubwc_cfg_data;
  * @command_queue: shared interface queue to send commands to firmware
  * @message_queue: shared interface queue to receive responses from firmware
  * @debug_queue: shared interface queue to receive debug info from firmware
- * @lock: a lock for this strucure
+ * @root: debugfs root directory
+ * @fw_debug: firmware debug log mask
+ * @lock: a lock for this structure
  * @response_packet: a pointer to response packet from fw to driver
  * @header_id: id of packet header
  * @packet_id: id of packet
@@ -134,6 +137,8 @@ struct iris_core {
 	struct iris_iface_q_info		command_queue;
 	struct iris_iface_q_info		message_queue;
 	struct iris_iface_q_info		debug_queue;
+	struct dentry				*root;
+	u32					fw_debug;
 	struct mutex				lock; /* lock for core related operations */
 	u8					*response_packet;
 	u32					header_id;
