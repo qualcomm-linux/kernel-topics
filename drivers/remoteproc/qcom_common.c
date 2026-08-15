@@ -217,7 +217,8 @@ static int glink_subdev_start(struct rproc_subdev *subdev)
 {
 	struct qcom_rproc_glink *glink = to_glink_subdev(subdev);
 
-	glink->edge = qcom_glink_smem_register(glink->dev, glink->node);
+	glink->edge = qcom_glink_smem_register(&glink->rproc->dev, glink->node,
+					       glink->rproc->cluster);
 
 	return PTR_ERR_OR_ZERO(glink->edge);
 }
@@ -234,7 +235,7 @@ static void glink_subdev_unprepare(struct rproc_subdev *subdev)
 {
 	struct qcom_rproc_glink *glink = to_glink_subdev(subdev);
 
-	qcom_glink_ssr_notify(glink->ssr_name);
+	qcom_glink_ssr_notify(glink->ssr_name, glink->rproc->cluster);
 }
 
 /**
@@ -258,7 +259,7 @@ void qcom_add_glink_subdev(struct rproc *rproc, struct qcom_rproc_glink *glink,
 		return;
 	}
 
-	glink->dev = dev;
+	glink->rproc = rproc;
 	glink->subdev.start = glink_subdev_start;
 	glink->subdev.stop = glink_subdev_stop;
 	glink->subdev.unprepare = glink_subdev_unprepare;
