@@ -993,14 +993,14 @@
 
 	qup_i2c9_default: qup-i2c9-default-state {
 		pins = "gpio127", "gpio128";
-		function = "qup1_se2";
+		function = "qup1_se2_01";
 		drive-strength = <2>;
 		bias-pull-up;
 	};
 
 	qup_i2c10_default: qup-i2c10-default-state {
 		pins = "gpio129", "gpio130";
-		function = "qup1_se3";
+		function = "qup1_se3_01";
 		drive-strength = <2>;
 		bias-pull-up;
 	};
@@ -1398,14 +1398,14 @@
 
 	qup_uart9_default: qup-uart9-default-state {
 		pins = "gpio127", "gpio128";
-		function = "qup1_se2";
+		function = "qup1_se2_23";
 		drive-strength = <2>;
 		bias-disable;
 	};
 
 	qup_uart10_default: qup-uart10-default-state {
 		pins = "gpio129", "gpio130";
-		function = "qup1_se3";
+		function = "qup1_se3_23";
 		drive-strength = <2>;
 		bias-disable;
 	};
