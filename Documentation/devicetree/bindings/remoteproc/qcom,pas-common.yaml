@@ -45,8 +45,7 @@ properties:
       - const: shutdown-ack
 
   iommus:
-    minItems: 1
-    maxItems: 3
+    maxItems: 1
 
   power-domains:
     minItems: 1
