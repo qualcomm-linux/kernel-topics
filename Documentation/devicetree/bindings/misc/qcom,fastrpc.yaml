@@ -33,6 +33,8 @@ properties:
   label:
     enum:
       - adsp
+      - adsp1
+      - adsp2
       - mdsp
       - sdsp
       - cdsp
