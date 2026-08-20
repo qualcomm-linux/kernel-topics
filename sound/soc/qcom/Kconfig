@@ -202,6 +202,7 @@ config SND_SOC_SC8280XP
 	select SND_SOC_QDSP6
 	select SND_SOC_QCOM_COMMON
 	select SND_SOC_QCOM_SDW
+	select SND_SOC_MAX98090
 	help
 	  To add support for audio on Qualcomm Technologies Inc.
 	  SC8280XP SoC-based systems.
