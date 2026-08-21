@@ -425,6 +425,9 @@ static int f2fs_link(struct dentry *old_dentry, struct inode *dir,
 	if (!f2fs_is_checkpoint_ready(sbi))
 		return -ENOSPC;
 
+	if (IS_DEVICE_ALIASING(inode))
+		return -EPERM;
+
 	err = fscrypt_prepare_link(old_dentry, dir, dentry);
 	if (err)
 		return err;
@@ -567,6 +570,9 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 	int err;
 
 	trace_f2fs_unlink_enter(dir, dentry);
+
+	if (IS_DEVICE_ALIASING(inode))
+		return -EPERM;
 
 	if (unlikely(f2fs_cp_error(sbi))) {
 		err = -EIO;
@@ -946,6 +952,9 @@ static int f2fs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	bool old_is_dir = S_ISDIR(old_inode->i_mode);
 	int err;
 
+	if (IS_DEVICE_ALIASING(old_inode))
+		return -EPERM;
+
 	if (unlikely(f2fs_cp_error(sbi)))
 		return -EIO;
 	if (!f2fs_is_checkpoint_ready(sbi))
@@ -1016,6 +1025,8 @@ static int f2fs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	}
 
 	if (new_inode) {
+		if (IS_DEVICE_ALIASING(new_inode))
+			return -EPERM;
 
 		err = -ENOTEMPTY;
 		if (old_is_dir && !f2fs_empty_dir(new_inode))
@@ -1076,7 +1087,7 @@ static int f2fs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	f2fs_up_write(&F2FS_I(old_inode)->i_sem);
 
 	inode_set_ctime_current(old_inode);
-	f2fs_mark_inode_dirty_sync(old_inode, false);
+	f2fs_mark_inode_dirty_sync(old_inode, true);
 
 	f2fs_delete_entry(old_entry, old_folio, old_dir, NULL);
 	old_folio = NULL;
@@ -1142,6 +1153,9 @@ static int f2fs_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct f2fs_lock_context lc;
 	int old_nlink = 0, new_nlink = 0;
 	int err;
+
+	if (IS_DEVICE_ALIASING(old_inode) || IS_DEVICE_ALIASING(new_inode))
+		return -EPERM;
 
 	if (unlikely(f2fs_cp_error(sbi)))
 		return -EIO;
@@ -1246,7 +1260,7 @@ static int f2fs_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 		f2fs_i_links_write(old_dir, old_nlink > 0);
 		f2fs_up_write(&F2FS_I(old_dir)->i_sem);
 	}
-	f2fs_mark_inode_dirty_sync(old_dir, false);
+	f2fs_mark_inode_dirty_sync(old_dir, true);
 
 	/* update directory entry info of new dir inode */
 	f2fs_set_link(new_dir, new_entry, new_folio, old_inode);
@@ -1265,7 +1279,7 @@ static int f2fs_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 		f2fs_i_links_write(new_dir, new_nlink > 0);
 		f2fs_up_write(&F2FS_I(new_dir)->i_sem);
 	}
-	f2fs_mark_inode_dirty_sync(new_dir, false);
+	f2fs_mark_inode_dirty_sync(new_dir, true);
 
 	if (F2FS_OPTION(sbi).fsync_mode == FSYNC_MODE_STRICT) {
 		f2fs_add_ino_entry(sbi, old_dir->i_ino, TRANS_DIR_INO);

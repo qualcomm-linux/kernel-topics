@@ -9774,7 +9774,7 @@ EXFAT FILE SYSTEM
 M:	Namjae Jeon <linkinjeon@kernel.org>
 M:	Sungjong Seo <sj1557.seo@samsung.com>
 R:	Yuezhang Mo <yuezhang.mo@sony.com>
-L:	linux-fsdevel@vger.kernel.org
+L:	exfat@lists.linux.dev
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linkinjeon/exfat.git
 F:	fs/exfat/
@@ -14173,9 +14173,11 @@ M:	Steve French <smfrench@gmail.com>
 M:	Steve French <sfrench@samba.org>
 R:	Sergey Senozhatsky <senozhatsky@chromium.org>
 R:	Tom Talpey <tom@talpey.com>
+R:	ChenXiaoSong <chenxiaosong@chenxiaosong.com>
+R:	ChenXiaoSong <chenxiaosong@kylinos.cn>
 L:	linux-cifs@vger.kernel.org
 S:	Maintained
-T:	git https://git.samba.org/ksmbd.git ksmbd-for-next
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linkinjeon/smb.git ksmbd-for-next
 F:	Documentation/filesystems/smb/ksmbd.rst
 F:	fs/smb/common/
 F:	fs/smb/server/
@@ -19353,7 +19355,7 @@ F:	drivers/ntb/hw/intel/
 NTFS FILESYSTEM
 M:	Namjae Jeon <linkinjeon@kernel.org>
 M:	Hyunchul Lee <hyc.lee@gmail.com>
-L:	linux-fsdevel@vger.kernel.org
+L:	ntfs@lists.linux.dev
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/linkinjeon/ntfs.git
 F:	Documentation/filesystems/ntfs.rst

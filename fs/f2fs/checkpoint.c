@@ -766,10 +766,25 @@ static void __remove_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type)
 	spin_unlock(&im->ino_lock);
 }
 
-void f2fs_add_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type)
+static void f2fs_wait_for_inode_record(struct f2fs_sb_info *sbi, int mode)
+{
+	if (mode != APPEND_INO && mode != UPDATE_INO)
+		return;
+
+	/* Let's wait for some pending updates for APPEND_INO and UPDATE_INO. */
+	flush_workqueue(sbi->evict_wq);
+}
+
+static void __f2fs_add_ino_entry(struct f2fs_sb_info *sbi, nid_t ino,
+					unsigned int devidx, int type)
 {
 	/* add new dirty ino entry into list */
-	__add_ino_entry(sbi, ino, 0, type);
+	__add_ino_entry(sbi, ino, devidx, type);
+}
+
+void f2fs_add_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type)
+{
+	__f2fs_add_ino_entry(sbi, ino, 0, type);
 }
 
 void f2fs_remove_ino_entry(struct f2fs_sb_info *sbi, nid_t ino, int type)
@@ -798,6 +813,8 @@ void f2fs_release_ino_entry(struct f2fs_sb_info *sbi, bool all)
 	for (i = all ? ORPHAN_INO : APPEND_INO; i < MAX_INO_ENTRY; i++) {
 		struct inode_management *im = &sbi->im[i];
 
+		f2fs_wait_for_inode_record(sbi, i);
+
 		spin_lock(&im->ino_lock);
 		list_for_each_entry_safe(e, tmp, &im->ino_list, list) {
 			list_del(&e->list);
@@ -812,7 +829,7 @@ void f2fs_release_ino_entry(struct f2fs_sb_info *sbi, bool all)
 void f2fs_set_dirty_device(struct f2fs_sb_info *sbi, nid_t ino,
 					unsigned int devidx, int type)
 {
-	__add_ino_entry(sbi, ino, devidx, type);
+	__f2fs_add_ino_entry(sbi, ino, devidx, type);
 }
 
 bool f2fs_is_dirty_device(struct f2fs_sb_info *sbi, nid_t ino,
@@ -864,14 +881,14 @@ void f2fs_release_orphan_inode(struct f2fs_sb_info *sbi)
 void f2fs_add_orphan_inode(struct inode *inode)
 {
 	/* add new orphan ino entry into list */
-	__add_ino_entry(F2FS_I_SB(inode), inode->i_ino, 0, ORPHAN_INO);
+	f2fs_add_ino_entry(F2FS_I_SB(inode), inode->i_ino, ORPHAN_INO);
 	f2fs_update_inode_page(inode);
 }
 
 void f2fs_remove_orphan_inode(struct f2fs_sb_info *sbi, nid_t ino)
 {
 	/* remove orphan entry from orphan list */
-	__remove_ino_entry(sbi, ino, ORPHAN_INO);
+	f2fs_remove_ino_entry(sbi, ino, ORPHAN_INO);
 }
 
 static int recover_orphan_inode(struct f2fs_sb_info *sbi, nid_t ino)
