@@ -16,7 +16,11 @@ description:
 
 properties:
   compatible:
-    const: qcom,pcie-sa8255p
+    oneOf:
+      - const: qcom,pcie-sa8255p
+      - items:
+          - const: qcom,pcie-sa8797p
+          - const: qcom,pcie-sa8255p
 
   reg:
     description:
