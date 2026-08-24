@@ -2228,6 +2228,19 @@
 			wakeup-parent = <&pdc>;
 		};
 
+		pcie_smmu: iommu@9980000 {
+			compatible = "arm,smmu-v3";
+			reg = <0x0 0x09980000 0x0 0x20000>;
+			interrupts = <GIC_SPI 898 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 900 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 902 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "eventq",
+					  "cmdq-sync",
+					  "gerror";
+			dma-coherent;
+			#iommu-cells = <1>;
+		};
+
 		apps_smmu_0: iommu@15a00000 {
 			compatible = "qcom,nord-smmu-500",
 				     "qcom,smmu-500",
@@ -5835,6 +5848,190 @@
 					type = "passive";
 				};
 			};
+		};
+	};
+
+	pcie0: pci@5000000000 {
+		device_type = "pci";
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		bus-range = <0x00 0xff>;
+		linux,pci-domain = <0>;
+
+		interrupts = <GIC_SPI 141 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 142 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 144 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 145 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 147 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 148 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "msi0", "msi1", "msi2", "msi3",
+				  "msi4", "msi5", "msi6", "msi7";
+		interrupt-parent = <&intc>;
+
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0 0 0 0x7>;
+		interrupt-map = <0 0 0 1 &intc 0 0 GIC_SPI 149 IRQ_TYPE_LEVEL_HIGH>, //INTa
+				<0 0 0 2 &intc 0 0 GIC_SPI 150 IRQ_TYPE_LEVEL_HIGH>, //INTb
+				<0 0 0 3 &intc 0 0 GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>, //INTc
+				<0 0 0 4 &intc 0 0 GIC_SPI 152 IRQ_TYPE_LEVEL_HIGH>; //INTd
+
+		dma-coherent;
+		iommu-map = <0x0 &pcie_smmu 0x0000 0x1>,
+			    <0x100 &pcie_smmu 0x0100 0x1>,
+			    <0x200 &pcie_smmu 0x0200 0x1>,
+			    <0x300 &pcie_smmu 0x0300 0x1>;
+
+		status = "disabled";
+
+		pcie0_port0: pcie@0,0 {
+			device_type = "pci";
+			reg = <0x0 0x0 0x0 0x0 0x0>;
+			bus-range = <0x01 0xff>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			ranges;
+		};
+	};
+
+	pcie1: pci@4800000000 {
+		device_type = "pci";
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		bus-range = <0x00 0xff>;
+		linux,pci-domain = <1>;
+
+		interrupts = <GIC_SPI 834 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 99 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 833 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 849 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 842 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 824 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 349 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 949 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "msi0", "msi1", "msi2", "msi3",
+				  "msi4", "msi5", "msi6", "msi7";
+		interrupt-parent = <&intc>;
+
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0 0 0 0x7>;
+		interrupt-map = <0 0 0 1 &intc 0 0 GIC_SPI 835 IRQ_TYPE_LEVEL_HIGH>, //INTa
+				<0 0 0 2 &intc 0 0 GIC_SPI 351 IRQ_TYPE_LEVEL_HIGH>, //INTb
+				<0 0 0 3 &intc 0 0 GIC_SPI 830 IRQ_TYPE_LEVEL_HIGH>, //INTc
+				<0 0 0 4 &intc 0 0 GIC_SPI 348 IRQ_TYPE_LEVEL_HIGH>; //INTd
+
+		dma-coherent;
+		iommu-map = <0x0 &pcie_smmu 0x10000 0x1>,
+			    <0x100 &pcie_smmu 0x10100 0x1>,
+			    <0x200 &pcie_smmu 0x10200 0x1>,
+			    <0x300 &pcie_smmu 0x10300 0x1>;
+
+		status = "disabled";
+
+		pcie1_port0: pcie@0,0 {
+			device_type = "pci";
+			reg = <0x0 0x0 0x0 0x0 0x0>;
+			bus-range = <0x01 0xff>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			ranges;
+		};
+	};
+
+	pcie2: pci@4000000000 {
+		device_type = "pci";
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		bus-range = <0x00 0xff>;
+		linux,pci-domain = <2>;
+
+		interrupts = <GIC_SPI 844 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 838 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 113 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 825 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 846 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 350 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 837 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 104 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "msi0", "msi1", "msi2", "msi3",
+				  "msi4", "msi5", "msi6", "msi7";
+		interrupt-parent = <&intc>;
+
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0 0 0 0x7>;
+		interrupt-map = <0 0 0 1 &intc 0 0 GIC_SPI 263 IRQ_TYPE_LEVEL_HIGH>, //INTa
+				<0 0 0 2 &intc 0 0 GIC_SPI 154 IRQ_TYPE_LEVEL_HIGH>, //INTb
+				<0 0 0 3 &intc 0 0 GIC_SPI 110 IRQ_TYPE_LEVEL_HIGH>, //INTc
+				<0 0 0 4 &intc 0 0 GIC_SPI 258 IRQ_TYPE_LEVEL_HIGH>; //INTd
+
+		dma-coherent;
+		iommu-map = <0x0 &pcie_smmu 0x20000 0x1>,
+			    <0x100 &pcie_smmu 0x20100 0x1>,
+			    <0x200 &pcie_smmu 0x20200 0x1>,
+			    <0x300 &pcie_smmu 0x20300 0x1>;
+
+		status = "disabled";
+
+		pcie2_port0: pcie@0,0 {
+			device_type = "pci";
+			reg = <0x0 0x0 0x0 0x0 0x0>;
+			bus-range = <0x01 0xff>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			ranges;
+		};
+	};
+
+	pcie3: pci@400000000 {
+		device_type = "pci";
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		bus-range = <0x00 0xff>;
+		linux,pci-domain = <3>;
+
+		interrupts = <GIC_SPI 364 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 287 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 831 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 659 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 840 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 823 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 240 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "msi0", "msi1", "msi2", "msi3",
+				  "msi4", "msi5", "msi6", "msi7";
+		interrupt-parent = <&intc>;
+
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0 0 0 0x7>;
+		interrupt-map = <0 0 0 1 &intc 0 0 GIC_SPI 111 IRQ_TYPE_LEVEL_HIGH>, //INTa
+				<0 0 0 2 &intc 0 0 GIC_SPI 246 IRQ_TYPE_LEVEL_HIGH>, //INTb
+				<0 0 0 3 &intc 0 0 GIC_SPI 239 IRQ_TYPE_LEVEL_HIGH>, //INTc
+				<0 0 0 4 &intc 0 0 GIC_SPI 234 IRQ_TYPE_LEVEL_HIGH>; //INTd
+
+		dma-coherent;
+		iommu-map = <0x0 &pcie_smmu 0x30000 0x1>,
+			    <0x100 &pcie_smmu 0x30100 0x1>,
+			    <0x200 &pcie_smmu 0x30200 0x1>,
+			    <0x300 &pcie_smmu 0x30300 0x1>;
+
+		status = "disabled";
+
+		pcie3_port0: pcie@0,0 {
+			device_type = "pci";
+			reg = <0x0 0x0 0x0 0x0 0x0>;
+			bus-range = <0x01 0xff>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			ranges;
 		};
 	};
 };
