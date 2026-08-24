@@ -191,6 +191,16 @@
 	};
 };
 
+&spi5 {
+        status = "okay";
+
+        tpm@0 {
+                compatible = "st,st33htpm-spi", "tcg,tpm_tis-spi";
+                reg = <0>;
+                spi-max-frequency = <20000000>;
+        };
+};
+
 &usb_1_hsphy {
 	vdd-supply = <&pm8150_l4>;
 	vdda-pll-supply = <&pm8150_l12>;
