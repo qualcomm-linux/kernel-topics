@@ -900,6 +900,18 @@ static void pcie_aspm_cap_init(struct pcie_link_state *link, int blacklist)
 					   parent_lnkctl & ~PCI_EXP_LNKCTL_ASPMC);
 	}
 
+	if (of_property_read_bool(child->dev.of_node, "aspm-no-l0s") ||
+	    of_property_read_bool(parent->dev.of_node, "aspm-no-l0s")) {
+		parent->aspm_l0s_support = 0;
+		child->aspm_l0s_support = 0;
+	}
+
+	if (of_property_read_bool(child->dev.of_node, "aspm-no-l1") ||
+	    of_property_read_bool(parent->dev.of_node, "aspm-no-l1")) {
+		parent->aspm_l1_support = 0;
+		child->aspm_l1_support = 0;
+	}
+
 	/*
 	 * Setup L0s state
 	 *
