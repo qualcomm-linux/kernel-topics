@@ -288,3 +288,7 @@
 &wifi {
        status = "disabled";
 };
+
+&uart7 {
+	status = "disabled";
+};
