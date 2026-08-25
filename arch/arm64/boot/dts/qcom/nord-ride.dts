@@ -14,6 +14,8 @@
 	aliases {
 		serial0 = &uart15;
 		serial1 = &uart4;
+		i2c18 = &i2c18;
+		spi16 = &spi16;
 	};
 
 	chosen {
@@ -36,6 +38,14 @@
 };
 
 &scmi3 {
+	status = "okay";
+};
+
+&scmi9 {
+	status = "okay";
+};
+
+&scmi10 {
 	status = "okay";
 };
 
@@ -232,5 +242,13 @@
 };
 
 &ufs_mem_hc {
+	status = "okay";
+};
+
+&i2c18 {
+	status = "okay";
+};
+
+&spi16 {
 	status = "okay";
 };
