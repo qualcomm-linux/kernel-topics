@@ -1921,8 +1921,8 @@
 &i2c0 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 0>,
-			<&scmi11_dvfs 0>;
+	power-domains = <&scmi9_pd 0>,
+			<&scmi9_dvfs 0>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1930,8 +1930,8 @@
 &i2c1 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 1>,
-			<&scmi11_dvfs 1>;
+	power-domains = <&scmi9_pd 1>,
+			<&scmi9_dvfs 1>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1939,8 +1939,8 @@
 &i2c2 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 2>,
-			<&scmi11_dvfs 2>;
+	power-domains = <&scmi9_pd 2>,
+			<&scmi9_dvfs 2>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1948,8 +1948,8 @@
 &i2c3 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 3>,
-			<&scmi11_dvfs 3>;
+	power-domains = <&scmi9_pd 3>,
+			<&scmi9_dvfs 3>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1957,8 +1957,8 @@
 &i2c4 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 4>,
-			<&scmi11_dvfs 4>;
+	power-domains = <&scmi9_pd 4>,
+			<&scmi9_dvfs 4>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1966,8 +1966,8 @@
 &i2c5 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 5>,
-			<&scmi11_dvfs 5>;
+	power-domains = <&scmi9_pd 5>,
+			<&scmi9_dvfs 5>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1975,8 +1975,8 @@
 &i2c7 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 7>,
-			<&scmi11_dvfs 7>;
+	power-domains = <&scmi9_pd 7>,
+			<&scmi9_dvfs 7>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1984,8 +1984,8 @@
 &i2c8 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 8>,
-			<&scmi11_dvfs 8>;
+	power-domains = <&scmi9_pd 8>,
+			<&scmi9_dvfs 8>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -1993,8 +1993,8 @@
 &i2c9 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 9>,
-			<&scmi11_dvfs 9>;
+	power-domains = <&scmi9_pd 9>,
+			<&scmi9_dvfs 9>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2002,8 +2002,8 @@
 &i2c10 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 10>,
-			<&scmi11_dvfs 10>;
+	power-domains = <&scmi9_pd 10>,
+			<&scmi9_dvfs 10>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2011,8 +2011,8 @@
 &i2c11 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 11>,
-			<&scmi11_dvfs 11>;
+	power-domains = <&scmi9_pd 11>,
+			<&scmi9_dvfs 11>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2020,8 +2020,8 @@
 &i2c12 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 12>,
-			<&scmi11_dvfs 12>;
+	power-domains = <&scmi9_pd 12>,
+			<&scmi9_dvfs 12>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2029,8 +2029,8 @@
 &i2c13 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 13>,
-			<&scmi11_dvfs 13>;
+	power-domains = <&scmi9_pd 13>,
+			<&scmi9_dvfs 13>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2038,8 +2038,8 @@
 &i2c14 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 14>,
-			<&scmi11_dvfs 14>;
+	power-domains = <&scmi9_pd 14>,
+			<&scmi9_dvfs 14>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2047,8 +2047,8 @@
 &i2c15 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 15>,
-			<&scmi11_dvfs 15>;
+	power-domains = <&scmi9_pd 15>,
+			<&scmi9_dvfs 15>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2056,8 +2056,8 @@
 &i2c16 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 16>,
-			<&scmi11_dvfs 16>;
+	power-domains = <&scmi9_pd 16>,
+			<&scmi9_dvfs 16>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2065,8 +2065,8 @@
 &i2c17 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 17>,
-			<&scmi11_dvfs 17>;
+	power-domains = <&scmi9_pd 17>,
+			<&scmi9_dvfs 17>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2074,8 +2074,8 @@
 &i2c18 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 18>,
-			<&scmi11_dvfs 18>;
+	power-domains = <&scmi9_pd 18>,
+			<&scmi9_dvfs 18>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2083,8 +2083,8 @@
 &i2c19 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 19>,
-			<&scmi11_dvfs 19>;
+	power-domains = <&scmi9_pd 19>,
+			<&scmi9_dvfs 19>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2092,8 +2092,8 @@
 &i2c20 {
 	compatible = "qcom,sa8797p-geni-i2c",
 		     "qcom,sa8255p-geni-i2c";
-	power-domains = <&scmi11_pd 20>,
-			<&scmi11_dvfs 20>;
+	power-domains = <&scmi9_pd 20>,
+			<&scmi9_dvfs 20>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2502,8 +2502,8 @@
 &spi0 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 0>,
-			<&scmi11_dvfs 0>;
+	power-domains = <&scmi10_pd 0>,
+			<&scmi10_dvfs 0>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2511,8 +2511,8 @@
 &spi1 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 1>,
-			<&scmi11_dvfs 1>;
+	power-domains = <&scmi10_pd 1>,
+			<&scmi10_dvfs 1>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2520,8 +2520,8 @@
 &spi2 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 2>,
-			<&scmi11_dvfs 2>;
+	power-domains = <&scmi10_pd 2>,
+			<&scmi10_dvfs 2>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2529,8 +2529,8 @@
 &spi3 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 3>,
-			<&scmi11_dvfs 3>;
+	power-domains = <&scmi10_pd 3>,
+			<&scmi10_dvfs 3>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2538,8 +2538,8 @@
 &spi4 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 4>,
-			<&scmi11_dvfs 4>;
+	power-domains = <&scmi10_pd 4>,
+			<&scmi10_dvfs 4>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2547,8 +2547,8 @@
 &spi5 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 5>,
-			<&scmi11_dvfs 5>;
+	power-domains = <&scmi10_pd 5>,
+			<&scmi10_dvfs 5>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2556,8 +2556,8 @@
 &spi7 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 7>,
-			<&scmi11_dvfs 7>;
+	power-domains = <&scmi10_pd 7>,
+			<&scmi10_dvfs 7>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2565,8 +2565,8 @@
 &spi8 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 8>,
-			<&scmi11_dvfs 8>;
+	power-domains = <&scmi10_pd 8>,
+			<&scmi10_dvfs 8>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2574,8 +2574,8 @@
 &spi11 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 11>,
-			<&scmi11_dvfs 11>;
+	power-domains = <&scmi10_pd 11>,
+			<&scmi10_dvfs 11>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2583,8 +2583,8 @@
 &spi12 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 12>,
-			<&scmi11_dvfs 12>;
+	power-domains = <&scmi10_pd 12>,
+			<&scmi10_dvfs 12>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2592,8 +2592,8 @@
 &spi13 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 13>,
-			<&scmi11_dvfs 13>;
+	power-domains = <&scmi10_pd 13>,
+			<&scmi10_dvfs 13>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2601,8 +2601,8 @@
 &spi14 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 14>,
-			<&scmi11_dvfs 14>;
+	power-domains = <&scmi10_pd 14>,
+			<&scmi10_dvfs 14>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2610,8 +2610,8 @@
 &spi15 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 15>,
-			<&scmi11_dvfs 15>;
+	power-domains = <&scmi10_pd 15>,
+			<&scmi10_dvfs 15>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2619,8 +2619,8 @@
 &spi16 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 16>,
-			<&scmi11_dvfs 16>;
+	power-domains = <&scmi10_pd 16>,
+			<&scmi10_dvfs 16>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2628,8 +2628,8 @@
 &spi17 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 17>,
-			<&scmi11_dvfs 17>;
+	power-domains = <&scmi10_pd 17>,
+			<&scmi10_dvfs 17>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2637,8 +2637,8 @@
 &spi18 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 18>,
-			<&scmi11_dvfs 18>;
+	power-domains = <&scmi10_pd 18>,
+			<&scmi10_dvfs 18>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2646,8 +2646,8 @@
 &spi19 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 19>,
-			<&scmi11_dvfs 19>;
+	power-domains = <&scmi10_pd 19>,
+			<&scmi10_dvfs 19>;
 	power-domain-names = "power",
 			     "perf";
 };
@@ -2655,8 +2655,8 @@
 &spi20 {
 	compatible = "qcom,sa8797p-geni-spi",
 		     "qcom,sa8255p-geni-spi";
-	power-domains = <&scmi11_pd 20>,
-			<&scmi11_dvfs 20>;
+	power-domains = <&scmi10_pd 20>,
+			<&scmi10_dvfs 20>;
 	power-domain-names = "power",
 			     "perf";
 };
