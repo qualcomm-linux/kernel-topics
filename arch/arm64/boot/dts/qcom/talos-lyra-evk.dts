@@ -4,6 +4,7 @@
  */
 /dts-v1/;
 
+#include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include "talos-lyra-evk-som.dtsi"
 
@@ -12,6 +13,10 @@
 	compatible = "qcom,talos-lyra-evk", "qcom,talos-lyra-evk-som", "qcom,qcs615",
 		     "qcom,sm6150";
 	chassis-type = "embedded";
+
+	aliases {
+		i2c2 = &i2c2;
+	};
 
 	dp0-connector {
 		compatible = "dp-connector";
@@ -27,7 +32,7 @@
 		};
 	};
 
-	hdmi-connector {
+	hdmi_connector: hdmi-connector {
 		compatible = "hdmi-connector";
 		type = "a";
 
@@ -38,16 +43,17 @@
 		};
 	};
 
-	vreg_lt9611_vcc: regulator-lt9611-vcc {
+	vreg_disp_3p3: regulator-disp-3p3 {
 		compatible = "regulator-fixed";
-		regulator-name = "lt9611_vcc";
+		regulator-name = "vreg_disp_3p3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpio = <&tlmm 3 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		pinctrl-0 = <&lt9611_vcc_pin>;
+		pinctrl-0 = <&lcd_bias_en>;
 		pinctrl-names = "default";
 	};
+
 };
 
 &i2c2 {
@@ -58,7 +64,7 @@
 		reg = <0x41>;
 		interrupts-extended = <&tlmm 60 IRQ_TYPE_EDGE_FALLING>;
 		reset-gpios = <&tlmm 61 GPIO_ACTIVE_LOW>;
-		vcc-supply = <&vreg_lt9611_vcc>;
+		vcc-supply = <&vreg_disp_3p3>;
 		vdd-supply = <&vreg_s4a>;
 
 		pinctrl-0 = <&lt9611_irq_pin &lt9611_rst_pin>;
@@ -87,19 +93,6 @@
 	};
 };
 
-&mdss {
-        status = "okay";
-};
-
-&mdss_dp0 {
-        status = "okay";
-};
-
-&mdss_dp0_out {
-        link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000>;
-        remote-endpoint = <&dp0_connector_in>;
-};
-
 &i2c5 {
 	status = "okay";
 
@@ -125,9 +118,25 @@
 	};
 };
 
-&mdss_dsi0 {
+&mdss {
 	status = "okay";
 };
+
+&mdss_dp0 {
+	status = "okay";
+};
+
+&mdss_dp0_out {
+	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000>;
+	remote-endpoint = <&dp0_connector_in>;
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&vreg_l5a>;
+
+	status = "okay";
+};
+
 
 &mdss_dsi0_out {
 	remote-endpoint = <&lt9611_a>;
@@ -135,6 +144,8 @@
 };
 
 &mdss_dsi0_phy {
+	vdds-supply = <&vreg_l11a>;
+
 	status = "okay";
 };
 
@@ -173,7 +184,7 @@
 		bias-disable;
 	};
 
-	lt9611_vcc_pin: lt9611-vcc-state {
+	lcd_bias_en: lcd-bias-en-state {
 		pins = "gpio3";
 		function = "gpio";
 		drive-strength = <8>;
