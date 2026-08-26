@@ -526,7 +526,14 @@
 		};
 
 		audio_heap_mem: audio-heap@86200000 {
-			reg = <0x0 0x86200000 0x0 0x100000>;
+			compatible = "shared-dma-pool";
+			reg = <0x0 0x86200000 0x0 0x40000>;
+			no-map;
+		};
+
+		audio_mdsp_carveout_mem: audio-mdsp-carveout@86240000 {
+			compatible = "shared-dma-pool";
+			reg = <0x0 0x86240000 0x0 0x100000>;
 			no-map;
 		};
 
@@ -3332,6 +3339,8 @@
 
 						q6apmdai: dais {
 							compatible = "qcom,q6apm-dais";
+							memory-region = <&audio_heap_mem>,
+									<&audio_mdsp_carveout_mem>;
 							qcom,vmid = <QCOM_SCM_VMID_LPASS
 								     QCOM_SCM_VMID_MSS_MSA>;
 						};
