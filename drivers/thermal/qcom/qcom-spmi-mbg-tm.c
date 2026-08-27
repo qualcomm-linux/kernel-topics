@@ -252,5 +252,6 @@ static struct platform_driver mbg_tm_driver = {
 };
 module_platform_driver(mbg_tm_driver);
 
+MODULE_IMPORT_NS("IIO_CONSUMER");
 MODULE_DESCRIPTION("PMIC MBG Temperature monitor driver");
 MODULE_LICENSE("GPL");
