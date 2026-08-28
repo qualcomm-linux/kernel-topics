@@ -828,7 +828,7 @@
 	};
 
 	bwmon_cluster0: pmu@1016400 {
-		compatible = "qcom,sa8797p-cpu-bwmon", "qcom,sdm845-bwmon";
+		compatible = "qcom,nord-cpu-bwmon", "qcom,sdm845-bwmon";
 		reg = <0x0 0x1016400 0x0 0x600>;
 		interrupts = <GIC_SPI 813 IRQ_TYPE_LEVEL_HIGH>;
 		interconnects = <&hscnoc MASTER_APPSS_PROC QCOM_ICC_TAG_ACTIVE_ONLY
@@ -886,7 +886,7 @@
 	};
 
 	bwmon_cluster1: pmu@1015400 {
-		compatible = "qcom,sa8797p-cpu-bwmon", "qcom,sdm845-bwmon";
+		compatible = "qcom,nord-cpu-bwmon", "qcom,sdm845-bwmon";
 		reg = <0x0 0x1015400 0x0 0x600>;
 		interrupts = <GIC_SPI 812 IRQ_TYPE_LEVEL_HIGH>;
 		interconnects = <&hscnoc MASTER_APPSS_PROC QCOM_ICC_TAG_ACTIVE_ONLY
@@ -896,7 +896,7 @@
 	};
 
 	bwmon_cluster2: pmu@1014400 {
-		compatible = "qcom,sa8797p-cpu-bwmon", "qcom,sc7280-cpu-bwmon";
+		compatible = "qcom,nord-cpu-bwmon", "qcom,sdm845-bwmon";
 		reg = <0x0 0x1014400 0x0 0x600>;
 		interrupts = <GIC_SPI 739 IRQ_TYPE_LEVEL_HIGH>;
 		interconnects = <&hscnoc MASTER_APPSS_PROC QCOM_ICC_TAG_ACTIVE_ONLY
