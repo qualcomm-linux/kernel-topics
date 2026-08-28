@@ -1473,8 +1473,8 @@ sticky:
 	if (!cval->cmask) {
 		snd_usb_set_cur_mix_value(cval, 0, 0, cval->max);
 	} else {
+		idx = 0;
 		for (i = 0; i < MAX_CHANNELS; i++) {
-			idx = 0;
 			if (cval->cmask & BIT(i)) {
 				snd_usb_set_cur_mix_value(cval, i + 1, idx, cval->max);
 				idx++;
@@ -3934,6 +3934,12 @@ int snd_usb_mixer_resume(struct usb_mixer_interface *mixer)
 {
 	struct usb_mixer_elem_list *list;
 	int id, err;
+
+	if (mixer->private_resume) {
+		err = mixer->private_resume(mixer);
+		if (err < 0)
+			return err;
+	}
 
 	/* restore cached mixer values */
 	for (id = 0; id < MAX_ID_ELEMS; id++) {
