@@ -947,11 +947,11 @@
 
 	smp2p-adsp {
 		compatible = "qcom,smp2p";
-		interrupts-extended = <&ipcc IPCC_MPROC_ADSP0
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-		mboxes = <&ipcc IPCC_MPROC_ADSP0
-				IPCC_MPROC_SIGNAL_SMP2P>;
+		interrupts-extended = <&ipcc0 IPCC_MPROC_ADSP0
+					      IPCC_MPROC_SIGNAL_SMP2P
+					      IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&ipcc0 IPCC_MPROC_ADSP0
+				 IPCC_MPROC_SIGNAL_SMP2P>;
 		qcom,smem = <443>, <429>;
 		qcom,local-pid = <0>;
 		qcom,remote-pid = <2>;
@@ -970,11 +970,11 @@
 
 	smp2p-adsp1 {
 		compatible = "qcom,smp2p";
-		interrupts-extended = <&ipcc IPCC_MPROC_ADSP1
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-		mboxes = <&ipcc IPCC_MPROC_ADSP1
-				IPCC_MPROC_SIGNAL_SMP2P>;
+		interrupts-extended = <&ipcc0 IPCC_MPROC_ADSP1
+					      IPCC_MPROC_SIGNAL_SMP2P
+					      IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&ipcc0 IPCC_MPROC_ADSP1
+				 IPCC_MPROC_SIGNAL_SMP2P>;
 		qcom,smem = <617>, <616>;
 		qcom,local-pid = <0>;
 		qcom,remote-pid = <66>;
@@ -993,11 +993,11 @@
 
 	smp2p-adsp2 {
 		compatible = "qcom,smp2p";
-		interrupts-extended = <&ipcc IPCC_MPROC_ADSP2
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-		mboxes = <&ipcc IPCC_MPROC_ADSP2
-				IPCC_MPROC_SIGNAL_SMP2P>;
+		interrupts-extended = <&ipcc0 IPCC_MPROC_ADSP2
+					      IPCC_MPROC_SIGNAL_SMP2P
+					      IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&ipcc0 IPCC_MPROC_ADSP2
+				 IPCC_MPROC_SIGNAL_SMP2P>;
 		qcom,smem = <617>, <616>;
 		qcom,local-pid = <0>;
 		qcom,remote-pid = <130>;
@@ -1017,10 +1017,10 @@
 	smp2p-cdsp0 {
 		compatible = "qcom,smp2p";
 		qcom,smem = <94>, <432>;
-		interrupts-extended = <&ipcc IPCC_MPROC_NSP0
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-		mboxes = <&ipcc IPCC_MPROC_NSP0 IPCC_MPROC_SIGNAL_SMP2P>;
+		interrupts-extended = <&ipcc0 IPCC_MPROC_NSP0
+					      IPCC_MPROC_SIGNAL_SMP2P
+					      IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&ipcc0 IPCC_MPROC_NSP0 IPCC_MPROC_SIGNAL_SMP2P>;
 
 		qcom,local-pid = <0>;
 		qcom,remote-pid = <5>;
@@ -1040,10 +1040,10 @@
 	smp2p-cdsp1 {
 		compatible = "qcom,smp2p";
 		qcom,smem = <617>, <616>;
-		interrupts-extended = <&ipcc IPCC_MPROC_NSP1
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-		mboxes = <&ipcc IPCC_MPROC_NSP1 IPCC_MPROC_SIGNAL_SMP2P>;
+		interrupts-extended = <&ipcc0 IPCC_MPROC_NSP1
+					      IPCC_MPROC_SIGNAL_SMP2P
+					      IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&ipcc0 IPCC_MPROC_NSP1 IPCC_MPROC_SIGNAL_SMP2P>;
 
 		qcom,local-pid = <0>;
 		qcom,remote-pid = <69>;
@@ -1063,10 +1063,10 @@
 	smp2p-cdsp2 {
 		compatible = "qcom,smp2p";
 		qcom,smem = <617>, <616>;
-		interrupts-extended = <&ipcc IPCC_MPROC_NSP2
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-		mboxes = <&ipcc IPCC_MPROC_NSP2 IPCC_MPROC_SIGNAL_SMP2P>;
+		interrupts-extended = <&ipcc0 IPCC_MPROC_NSP2
+					      IPCC_MPROC_SIGNAL_SMP2P
+					      IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&ipcc0 IPCC_MPROC_NSP2 IPCC_MPROC_SIGNAL_SMP2P>;
 
 		qcom,local-pid = <0>;
 		qcom,remote-pid = <133>;
@@ -1086,10 +1086,10 @@
 	smp2p-cdsp3 {
 		compatible = "qcom,smp2p";
 		qcom,smem = <617>, <616>;
-		interrupts-extended = <&ipcc IPCC_MPROC_NSP3
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-		mboxes = <&ipcc IPCC_MPROC_NSP3 IPCC_MPROC_SIGNAL_SMP2P>;
+		interrupts-extended = <&ipcc0 IPCC_MPROC_NSP3
+					      IPCC_MPROC_SIGNAL_SMP2P
+					      IRQ_TYPE_EDGE_RISING>;
+		mboxes = <&ipcc0 IPCC_MPROC_NSP3 IPCC_MPROC_SIGNAL_SMP2P>;
 
 		qcom,local-pid = <0>;
 		qcom,remote-pid = <197>;
@@ -1857,11 +1857,11 @@
 			status = "disabled";
 
 			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_ADSP0
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_ADSP0
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+				interrupts-extended = <&ipcc0 IPCC_MPROC_ADSP0
+							      IPCC_MPROC_SIGNAL_GLINK_QMP
+							      IRQ_TYPE_EDGE_RISING>;
+				mboxes = <&ipcc0 IPCC_MPROC_ADSP0
+						 IPCC_MPROC_SIGNAL_GLINK_QMP>;
 				qcom,remote-pid = <2>;
 				label = "adsp";
 
@@ -1982,11 +1982,11 @@
 			status = "disabled";
 
 			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_ADSP1
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_ADSP1
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+				interrupts-extended = <&ipcc0 IPCC_MPROC_ADSP1
+							      IPCC_MPROC_SIGNAL_GLINK_QMP
+							      IRQ_TYPE_EDGE_RISING>;
+				mboxes = <&ipcc0 IPCC_MPROC_ADSP1
+						 IPCC_MPROC_SIGNAL_GLINK_QMP>;
 				qcom,remote-pid = <66>;
 				label = "adsp1";
 
@@ -2071,11 +2071,11 @@
 			status = "disabled";
 
 			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_ADSP2
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_ADSP2
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+				interrupts-extended = <&ipcc0 IPCC_MPROC_ADSP2
+							      IPCC_MPROC_SIGNAL_GLINK_QMP
+							      IRQ_TYPE_EDGE_RISING>;
+				mboxes = <&ipcc0 IPCC_MPROC_ADSP2
+						 IPCC_MPROC_SIGNAL_GLINK_QMP>;
 				qcom,remote-pid = <130>;
 				label = "adsp2";
 
@@ -2130,7 +2130,7 @@
 			};
 		};
 
-		ipcc: mailbox@9007000 {
+		ipcc0: mailbox@9007000 {
 			compatible = "qcom,nord-ipcc",
 				     "qcom,ipcc";
 			reg = <0x0 0x09007000 0x0 0x1000>;
@@ -2262,10 +2262,10 @@
 		aoss_qmp: power-management@c300000 {
 			compatible = "qcom,nord-aoss-qmp", "qcom,aoss-qmp";
 			reg = <0x0 0x0c300000 0x0 0x400>;
-			interrupts-extended = <&ipcc IPCC_MPROC_AOP
-						     IPCC_MPROC_SIGNAL_GLINK_QMP
-						     IRQ_TYPE_EDGE_RISING>;
-			mboxes = <&ipcc IPCC_MPROC_AOP IPCC_MPROC_SIGNAL_GLINK_QMP>;
+			interrupts-extended = <&ipcc0 IPCC_MPROC_AOP
+						      IPCC_MPROC_SIGNAL_GLINK_QMP
+						      IRQ_TYPE_EDGE_RISING>;
+			mboxes = <&ipcc0 IPCC_MPROC_AOP IPCC_MPROC_SIGNAL_GLINK_QMP>;
 			#clock-cells = <0>;
 		};
 
@@ -5778,11 +5778,11 @@
 			status = "disabled";
 
 			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_NSP0
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_NSP0
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+				interrupts-extended = <&ipcc0 IPCC_MPROC_NSP0
+							      IPCC_MPROC_SIGNAL_GLINK_QMP
+							      IRQ_TYPE_EDGE_RISING>;
+				mboxes = <&ipcc0 IPCC_MPROC_NSP0
+						 IPCC_MPROC_SIGNAL_GLINK_QMP>;
 				qcom,remote-pid = <5>;
 				label = "cdsp";
 
@@ -5942,11 +5942,11 @@
 			status = "disabled";
 
 			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_NSP1
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_NSP1
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+				interrupts-extended = <&ipcc0 IPCC_MPROC_NSP1
+							      IPCC_MPROC_SIGNAL_GLINK_QMP
+							      IRQ_TYPE_EDGE_RISING>;
+				mboxes = <&ipcc0 IPCC_MPROC_NSP1
+						 IPCC_MPROC_SIGNAL_GLINK_QMP>;
 				qcom,remote-pid = <69>;
 				label = "cdsp";
 
@@ -6106,11 +6106,11 @@
 			status = "disabled";
 
 			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_NSP2
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_NSP2
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+				interrupts-extended = <&ipcc0 IPCC_MPROC_NSP2
+							      IPCC_MPROC_SIGNAL_GLINK_QMP
+							      IRQ_TYPE_EDGE_RISING>;
+				mboxes = <&ipcc0 IPCC_MPROC_NSP2
+						 IPCC_MPROC_SIGNAL_GLINK_QMP>;
 				qcom,remote-pid = <133>;
 				label = "cdsp";
 
@@ -6270,11 +6270,11 @@
 			status = "disabled";
 
 			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_NSP3
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_NSP3
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
+				interrupts-extended = <&ipcc0 IPCC_MPROC_NSP3
+							      IPCC_MPROC_SIGNAL_GLINK_QMP
+							      IRQ_TYPE_EDGE_RISING>;
+				mboxes = <&ipcc0 IPCC_MPROC_NSP3
+						 IPCC_MPROC_SIGNAL_GLINK_QMP>;
 				qcom,remote-pid = <197>;
 				label = "cdsp";
 
