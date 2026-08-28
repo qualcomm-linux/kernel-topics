@@ -615,8 +615,8 @@
 		compatible = "adi,adau1979";
 		reg = <0x31>;
 
-		AVDD-supply  = <&vreg_pre_reg_3p3>;
-		IOVDD-supply = <&vreg_pre_reg_3p3>;
+		AVDD-supply = <&vreg_pre_reg_3p3>;
+		DVDD-supply = <&vreg_pre_reg_3p3>;
 		#sound-dai-cells = <0>;
 	};
 
