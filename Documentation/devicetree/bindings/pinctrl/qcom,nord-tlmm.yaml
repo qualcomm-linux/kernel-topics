@@ -67,7 +67,7 @@ $defs:
           Specify the alternative function to be configured for the specified
           pins.
 
-        enum: [ aoss_cti, atest_char, atest_usb20, atest_usb21,
+        enum: [ gpio, aoss_cti, atest_char, atest_usb20, atest_usb21,
                 aud_intfc0_clk, aud_intfc0_data, aud_intfc0_ws,
                 aud_intfc10_clk, aud_intfc10_data, aud_intfc10_ws,
                 aud_intfc1_clk, aud_intfc1_data, aud_intfc1_ws,
