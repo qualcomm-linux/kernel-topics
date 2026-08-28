@@ -108,6 +108,13 @@
 		reg = <0x21>;
 		#gpio-cells = <2>;
 		gpio-controller;
+
+		emac0_phy_en_hog: emac0-phy-en-hog {
+			gpio-hog;
+			gpios = <6 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "emac0-phy-en";
+		};
 	};
 
 	expander2: gpio@38 {
