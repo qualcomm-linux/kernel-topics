@@ -67,7 +67,7 @@ properties:
       - const: phy_d_gdsc
 
   resets:
-    maxItems: 12
+    maxItems: 8
 
   reset-names:
     items:
