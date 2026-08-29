@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include "kodiak-sde.dtsi"
+
+&mdss_mdp0 {
+	status = "okay";
+	connectors = <&smmu_sde_unsec &sde_dsi &mdss_edp0>;
+};
+
+&mdss_edp0 {
+	status = "okay";
+        qcom,display-type = "primary";
+        qcom,dp-low-power-hw-hpd;
+        vdda-1p2-supply = <&vreg_l6b_1p2>;
+        vdda-0p9-supply = <&vreg_l10c_0p88>;
+        pinctrl-names = "mdss_dp_active", "mdss_dp_sleep", "mdss_dp_hpd_active";
+        pinctrl-0 = <&edp_hpd_ctrl>;
+        pinctrl-1 = <&edp_hpd_default>;
+        pinctrl-2 = <&edp_hpd_default>;
+        qcom,dp-hpd-gpio = <&tlmm 60 0>;
+        qcom,dp-gpio-aux-switch;
+        qcom,edp-vcc-en-gpio = <&tlmm 80 0>;
+        qcom,no-backlight-support;
+        qcom,dp-ext-hpd;
+};
+
+&tlmm {
+        edp_hpd_default: hpd_default@60 {
+                mux {
+                        pins = "gpio60";
+                        function = "gpio";
+                };
+
+                config {
+                        pins = "gpio60";
+                        bias-disable;
+                        input-enable;
+                        drive-strength = <2>;
+                };
+        };
+        edp_hpd_ctrl: hpd_ctrl@60 {
+                mux {
+                        pins = "gpio60";
+                        function = "edp_hot";
+                };
+
+                config {
+                        pins = "gpio60";
+                        bias-disable;
+                        input-enable;
+                        drive-strength = <2>;
+                };
+        };
+
+	pmx_sde: pmx_sde {
+		sde_dsi_active: sde_dsi_active {
+			mux {
+				pins = "gpio44";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio44";
+				drive-strength = <8>;
+				bias-disable = <0>;
+			};
+		};
+
+		sde_dsi_suspend: sde_dsi_suspend {
+			mux {
+				pins = "gpio44";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio44";
+				drive-strength = <2>;
+				bias-pull-down;
+			};
+		};
+	};
+};
+
+&mdss_dsi0 {
+	status = "okay";
+};
+
+&mdss_dsi_phy0 {
+	status = "okay";
+};
+
+&sde_dsi {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			ext_dsi_out: endpoint {
+				remote-endpoint = <&lt9611_a>;
+			};
+		};
+	};
+};
+
+&lt9611_a {
+	remote-endpoint = <&ext_dsi_out>;
+};
