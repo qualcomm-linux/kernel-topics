@@ -43,20 +43,22 @@ struct aie2_ctx_health {
 
 static inline void aie2_tdr_signal(struct amdxdna_dev *xdna)
 {
-	WRITE_ONCE(xdna->dev_handle->tdr_status, AIE2_TDR_SIGNALED);
+	WRITE_ONCE(xdna->dev_handle->last_signal_ts, jiffies);
 }
 
 static bool aie2_tdr_detect(struct amdxdna_dev *xdna)
 {
 	struct amdxdna_dev_hdl *ndev = xdna->dev_handle;
+	unsigned long last = READ_ONCE(ndev->last_signal_ts);
 
-	if (READ_ONCE(ndev->tdr_status) == AIE2_TDR_WAIT) {
-		XDNA_ERR(xdna, "TDR timeout detected");
-		return true;
-	}
+	if (!tdr_timeout_ms)
+		return false;
 
-	WRITE_ONCE(ndev->tdr_status, AIE2_TDR_WAIT);
-	return false;
+	if (!time_after(jiffies, last + msecs_to_jiffies(tdr_timeout_ms)))
+		return false;
+
+	XDNA_ERR(xdna, "TDR timeout detected");
+	return true;
 }
 
 static void aie2_cmd_release(struct kref *ref)
@@ -434,6 +436,12 @@ out:
 		mmput(job->mm);
 		fence = ERR_PTR(ret);
 	} else {
+		/*
+		 * Command is successfully posted to hardware, update the
+		 * tdr timestamp. The total pending commands are limited.
+		 * So there will not be a case that driver keeps posting
+		 * commands without getting any hardware respond.
+		 */
 		aie2_tdr_signal(hwctx->client->xdna);
 	}
 	trace_xdna_job(sched_job, hwctx->name, "sent to device",
@@ -657,8 +665,11 @@ int aie2_hwctx_init(struct amdxdna_hwctx *hwctx)
 	struct amdxdna_dev *xdna = client->xdna;
 	const struct drm_sched_init_args args = {
 		.ops = &sched_ops,
+		.num_rqs = DRM_SCHED_PRIORITY_COUNT,
 		.credit_limit = HWCTX_MAX_CMDS,
-		.timeout = msecs_to_jiffies(tdr_timeout_ms),
+		.timeout = tdr_timeout_ms ?
+			msecs_to_jiffies(tdr_timeout_ms) :
+			MAX_SCHEDULE_TIMEOUT,
 		.name = "amdxdna_js",
 		.dev = xdna->ddev.dev,
 	};
@@ -1042,6 +1053,16 @@ again:
 	found = false;
 	down_write(&xdna->notifier_lock);
 	list_for_each_entry(mapp, &abo->mem.umap_list, node) {
+		/*
+		 * Skip entries that have already been unmapped.
+		 *
+		 * If userspace unmaps the address and later submits I/O using
+		 * it, the IOMMU will reject the access and report a fault.
+		 * Ignore such entries here.
+		 */
+		if (mapp->unmapped)
+			continue;
+
 		if (mapp->invalid && kref_get_unless_zero(&mapp->refcnt)) {
 			found = true;
 			break;
@@ -1049,6 +1070,12 @@ again:
 	}
 
 	if (!found) {
+		/*
+		 * This also covers the case where all mappings have been
+		 * removed. There are no invalid mappings left to process.
+		 * Any subsequent I/O using the unmapped address will be
+		 * rejected by the IOMMU.
+		 */
 		abo->mem.map_invalid = false;
 		up_write(&xdna->notifier_lock);
 		return 0;
