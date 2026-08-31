@@ -58,10 +58,6 @@ static void __wbuf(struct ksmbd_work *work, void **req, void **rsp)
 	}
 }
 
-static struct ksmbd_work *smb2_notify_cancel_claim(void **argv);
-static void smb2_notify_cancel_fn(void **argv);
-static void smb2_complete_notify_cancel(struct ksmbd_work *in_work);
-
 #define WORK_BUFFERS(w, rq, rs)	__wbuf((w), (void **)&(rq), (void **)&(rs))
 
 #define SMB2_CREATE_FILE_ATTRIBUTE_MASK \
@@ -97,6 +93,11 @@ static int register_session_channel(struct ksmbd_session *sess,
 	int rc = 0;
 
 	down_write(&sess->chann_lock);
+	if (sess->tearing_down) {
+		rc = -ESHUTDOWN;
+		goto out;
+	}
+
 	if (xa_load(&sess->ksmbd_chann_list, (long)conn))
 		goto out;
 
@@ -873,7 +874,8 @@ int smb2_allocate_rsp_buf(struct ksmbd_work *work)
 		req = smb_get_msg(work->request_buf);
 		if ((req->InfoType == SMB2_O_INFO_FILE &&
 		     (req->FileInfoClass == FILE_FULL_EA_INFORMATION ||
-		     req->FileInfoClass == FILE_ALL_INFORMATION)) ||
+		      req->FileInfoClass == FILE_ALL_INFORMATION ||
+		      req->FileInfoClass == FILE_NORMALIZED_NAME_INFORMATION)) ||
 		    req->InfoType == SMB2_O_INFO_SECURITY)
 			sz = large_sz;
 	}
@@ -1239,6 +1241,7 @@ void smb2_send_interim_resp(struct ksmbd_work *work, __le32 status)
 {
 	struct smb2_hdr *rsp_hdr;
 	struct ksmbd_work *in_work = ksmbd_alloc_work_struct();
+	u16 command;
 
 	if (!in_work)
 		return;
@@ -1261,6 +1264,23 @@ void smb2_send_interim_resp(struct ksmbd_work *work, __le32 status)
 	rsp_hdr->Id.AsyncId = cpu_to_le64(work->async_id);
 	smb2_set_err_rsp(in_work);
 	rsp_hdr->Status = status;
+
+	/*
+	 * Async interim responses are unsigned, but final responses must
+	 * follow the normal signing rules. The synthetic work has no
+	 * request buffer, so use the original work for request signing
+	 * checks and the response header for SMB3 command selection.
+	 */
+	command = work->conn->ops->get_cmd_val(work);
+	if (status != STATUS_PENDING && !work->encrypted && work->sess &&
+	    work->conn->ops->set_sign_rsp &&
+	    (work->sess->sign ||
+	     (work->conn->ops->is_sign_req &&
+	      work->conn->ops->is_sign_req(work, command)))) {
+		in_work->sess = work->sess;
+		work->conn->ops->set_sign_rsp(in_work);
+		in_work->sess = NULL;
+	}
 
 	if (smb2_send_interim_work(in_work, work, true))
 		ksmbd_debug(SMB, "failed to send interim response\n");
@@ -3086,17 +3106,41 @@ int smb2_session_logoff(struct ksmbd_work *work)
 		smb2_set_err_rsp(work);
 		return -ENOENT;
 	}
+
+	down_write(&sess->chann_lock);
+	if (sess->tearing_down) {
+		up_write(&sess->chann_lock);
+		ksmbd_conn_unlock(conn);
+		rsp->hdr.Status = STATUS_USER_SESSION_DELETED;
+		smb2_set_err_rsp(work);
+		return -ENOENT;
+	}
+	sess->tearing_down = true;
+	up_write(&sess->chann_lock);
+
 	ksmbd_all_conn_set_status(sess, KSMBD_SESS_NEED_RECONNECT);
 	ksmbd_conn_unlock(conn);
 
+	err = ksmbd_conn_wait_idle_sess(conn, sess);
+	if (err) {
+		down_write(&sess->chann_lock);
+		sess->tearing_down = false;
+		up_write(&sess->chann_lock);
+		ksmbd_all_conn_set_status(sess, KSMBD_SESS_GOOD);
+		rsp->hdr.Status = STATUS_UNEXPECTED_IO_ERROR;
+		smb2_set_err_rsp(work);
+		return err;
+	}
+
 	ksmbd_close_session_fds(work);
-	ksmbd_conn_wait_idle(conn);
 
 	if (ksmbd_tree_conn_session_logoff(sess)) {
 		ksmbd_debug(SMB, "Invalid tid %d\n", req->hdr.Id.SyncId.TreeId);
 		rsp->hdr.Status = STATUS_NETWORK_NAME_DELETED;
 		smb2_set_err_rsp(work);
-		return -ENOENT;
+		err = -ENOENT;
+	} else {
+		err = 0;
 	}
 
 	down_write(&conn->session_lock);
@@ -3105,6 +3149,9 @@ int smb2_session_logoff(struct ksmbd_work *work)
 	up_write(&conn->session_lock);
 
 	ksmbd_all_conn_set_status(sess, KSMBD_SESS_NEED_SETUP);
+
+	if (err)
+		return err;
 
 	rsp->StructureSize = cpu_to_le16(4);
 	err = ksmbd_iov_pin_rsp(work, rsp, sizeof(struct smb2_logoff_rsp));
@@ -6757,7 +6804,7 @@ static int get_file_normalized_name_info(struct ksmbd_work *work,
 {
 	struct smb2_file_alt_name_info *file_info;
 	char *filename, *normalized, *stream_name;
-	int conv_len, filename_len;
+	int buf_free_len, conv_len, filename_len;
 
 	if (work->conn->dialect < SMB311_PROT_ID) {
 		rsp->hdr.Status = STATUS_NOT_SUPPORTED;
@@ -6781,6 +6828,14 @@ static int get_file_normalized_name_info(struct ksmbd_work *work,
 		return -ENOMEM;
 
 	filename_len = strlen(normalized);
+	buf_free_len = smb2_resp_buf_len(work, sizeof(*rsp) +
+					 sizeof(*file_info));
+	if (buf_free_len < 0 ||
+	    (size_t)buf_free_len < (filename_len + 1) * sizeof(__le16)) {
+		kfree(normalized);
+		return -EINVAL;
+	}
+
 	file_info = (struct smb2_file_alt_name_info *)rsp->Buffer;
 	conv_len = smbConvertToUTF16((__le16 *)file_info->FileName,
 				     normalized, filename_len,
@@ -7444,6 +7499,7 @@ static int smb2_get_info_filesystem(struct ksmbd_work *work,
 		struct object_id_info *info;
 
 		info = (struct object_id_info *)(rsp->Buffer);
+		memset(info, 0, sizeof(*info));
 
 		if (path.mnt->mnt_sb->s_uuid_len == 16)
 			memcpy(info->objid, path.mnt->mnt_sb->s_uuid.b,
@@ -7499,6 +7555,7 @@ static int smb2_get_info_filesystem(struct ksmbd_work *work,
 		info->FreeSpaceStopFiltering = 0;
 		info->DefaultQuotaThreshold = cpu_to_le64(SMB2_NO_FID);
 		info->DefaultQuotaLimit = cpu_to_le64(SMB2_NO_FID);
+		info->FileSystemControlFlags = 0;
 		info->Padding = 0;
 		rsp->OutputBufferLength = cpu_to_le32(48);
 		fixed_len = 48;
@@ -7521,6 +7578,9 @@ static int smb2_get_info_filesystem(struct ksmbd_work *work,
 			info->UserBlocksAvail = cpu_to_le64(stfs.f_bavail);
 			info->TotalFileNodes = cpu_to_le64(stfs.f_files);
 			info->FreeFileNodes = cpu_to_le64(stfs.f_ffree);
+			info->FileSysIdentifier =
+				cpu_to_le64((u64)(u32)stfs.f_fsid.val[1] << 32 |
+					    (u32)stfs.f_fsid.val[0]);
 			rsp->OutputBufferLength = cpu_to_le32(56);
 			fixed_len = 56;
 		}
@@ -8620,13 +8680,18 @@ static noinline int smb2_read_pipe(struct ksmbd_work *work)
 		}
 
 		aux_payload_buf =
-			kvmalloc(rpc_resp->payload_sz, KSMBD_DEFAULT_GFP);
+			kvmalloc(ALIGN(rpc_resp->payload_sz, 8),
+				 KSMBD_DEFAULT_GFP);
 		if (!aux_payload_buf) {
 			err = -ENOMEM;
 			goto out;
 		}
 
 		memcpy(aux_payload_buf, rpc_resp->payload, rpc_resp->payload_sz);
+		if (rpc_resp->payload_sz & 7)
+			memset(aux_payload_buf + rpc_resp->payload_sz, 0,
+			       ALIGN(rpc_resp->payload_sz, 8) -
+			       rpc_resp->payload_sz);
 
 		nbytes = rpc_resp->payload_sz;
 		err = ksmbd_iov_pin_rsp_read(work, (void *)rsp,
@@ -9650,7 +9715,6 @@ int smb2_cancel(struct ksmbd_work *work)
 	struct smb2_hdr *hdr = smb_get_msg(work->request_buf);
 	struct smb2_hdr *chdr;
 	struct ksmbd_work *iter;
-	struct ksmbd_work *cancelled_notify = NULL;
 	struct list_head *command_list;
 
 	if (work->next_smb2_rcv_hdr_off)
@@ -9680,31 +9744,19 @@ int smb2_cancel(struct ksmbd_work *work)
 			 * still on conn->async_requests with a live cancel_fn
 			 * pointing at the freed file_lock.
 			 */
-			if (iter->state != KSMBD_WORK_ACTIVE)
+			if (cmpxchg(&iter->state, KSMBD_WORK_ACTIVE,
+				    KSMBD_WORK_CANCELLED) != KSMBD_WORK_ACTIVE)
 				break;
 
 			ksmbd_debug(SMB,
 				    "smb2 with AsyncId %llu cancelled command = 0x%x\n",
 				    le64_to_cpu(hdr->Id.AsyncId),
 				    le16_to_cpu(chdr->Command));
-			iter->state = KSMBD_WORK_CANCELLED;
-			if (iter->cancel_fn == smb2_notify_cancel_fn)
-				cancelled_notify =
-					smb2_notify_cancel_claim(iter->cancel_argv);
-			else if (iter->cancel_fn)
+			if (iter->cancel_fn)
 				iter->cancel_fn(iter->cancel_argv);
 			break;
 		}
 		spin_unlock(&conn->request_lock);
-
-		/*
-		 * Complete a cancelled notify before this CANCEL handler returns.
-		 * Deferring it to the system workqueue lets a following request and
-		 * its response overtake STATUS_CANCELLED, leaving clients waiting
-		 * for the original notify even though the cancellation was accepted.
-		 */
-		if (cancelled_notify)
-			smb2_complete_notify_cancel(cancelled_notify);
 	} else {
 		command_list = &conn->requests;
 
@@ -9716,11 +9768,16 @@ int smb2_cancel(struct ksmbd_work *work)
 			    iter == work)
 				continue;
 
+			if (cmpxchg(&iter->state, KSMBD_WORK_ACTIVE,
+				    KSMBD_WORK_CANCELLED) != KSMBD_WORK_ACTIVE)
+				break;
+
 			ksmbd_debug(SMB,
 				    "smb2 with mid %llu cancelled command = 0x%x\n",
 				    le64_to_cpu(hdr->MessageId),
 				    le16_to_cpu(chdr->Command));
-			iter->state = KSMBD_WORK_CANCELLED;
+			if (iter->cancel_fn)
+				iter->cancel_fn(iter->cancel_argv);
 			break;
 		}
 		spin_unlock(&conn->request_lock);
@@ -11656,137 +11713,26 @@ int smb2_oplock_break(struct ksmbd_work *work)
 	return 0;
 }
 
-/*
- * Cancel handler for a deferred CHANGE_NOTIFY. Races against
- * __ksmbd_close_fd()'s notify_pendings drain (vfs_cache.c), which can run
- * concurrently on a different connection closing the same handle -- only
- * one of the two may claim and free in_work, so both sides check
- * list_empty() under fp->f_lock before touching it (list_del_init()
- * leaves a node empty, so whichever side removes it first is the owner;
- * the loser must not touch in_work again, since the winner may already be
- * freeing it).
- *
- * smb2_cancel() holds conn->request_lock (a spinlock) for the entire
- * time it walks conn->async_requests and calls this function -- so this
- * runs with preemption disabled and must not sleep or re-acquire that
- * same lock. release_async_work() does both (it takes conn->request_lock
- * itself, and frees things that can involve sleeping paths), so calling
- * it from here would self-deadlock the very thread processing the
- * client's CANCEL command. ksmbd_conn_write() can also sleep (it takes
- * conn's write mutex). So: do only the non-sleeping, no-relock cleanup
- * inline here. smb2_cancel() sends and frees the claimed notify after it
- * drops request_lock, preserving response order for a client CANCEL. The
- * connection teardown caller has no such post-unlock path, so its wrapper
- * defers the send and free to a workqueue.
- */
-struct notify_cancel_ctx {
-	struct work_struct	work;
-	struct ksmbd_work	*in_work;
+struct ksmbd_notify_req {
+	wait_queue_head_t wait;
 };
 
-static void smb2_send_notify_cancelled(struct ksmbd_work *work)
+/*
+ * Cancel handler for a pending CHANGE_NOTIFY. Called either by
+ * smb2_cancel() (conn->request_lock held, work->state already set to
+ * KSMBD_WORK_CANCELLED by the caller) or by
+ * set_close_state_blocked_works() (vfs_cache.c, fp->f_lock held,
+ * work->state already set to KSMBD_WORK_CLOSED by the caller) -- both
+ * callers hold a spinlock across this call, so it must not sleep.
+ * wake_up() only wakes the waiter in smb2_notify(); it does not touch
+ * fp->blocked_works itself, matching smb2_remove_blocked_lock()'s same
+ * non-mutating style for the equivalent byte-range-lock wait.
+ */
+static void smb2_notify_cancel(void **argv)
 {
-	struct smb2_hdr *hdr = smb_get_msg(work->response_buf);
-	struct ksmbd_conn *conn = work->conn;
-	struct ksmbd_session *sess;
+	struct ksmbd_notify_req *notify_req = argv[0];
 
-	sess = ksmbd_session_lookup(conn, le64_to_cpu(hdr->SessionId));
-	if (sess) {
-		work->sess = sess;
-		if (work->encrypted && sess->enc && conn->ops->encrypt_resp) {
-			conn->ops->encrypt_resp(work);
-		} else if (conn->ops->is_sign_req && conn->ops->set_sign_rsp &&
-			   conn->ops->is_sign_req(work,
-						 conn->ops->get_cmd_val(work))) {
-			conn->ops->set_sign_rsp(work);
-		}
-	}
-
-	ksmbd_conn_write(work);
-	if (sess) {
-		ksmbd_user_session_put(sess);
-		work->sess = NULL;
-	}
-}
-
-static void smb2_notify_cancel_deferred(struct work_struct *w)
-{
-	struct notify_cancel_ctx *ctx =
-		container_of(w, struct notify_cancel_ctx, work);
-	struct ksmbd_conn *conn = ctx->in_work->conn;
-
-	smb2_complete_notify_cancel(ctx->in_work);
-	kfree(ctx);
-	/*
-	 * The connection teardown waits for r_count before destroying
-	 * connection sessions and their proc entries.
-	 */
-	ksmbd_conn_r_count_dec(conn);
-}
-
-static struct ksmbd_work *smb2_notify_cancel_claim(void **argv)
-{
-	struct ksmbd_work *in_work = (struct ksmbd_work *)argv[0];
-	struct ksmbd_file *fp = (struct ksmbd_file *)argv[1];
-	bool claimed;
-
-	spin_lock(&fp->f_lock);
-	claimed = !list_empty(&in_work->notify_entry);
-	if (claimed)
-		list_del_init(&in_work->notify_entry);
-	spin_unlock(&fp->f_lock);
-
-	if (!claimed)
-		return NULL;
-
-	/* conn->request_lock is held by smb2_cancel() or connection teardown. */
-	in_work->cancel_fn = NULL;
-	kfree(in_work->cancel_argv);
-	in_work->cancel_argv = NULL;
-	return in_work;
-}
-
-static void smb2_complete_notify_cancel(struct ksmbd_work *in_work)
-{
-	struct smb2_hdr *in_hdr = smb_get_msg(in_work->response_buf);
-
-	in_hdr->Status = STATUS_CANCELLED;
-	smb2_send_notify_cancelled(in_work);
-	release_async_work(in_work);
-	ksmbd_free_work_struct(in_work);
-}
-
-static void smb2_notify_cancel_fn(void **argv)
-{
-	struct ksmbd_work *in_work = smb2_notify_cancel_claim(argv);
-	struct ksmbd_conn *conn;
-	struct notify_cancel_ctx *ctx;
-
-	if (!in_work)
-		return;
-	conn = in_work->conn;
-
-	ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
-	if (!ctx) {
-		/* Can't defer the response -- free without sending one. */
-		list_del_init(&in_work->async_request_entry);
-		in_work->asynchronous = false;
-		if (in_work->async_id) {
-			ksmbd_release_id(&conn->async_ida, in_work->async_id);
-			in_work->async_id = 0;
-		}
-		ksmbd_free_work_struct(in_work);
-		return;
-	}
-	ctx->in_work = in_work;
-	INIT_WORK(&ctx->work, smb2_notify_cancel_deferred);
-	/*
-	 * This deferred work can outlive the connection handler's receive loop.
-	 * Keep teardown from destroying the connection's sessions until the
-	 * deferred response has finished using them.
-	 */
-	ksmbd_conn_r_count_inc(conn);
-	schedule_work(&ctx->work);
+	wake_up(&notify_req->wait);
 }
 
 /**
@@ -11799,9 +11745,11 @@ int smb2_notify(struct ksmbd_work *work)
 {
 	struct smb2_change_notify_req *req;
 	struct smb2_change_notify_rsp *rsp;
-	struct ksmbd_work *in_work;
-	struct smb2_hdr *in_hdr;
-	struct ksmbd_file *fp;
+	struct ksmbd_notify_req notify_req;
+	struct ksmbd_file *fp = NULL;
+	void **argv = NULL;
+	bool async_work = false;
+	int err = 0;
 
 	ksmbd_debug(SMB, "Received smb2 notify\n");
 
@@ -11812,164 +11760,83 @@ int smb2_notify(struct ksmbd_work *work)
 
 	if (work->next_smb2_rcv_hdr_off && req->hdr.NextCommand) {
 		rsp->hdr.Status = STATUS_INTERNAL_ERROR;
-		smb2_set_err_rsp(work);
-		return -EIO;
+		err = -EIO;
+		goto out;
 	}
 
-	/*
-	 * macOS backupd sends CHANGE_NOTIFY with FileId=FFFF...FFFF (share-root
-	 * sentinel) to watch for changes on the share root without holding an
-	 * open handle. Respond STATUS_PENDING + STATUS_NOTIFY_CLEANUP immediately;
-	 * without this, backupd aborts Time Machine setup on STATUS_FILE_CLOSED.
-	 */
-	if (req->VolatileFileId == SMB2_NO_FID &&
-	    req->PersistentFileId == SMB2_NO_FID) {
-		in_work = ksmbd_alloc_work_struct();
-		if (!in_work || allocate_interim_rsp_buf(in_work)) {
-			if (in_work)
-				ksmbd_free_work_struct(in_work);
-			rsp->hdr.Status = STATUS_INSUFFICIENT_RESOURCES;
-			smb2_set_err_rsp(work);
-			return 0;
-		}
-		if (setup_async_work(work, NULL, NULL)) {
-			ksmbd_free_work_struct(in_work);
-			rsp->hdr.Status = STATUS_INSUFFICIENT_RESOURCES;
-			smb2_set_err_rsp(work);
-			return 0;
-		}
-		smb2_send_interim_resp(work, STATUS_PENDING);
-		in_work->conn = work->conn;
-		in_hdr = smb_get_msg(in_work->response_buf);
-		memcpy(in_hdr, ksmbd_resp_buf_next(work),
-		       __SMB2_HEADER_STRUCTURE_SIZE);
-		in_hdr->Flags |= SMB2_FLAGS_ASYNC_COMMAND;
-		in_hdr->Id.AsyncId = cpu_to_le64(work->async_id);
-		smb2_set_err_rsp(in_work);
-		in_hdr->Status = STATUS_NOTIFY_CLEANUP;
-		in_work->async_id = work->async_id;
-		work->async_id = 0;
-		release_async_work(work);
-		if (smb2_send_interim_work(in_work, work, false))
-			ksmbd_debug(SMB, "failed to send notify cleanup\n");
-		ksmbd_free_work_struct(in_work);
-		work->send_no_response = 1;
-		return 0;
-	}
-
-	/*
-	 * KSMBD does not implement a real change-notification backend.
-	 * Genuine SMB2 servers (and macOS smbfs) never complete a
-	 * CHANGE_NOTIFY spontaneously: it is satisfied only by a real
-	 * directory change, or with STATUS_NOTIFY_CLEANUP when the watched
-	 * handle is closed. Completing it early (e.g. on a timer) makes
-	 * Finder treat the cleanup as "directory changed" and re-enumerate
-	 * the directory forever, leaving items unopenable. Returning
-	 * STATUS_NOT_IMPLEMENTED here (like stock ksmbd) makes macOS smbfs
-	 * hard-freeze on unmount, so this must stay deferred.
-	 */
 	fp = ksmbd_lookup_fd_slow(work, req->VolatileFileId, req->PersistentFileId);
 	if (!fp) {
 		rsp->hdr.Status = STATUS_FILE_CLOSED;
-		smb2_set_err_rsp(work);
-		return 0;
+		err = -ENOENT;
+		goto out;
 	}
 
-	in_work = ksmbd_alloc_work_struct();
-	if (!in_work || allocate_interim_rsp_buf(in_work)) {
-		if (in_work)
-			ksmbd_free_work_struct(in_work);
-		ksmbd_fd_put(work, fp);
+	argv = kmalloc(sizeof(void *), KSMBD_DEFAULT_GFP);
+	if (!argv) {
 		rsp->hdr.Status = STATUS_INSUFFICIENT_RESOURCES;
-		smb2_set_err_rsp(work);
-		return 0;
+		err = -ENOMEM;
+		goto out;
 	}
+	init_waitqueue_head(&notify_req.wait);
+	argv[0] = &notify_req;
+
+	err = setup_async_work(work, smb2_notify_cancel, argv);
+	if (err) {
+		rsp->hdr.Status = STATUS_INSUFFICIENT_RESOURCES;
+		goto out;
+	}
+	async_work = true;
+
 	/*
-	 * in_work is synthetic (not from the normal request-receiving
-	 * pipeline), so it has no request_buf of its own. It gets registered
-	 * into conn->async_requests below, and smb2_cancel() unconditionally
-	 * computes smb_get_msg(iter->request_buf) for every entry in that
-	 * list while searching for a match -- give it its own small buffer
-	 * (not an alias of response_buf: ksmbd_free_work_struct() kvfree()s
-	 * both separately, so aliasing them would double-free) so that stays
-	 * a harmless read instead of a near-NULL dereference.
+	 * Handle close holds the file-table write lock while it marks the
+	 * handle closed and walks blocked_works.  Hold the matching read lock
+	 * across the state check and registration so close cannot finish its
+	 * walk between the lookup above and this list insertion.
 	 */
-	in_work->request_buf = kzalloc(MAX_CIFS_SMALL_BUFFER_SIZE, KSMBD_DEFAULT_GFP);
-	if (!in_work->request_buf) {
-		ksmbd_free_work_struct(in_work);
-		ksmbd_fd_put(work, fp);
-		rsp->hdr.Status = STATUS_INSUFFICIENT_RESOURCES;
-		smb2_set_err_rsp(work);
-		return 0;
+	read_lock(&work->sess->file_table.lock);
+	if (fp->f_state != FP_INITED) {
+		read_unlock(&work->sess->file_table.lock);
+		rsp->hdr.Status = STATUS_NOTIFY_CLEANUP;
+		err = -ENOENT;
+		goto out;
 	}
-	memcpy(smb_get_msg(in_work->request_buf), req,
-	       __SMB2_HEADER_STRUCTURE_SIZE);
-
-	if (setup_async_work(work, NULL, NULL)) {
-		ksmbd_free_work_struct(in_work);
-		ksmbd_fd_put(work, fp);
-		rsp->hdr.Status = STATUS_INSUFFICIENT_RESOURCES;
-		smb2_set_err_rsp(work);
-		return 0;
-	}
+	spin_lock(&fp->f_lock);
+	list_add_tail(&work->fp_entry, &fp->blocked_works);
+	spin_unlock(&fp->f_lock);
+	read_unlock(&work->sess->file_table.lock);
 
 	smb2_send_interim_resp(work, STATUS_PENDING);
 
-	/* Keep the async IDA alive until the deferred work is released. */
-	in_work->conn = ksmbd_conn_get(work->conn);
-	in_work->owns_conn_ref = true;
-	in_work->encrypted = work->encrypted;
-	in_hdr = smb_get_msg(in_work->response_buf);
-	memcpy(in_hdr, ksmbd_resp_buf_next(work), __SMB2_HEADER_STRUCTURE_SIZE);
-	in_hdr->Flags |= SMB2_FLAGS_ASYNC_COMMAND;
-	in_hdr->Id.AsyncId = cpu_to_le64(work->async_id);
-	smb2_set_err_rsp(in_work);
-	in_hdr->Status = STATUS_NOTIFY_CLEANUP;
-
-	/*
-	 * Transfer ownership of the async id to in_work; it stays reserved
-	 * until in_work is freed after the deferred response is sent on
-	 * close, so it can't be reused for an unrelated async response.
-	 */
-	in_work->async_id = work->async_id;
-	work->async_id = 0;
-	release_async_work(work);
-
-	/*
-	 * work itself is about to be recycled by the normal request-processing
-	 * pipeline, so it can't stay the target of a future CANCEL -- register
-	 * in_work instead, reusing the same async_id, so a client-sent CANCEL
-	 * for this notify actually finds something to cancel instead of
-	 * silently doing nothing until the handle eventually closes.
-	 */
-	in_work->asynchronous = true;
-	in_work->cancel_argv = kmalloc_array(2, sizeof(void *), KSMBD_DEFAULT_GFP);
-	if (in_work->cancel_argv) {
-		in_work->cancel_argv[0] = in_work;
-		in_work->cancel_argv[1] = fp;
-		in_work->cancel_fn = smb2_notify_cancel_fn;
-	}
-
-	if (!ksmbd_conn_link_async_request(work->conn, in_work)) {
-		kfree(in_work->cancel_argv);
-		in_work->cancel_argv = NULL;
-		in_work->cancel_fn = NULL;
-		in_work->asynchronous = false;
-		ksmbd_fd_put(work, fp);
-		if (smb2_send_interim_work(in_work, work, false))
-			ksmbd_debug(SMB, "failed to send notify cleanup\n");
-		ksmbd_free_work_struct(in_work);
-		work->send_no_response = 1;
-		return 0;
+	err = wait_event_interruptible(notify_req.wait,
+				       READ_ONCE(work->state) != KSMBD_WORK_ACTIVE);
+	if (err && READ_ONCE(work->state) == KSMBD_WORK_ACTIVE) {
+		/*
+		 * Woken by a signal, not a real cancel/close. There is no
+		 * notification backend yet to report anything else against,
+		 * so treat this the same as a client-side cancel.
+		 */
+		WRITE_ONCE(work->state, KSMBD_WORK_CANCELLED);
 	}
 
 	spin_lock(&fp->f_lock);
-	list_add_tail(&in_work->notify_entry, &fp->notify_pendings);
+	list_del_init(&work->fp_entry);
 	spin_unlock(&fp->f_lock);
 
-	ksmbd_fd_put(work, fp);
+	rsp->hdr.Status = work->state == KSMBD_WORK_CLOSED ?
+			  STATUS_NOTIFY_CLEANUP : STATUS_CANCELLED;
+	smb2_send_interim_resp(work, rsp->hdr.Status);
 	work->send_no_response = 1;
-	return 0;
+
+out:
+	if (rsp->hdr.Status != STATUS_SUCCESS && !work->send_no_response)
+		smb2_set_err_rsp(work);
+	if (async_work)
+		release_async_work(work);
+	else
+		kfree(argv);
+	if (fp)
+		ksmbd_fd_put(work, fp);
+	return err;
 }
 
 /**
@@ -12164,11 +12031,12 @@ void smb3_set_sign_rsp(struct ksmbd_work *work)
 	struct channel *chann;
 	char signature[SMB2_CMACAES_SIZE];
 	struct kvec *iov;
-	u16 command = conn->ops->get_cmd_val(work);
+	u16 command;
 	int n_vec;
 	char *signing_key;
 
 	hdr = ksmbd_resp_buf_curr(work);
+	command = le16_to_cpu(hdr->Command);
 
 	if (command == SMB2_SESSION_SETUP_HE &&
 	    (!conn->binding || hdr->Status != STATUS_SUCCESS)) {
