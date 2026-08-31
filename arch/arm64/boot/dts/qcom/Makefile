@@ -600,3 +600,13 @@ dtb-$(CONFIG_ARCH_QCOM) += sm8750-staging.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += kaanapali-staging.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM) += shikra-staging.dtbo
+
+shikra-cqs-evk-camx-dtbs	:= shikra-cqs-evk.dtb shikra-cqs-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqs-evk-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqs-evk-camx.dtbo
+
+shikra-iqs-evk-camx-dtbs	:= shikra-iqs-evk.dtb shikra-iqs-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= shikra-iqs-evk-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= shikra-iqs-evk-camx.dtbo
