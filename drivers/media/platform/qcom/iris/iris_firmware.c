@@ -4,6 +4,7 @@
  */
 
 #include <linux/firmware.h>
+#include <linux/firmware/qcom/qcom_pas.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/iommu.h>
 #include <linux/of_address.h>
@@ -142,7 +143,7 @@ static int iris_load_fw_to_memory(struct iris_core *core)
 {
 	struct device *fw_dev = core->fw_dev ? core->fw_dev : core->dev;
 	const struct firmware *firmware = NULL;
-	struct qcom_scm_pas_context	*ctx;
+	struct qcom_pas_context	*ctx;
 	struct iommu_domain *domain;
 	struct resource res;
 	phys_addr_t mem_phys;
@@ -163,7 +164,7 @@ static int iris_load_fw_to_memory(struct iris_core *core)
 		return PTR_ERR(firmware);
 
 	if (!core->pas_ctx) {
-		ctx = devm_qcom_scm_pas_context_alloc(core->dev, IRIS_PAS_ID, mem_phys, res_size);
+		ctx = devm_qcom_pas_context_alloc(core->dev, IRIS_PAS_ID, mem_phys, res_size);
 		if (IS_ERR(ctx))
 			return PTR_ERR(ctx);
 		core->pas_ctx = ctx;
@@ -220,7 +221,7 @@ int iris_fw_load(struct iris_core *core)
 		return ret;
 	}
 
-	ret = qcom_scm_pas_prepare_and_auth_reset(core->pas_ctx);
+	ret = qcom_pas_prepare_and_auth_reset(core->pas_ctx);
 	if (ret)  {
 		dev_err(core->dev, "auth and reset failed: %d\n", ret);
 		goto err_unmap;
@@ -241,7 +242,7 @@ int iris_fw_load(struct iris_core *core)
 	return 0;
 
 err_pas_shutdown:
-	qcom_scm_pas_shutdown(IRIS_PAS_ID);
+	qcom_pas_shutdown(IRIS_PAS_ID);
 err_unmap:
 	iris_fw_iommu_unmap(core);
 
@@ -252,7 +253,7 @@ int iris_fw_unload(struct iris_core *core)
 {
 	int ret;
 
-	ret = qcom_scm_pas_shutdown(IRIS_PAS_ID);
+	ret = qcom_pas_shutdown(IRIS_PAS_ID);
 	iris_fw_iommu_unmap(core);
 
 	return ret;
@@ -260,5 +261,5 @@ int iris_fw_unload(struct iris_core *core)
 
 int iris_set_hw_state(struct iris_core *core, bool resume)
 {
-	return qcom_scm_set_remote_state(resume, 0);
+	return qcom_pas_set_remote_state(resume, IRIS_PAS_ID);
 }
