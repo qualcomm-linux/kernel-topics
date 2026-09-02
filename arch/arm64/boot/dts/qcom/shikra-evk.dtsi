@@ -21,6 +21,37 @@
 	reboot-mode {
 		mode-bootloader = <0x10001 0x2>;
 		mode-edl = <0 0x1>;
+&i2c3 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	expander0: pca953x@38 {
+		compatible = "ti,tca9538";
+		reg = <0x38>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	expander1: pca953x@3C {
+		compatible = "ti,tca9538";
+		reg = <0x3C>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	expander2: pca953x@20 {
+		compatible = "ti,tca9539";
+		reg = <0x20>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	expander3: pca953x@21 {
+		compatible = "ti,tca9539";
+		reg = <0x21>;
+		#gpio-cells = <2>;
+		gpio-controller;
 	};
 };
 
