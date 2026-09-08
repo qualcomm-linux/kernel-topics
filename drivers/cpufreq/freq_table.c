@@ -34,6 +34,7 @@ int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy)
 	unsigned int min_freq = ~0;
 	unsigned int max_freq = 0;
 	unsigned int max_table_freq = 0;
+	unsigned int max_base_freq = 0;
 	unsigned int freq, i;
 
 	cpufreq_for_each_valid_entry_idx(pos, table, i) {
@@ -41,6 +42,9 @@ int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy)
 
 		if (freq > max_table_freq)
 			max_table_freq = freq;
+
+		if (!(pos->flags & CPUFREQ_BOOST_FREQ) && freq > max_base_freq)
+			max_base_freq = freq;
 
 		if ((!cpufreq_boost_enabled() || !policy->boost_enabled)
 		    && (pos->flags & CPUFREQ_BOOST_FREQ))
@@ -62,6 +66,7 @@ int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy)
 		policy->cpuinfo.max_freq = max_freq;
 
 	policy->cpuinfo.max_table_freq = max_table_freq;
+	policy->cpuinfo.max_base_freq = max_base_freq;
 
 	if (min_freq == ~0)
 		return -EINVAL;
