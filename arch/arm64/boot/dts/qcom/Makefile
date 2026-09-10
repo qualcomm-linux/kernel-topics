@@ -339,6 +339,21 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sdx75-idp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqm-evk.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqs-evk.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= shikra-iqs-evk.dtb
+
+shikra-cqs-evk-camx-dtbs := shikra-cqs-evk.dtb shikra-cqs-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += shikra-cqs-evk-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM) += shikra-cqs-evk-camx.dtbo
+
+shikra-cqm-evk-camx-dtbs := shikra-cqm-evk.dtb shikra-cqs-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += shikra-cqm-evk-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM) += shikra-cqm-evk-camx.dtbo
+
+shikra-iqs-evk-camx-dtbs := shikra-iqs-evk.dtb shikra-iqs-evk-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += shikra-iqs-evk-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM) += shikra-iqs-evk-camx.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= sm4250-oneplus-billie2.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= sm4450-qrd.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= sm6115-fxtec-pro1x.dtb
