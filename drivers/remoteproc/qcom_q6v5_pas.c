@@ -1773,6 +1773,9 @@ static const struct qcom_pas_data shikra_cdsp_resource = {
 	.sysmon_name = "cdsp",
 	.ssctl_id = 0x17,
 	.smem_host_id = 5,
+	.tmd_instance_id = 0x43,
+	.tmd_name = cdsp_tmd_name,
+	.num_tmd = ARRAY_SIZE(cdsp_tmd_name),
 };
 
 static const struct qcom_pas_data shikra_lpaicp_resource = {
@@ -1801,6 +1804,9 @@ static const struct qcom_pas_data shikra_mpss_resource = {
 	.ssr_name = "mpss",
 	.sysmon_name = "modem",
 	.ssctl_id = 0x12,
+	.tmd_instance_id = 0x0,
+	.tmd_name = modem_tmd_name,
+	.num_tmd = ARRAY_SIZE(modem_tmd_name),
 };
 
 static const struct qcom_pas_data sm8650_cdsp_resource = {
