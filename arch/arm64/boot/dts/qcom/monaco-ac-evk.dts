@@ -15,17 +15,49 @@
 
 / {
 	model = "Qualcomm Technologies, Inc. Monaco-ac EVK";
-	compatible = "qcom,monaco-evk", "qcom,qcs8300";
+	compatible = "qcom,monaco-ac-evk", "qcom,qcs8300";
 
 	aliases {
 		ethernet0 = &ethernet0;
 		i2c1 = &i2c1;
 		serial0 = &uart7;
+		serial1 = &uart2;
 		serial2 = &uart6;
 	};
 
 	chosen {
 		stdout-path = "serial0:115200n8";
+	};
+
+	connector-1 {
+		compatible = "usb-c-connector";
+		label = "USB1-Type-C";
+		data-role = "host";
+		power-role = "source";
+
+		vbus-supply = <&usb1_vbus>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				usb1_con_hs_ep: endpoint {
+					remote-endpoint = <&usb_hub_2_1>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+
+				usb1_con_ss_ep: endpoint {
+					remote-endpoint = <&hd3ss3220_1_in_ep>;
+				};
+
+			};
+		};
 	};
 
 	connector-2 {
@@ -80,6 +112,15 @@
 				remote-endpoint = <&lt8713sx_dp1_out>;
 			};
 		};
+	};
+
+	usb1_vbus: regulator-usb1-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb1_vbus";
+		gpio = <&expander1 3 GPIO_ACTIVE_HIGH>;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		enable-active-high;
 	};
 
 	usb2_vbus: regulator-usb2-vbus {
@@ -173,13 +214,27 @@
 		pinctrl-names = "default";
 	};
 
-	/* This comes from a PMIC handled within the SAIL domain */
-	vreg_s2s: vreg-s2s {
+	vreg_dcin_12v: regulator-dcin-12v {
 		compatible = "regulator-fixed";
-		regulator-name = "vreg_s2s";
 
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
+		regulator-name = "VREG_DCIN_12V";
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
+
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vreg_wcn_3p3: regulator-wcn-3p3 {
+		compatible = "regulator-fixed";
+
+		regulator-name = "VREG_WCN_3P3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+
+		vin-supply = <&vreg_dcin_12v>;
+
+		regulator-boot-on;
 	};
 };
 
@@ -187,6 +242,20 @@
 	regulators-0 {
 		compatible = "qcom,pmm8654au-rpmh-regulators";
 		qcom,pmic-id = "a";
+
+		vreg_s4a: smps4 {
+			regulator-name = "vreg_s4a";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_s9a: smps9 {
+			regulator-name = "vreg_s9a";
+			regulator-min-microvolt = <1352000>;
+			regulator-max-microvolt = <1352000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
 
 		vreg_l3a: ldo3 {
 			regulator-name = "vreg_l3a";
@@ -249,19 +318,6 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_HPM>;
-		};
-		vreg_s4a: smps4 {
-			regulator-name = "vreg_s4a";
-			regulator-min-microvolt = <1800000>;
-			regulator-max-microvolt = <1800000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
-		};
-
-		vreg_s9a: smps9 {
-			regulator-name = "vreg_s9a";
-			regulator-min-microvolt = <1352000>;
-			regulator-max-microvolt = <1352000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 	};
 
@@ -472,6 +528,39 @@
 			};
 		};
 	};
+
+	usb-typec@47 {
+		compatible = "ti,hd3ss3220";
+		reg = <0x47>;
+
+		interrupts-extended = <&tlmm 45 IRQ_TYPE_EDGE_FALLING>;
+
+		id-gpios = <&tlmm 13 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&usb1_id>, <&usb1_intr>;
+		pinctrl-names = "default";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				hd3ss3220_1_in_ep: endpoint {
+					remote-endpoint = <&usb1_con_ss_ep>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+
+				hd3ss3220_1_out_ep: endpoint {
+					remote-endpoint = <&usb_hub_3_1>;
+				};
+			};
+		};
+	};
 };
 
 &i2c1 {
@@ -583,6 +672,12 @@
 		interrupts-extended = <&tlmm 3 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-0 = <&expander5_int>;
 		pinctrl-names = "default";
+
+		usb1_ss_sel_switch_hog: usb1-ss-sel-switch-hog {
+			gpio-hog;
+			gpios = <5 GPIO_ACTIVE_HIGH>;
+			output-high;
+		};
 	};
 
 	expander6: gpio@3e {
@@ -636,6 +731,7 @@
 &pcie0_phy {
 	vdda-phy-supply = <&vreg_l6a>;
 	vdda-pll-supply = <&vreg_l5a>;
+	vdda-qref-supply = <&vreg_l4a>;
 
 	status = "okay";
 };
@@ -650,6 +746,7 @@
 &pcie1_phy {
 	vdda-phy-supply = <&vreg_l6a>;
 	vdda-pll-supply = <&vreg_l5a>;
+	vdda-qref-supply = <&vreg_l4a>;
 
 	status = "okay";
 };
@@ -703,17 +800,6 @@
 
 &remoteproc_gpdsp {
 	firmware-name = "qcom/qcs8300/gpdsp0.mbn";
-
-	status = "okay";
-};
-
-&sdhc_1 {
-	vmmc-supply = <&vreg_l8a>;
-	vqmmc-supply = <&vreg_s2s>;
-
-	no-sd;
-	no-sdio;
-	non-removable;
 
 	status = "okay";
 };
@@ -780,6 +866,24 @@
 		bias-pull-up;
 	};
 
+	usb1_hub_reset_hog: usb1-hub-reset-hog {
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
+	usb1_id: usb1-id-state {
+		pins = "gpio13";
+		function = "gpio";
+		bias-pull-up;
+	};
+
+	usb1_hs_sel_switch_hog: usb1-hs-sel-switch-hog {
+		gpio-hog;
+		gpios = <14 GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+
 	expander1_int: expander1-int-state {
 		pins = "gpio16";
 		function = "gpio";
@@ -820,6 +924,13 @@
 		pins = "gpio24";
 		function = "gpio";
 		bias-pull-up;
+	};
+
+	usb1_intr: usb1-intr-state {
+		pins = "gpio45";
+		function = "gpio";
+		bias-pull-up;
+		drive-strength = <2>;
 	};
 
 	expander6_int:  expander6-int-state {
@@ -875,6 +986,24 @@
 	};
 };
 
+&uart2 {
+	status = "okay";
+
+	bluetooth: bluetooth {
+		compatible = "qcom,wcn6855-bt";
+		max-speed = <3200000>;
+
+		vddrfacmn-supply = <&vreg_wcn_3p3>;
+		vddaon-supply = <&vreg_wcn_3p3>;
+		vddwlcx-supply = <&vreg_wcn_3p3>;
+		vddwlmx-supply = <&vreg_wcn_3p3>;
+		vddbtcmx-supply = <&vreg_wcn_3p3>;
+		vddrfa0p8-supply = <&vreg_wcn_3p3>;
+		vddrfa1p2-supply = <&vreg_wcn_3p3>;
+		vddrfa1p8-supply = <&vreg_wcn_3p3>;
+	};
+};
+
 &uart6 {
 	status = "okay";
 };
@@ -901,9 +1030,69 @@
 };
 
 &usb_1 {
-	dr_mode = "peripheral";
+	dr_mode = "host";
+
+	#address-cells = <1>;
+	#size-cells = <0>;
 
 	status = "okay";
+
+	usb_hub_2_x: hub@1 {
+		compatible = "usb5e3,610";
+		reg = <1>;
+
+		peer-hub = <&usb_hub_3_x>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@1 {
+				reg = <1>;
+
+				usb_hub_2_1: endpoint {
+					remote-endpoint = <&usb1_con_hs_ep>;
+				};
+			};
+
+			/*
+			 * Port-4 is connected to M.2 E key connector on corekit.
+			 */
+			port@4 {
+				reg = <4>;
+
+				usb_hub_2_4: endpoint {
+				};
+			};
+		};
+	};
+
+	usb_hub_3_x: hub@2 {
+		compatible = "usb5e3,625";
+		reg = <2>;
+
+		peer-hub = <&usb_hub_2_x>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@1 {
+				reg = <1>;
+
+				usb_hub_3_1: endpoint {
+					remote-endpoint = <&hd3ss3220_1_out_ep>;
+				};
+			};
+
+			port@4 {
+				reg = <4>;
+
+				usb_hub_3_4: endpoint {
+				};
+			};
+		};
+	};
 };
 
 &usb_1_hsphy {
