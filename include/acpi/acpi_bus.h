@@ -435,9 +435,9 @@ struct acpi_device_software_nodes {
 
 /* Device */
 struct acpi_device {
+	acpi_handle handle;		/* no handle for fixed hardware */
 	u32 pld_crc;
 	int device_type;
-	acpi_handle handle;		/* no handle for fixed hardware */
 	struct fwnode_handle fwnode;
 	struct list_head wakeup_list;
 	struct list_head del_list;
