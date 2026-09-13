@@ -120,9 +120,7 @@ allOf:
       properties:
         qcom,glink-channels:
           items:
-            - enum:
-                - adsp_apps
-                - modem_apps
+            - const: adsp_apps
         power-domains: false
     else:
       properties:
