@@ -343,9 +343,9 @@ void drm_atomic_commit_default_clear(struct drm_atomic_commit *state)
 			continue;
 
 		drm_colorop_atomic_destroy_state(colorop,
-						 state->colorops[i].state);
+						 state->colorops[i].state_to_destroy);
 		state->colorops[i].ptr = NULL;
-		state->colorops[i].state = NULL;
+		state->colorops[i].state_to_destroy = NULL;
 		state->colorops[i].old_state = NULL;
 		state->colorops[i].new_state = NULL;
 	}
@@ -708,7 +708,7 @@ drm_atomic_get_colorop_state(struct drm_atomic_commit *state,
 	if (!colorop_state)
 		return ERR_PTR(-ENOMEM);
 
-	state->colorops[index].state = colorop_state;
+	state->colorops[index].state_to_destroy = colorop_state;
 	state->colorops[index].ptr = colorop;
 	state->colorops[index].old_state = colorop->state;
 	state->colorops[index].new_state = colorop_state;

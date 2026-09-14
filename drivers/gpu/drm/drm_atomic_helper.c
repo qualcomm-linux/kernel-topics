@@ -3351,7 +3351,7 @@ int drm_atomic_helper_swap_state(struct drm_atomic_commit *state,
 		old_colorop_state->state = state;
 		new_colorop_state->state = NULL;
 
-		state->colorops[i].state = old_colorop_state;
+		state->colorops[i].state_to_destroy = old_colorop_state;
 		colorop->state = new_colorop_state;
 	}
 
