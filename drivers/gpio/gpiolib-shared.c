@@ -661,6 +661,7 @@ gpiod_shared_desc_create(struct gpio_shared_entry *entry)
 	}
 
 	shared_desc->desc = &gdev->descs[entry->offset];
+	shared_desc->dir = -1;
 	mutex_init(&shared_desc->mutex);
 
 	return shared_desc;

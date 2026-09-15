@@ -43,6 +43,7 @@ struct gpio_shared_desc {
 	unsigned int usecnt;
 	unsigned int votecnt;
 	int def_val;
+	int dir; /* GPIO_LINE_DIRECTION_* as configured by the proxies, -1 if unset */
 	struct mutex mutex; /* serializes all proxy operations on this descriptor */
 };
 
