@@ -2033,6 +2033,7 @@
 						     "qcom,kaanapali-fastrpc";
 					qcom,glink-channels = "fastrpcglink-apps-dsp";
 					label = "adsp";
+					memory-region = <&hpass_rpc_remote_heap_mem>;
 					#address-cells = <1>;
 					#size-cells = <0>;
 
