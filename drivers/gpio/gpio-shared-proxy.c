@@ -116,6 +116,8 @@ static void gpio_shared_proxy_free(struct gpio_chip *gc, unsigned int offset)
 	}
 
 	proxy->shared_desc->usecnt--;
+	if (!shared_desc->usecnt)
+		shared_desc->dir = -1;
 
 	dev_dbg(proxy->dev, "Shared GPIO freed, number of users: %u\n",
 		proxy->shared_desc->usecnt);
@@ -155,22 +157,24 @@ static int gpio_shared_proxy_direction_input(struct gpio_chip *gc,
 	struct gpio_shared_proxy_data *proxy = gpiochip_get_data(gc);
 	struct gpio_shared_desc *shared_desc = proxy->shared_desc;
 	struct gpio_desc *desc = shared_desc->desc;
-	int dir;
+	int ret;
 
 	guard(mutex)(&shared_desc->mutex);
 
-	if (shared_desc->usecnt == 1) {
+	if (shared_desc->usecnt == 1 || shared_desc->dir < 0) {
 		dev_dbg(proxy->dev,
-			"Only one user of this shared GPIO, allowing to set direction to input\n");
+			"Setting the direction of the shared GPIO to input\n");
 
-		return gpiod_direction_input(desc);
+		ret = gpiod_direction_input(desc);
+		if (ret)
+			return ret;
+
+		shared_desc->dir = GPIO_LINE_DIRECTION_IN;
+
+		return 0;
 	}
 
-	dir = gpiod_get_direction(desc);
-	if (dir < 0)
-		return dir;
-
-	if (dir == GPIO_LINE_DIRECTION_OUT) {
+	if (shared_desc->dir == GPIO_LINE_DIRECTION_OUT) {
 		dev_dbg(proxy->dev,
 			"Shared GPIO's direction already set to output, refusing to change\n");
 		return -EPERM;
@@ -185,19 +189,20 @@ static int gpio_shared_proxy_direction_output(struct gpio_chip *gc,
 	struct gpio_shared_proxy_data *proxy = gpiochip_get_data(gc);
 	struct gpio_shared_desc *shared_desc = proxy->shared_desc;
 	struct gpio_desc *desc = shared_desc->desc;
-	int ret, dir;
+	int ret;
 
 	guard(mutex)(&shared_desc->mutex);
 
-	if (shared_desc->usecnt == 1) {
+	if (shared_desc->usecnt == 1 || shared_desc->dir < 0) {
 		dev_dbg(proxy->dev,
-			"Only one user of this shared GPIO, allowing to set direction to output with value '%s'\n",
+			"Setting the direction of the shared GPIO to output with value '%s'\n",
 			str_high_low(value));
 
 		ret = gpiod_direction_output(desc, value);
 		if (ret)
 			return ret;
 
+		shared_desc->dir = GPIO_LINE_DIRECTION_OUT;
 		shared_desc->def_val = value;
 		shared_desc->votecnt = 0;
 		proxy->voted_change = false;
@@ -205,11 +210,7 @@ static int gpio_shared_proxy_direction_output(struct gpio_chip *gc,
 		return 0;
 	}
 
-	dir = gpiod_get_direction(desc);
-	if (dir < 0)
-		return dir;
-
-	if (dir == GPIO_LINE_DIRECTION_IN) {
+	if (shared_desc->dir == GPIO_LINE_DIRECTION_IN) {
 		dev_dbg(proxy->dev,
 			"Shared GPIO's direction already set to input, refusing to change\n");
 		return -EPERM;
@@ -240,8 +241,14 @@ static int gpio_shared_proxy_get_direction(struct gpio_chip *gc,
 					   unsigned int offset)
 {
 	struct gpio_shared_proxy_data *proxy = gpiochip_get_data(gc);
+	struct gpio_shared_desc *shared_desc = proxy->shared_desc;
 
-	return gpiod_get_direction(proxy->shared_desc->desc);
+	guard(mutex)(&shared_desc->mutex);
+
+	if (shared_desc->dir < 0)
+		return gpiod_get_direction(shared_desc->desc);
+
+	return shared_desc->dir;
 }
 
 static int gpio_shared_proxy_to_irq(struct gpio_chip *gc, unsigned int offset)
