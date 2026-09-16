@@ -280,20 +280,18 @@ static int qmp_pcie_init(struct phy *phy)
 		goto err_pd_power_off;
 	}
 
-	ret = reset_control_bulk_assert(qmp->cfg->num_nocsr_resets, qmp->nocsr_resets);
-	if (ret) {
-		dev_err(qmp->dev, "no-csr reset assert failed: %d\n", ret);
-		goto err_disable_regulators;
-	}
-
-	usleep_range(200, 300);
-
-	ret = clk_bulk_prepare_enable(qmp->cfg->num_clks, qmp->clks);
+	ret = clk_bulk_prepare_enable(qmp->cfg->num_pipe_clks, qmp->pipe_clks);
 	if (ret)
 		goto err_disable_regulators;
 
+	ret = clk_bulk_prepare_enable(qmp->cfg->num_clks, qmp->clks);
+	if (ret)
+		goto err_disable_pipe_clks;
+
 	return 0;
 
+err_disable_pipe_clks:
+	clk_bulk_disable_unprepare(qmp->cfg->num_pipe_clks, qmp->pipe_clks);
 err_disable_regulators:
 	regulator_bulk_disable(cfg->num_vregs, qmp->vregs);
 err_pd_power_off:
@@ -310,8 +308,34 @@ static int qmp_pcie_exit(struct phy *phy)
 	reset_control_bulk_assert(qmp->cfg->num_nocsr_resets, qmp->nocsr_resets);
 
 	clk_bulk_disable_unprepare(qmp->cfg->num_clks, qmp->clks);
+	clk_bulk_disable_unprepare(qmp->cfg->num_pipe_clks, qmp->pipe_clks);
 	regulator_bulk_disable(cfg->num_vregs, qmp->vregs);
 	qmp_pcie_pd_power_off(qmp);
+
+	return 0;
+}
+
+static int qmp_pcie_reset(struct phy *phy)
+{
+	struct qmp_pcie *qmp = phy_get_drvdata(phy);
+	const struct qmp_phy_cfg *cfg = qmp->cfg;
+	int ret;
+
+	ret = reset_control_bulk_assert(cfg->num_nocsr_resets, qmp->nocsr_resets);
+	if (ret) {
+		dev_err(qmp->dev, "no-csr reset assert failed: %d\n", ret);
+		return ret;
+	}
+
+	udelay(5);
+
+	ret = reset_control_bulk_deassert(cfg->num_nocsr_resets, qmp->nocsr_resets);
+	if (ret) {
+		dev_err(qmp->dev, "no-csr reset deassert failed: %d\n", ret);
+		return ret;
+	}
+
+	udelay(5);
 
 	return 0;
 }
@@ -325,16 +349,6 @@ static int qmp_pcie_power_on(struct phy *phy)
 	unsigned int val;
 	int i, ret;
 
-	ret = clk_bulk_prepare_enable(qmp->cfg->num_pipe_clks, qmp->pipe_clks);
-	if (ret)
-		return ret;
-
-	ret = reset_control_bulk_deassert(qmp->cfg->num_nocsr_resets, qmp->nocsr_resets);
-	if (ret) {
-		dev_err(qmp->dev, "no-csr reset deassert failed: %d\n", ret);
-		goto err_disable_pipe_clk;
-	}
-
 	for (i = 0; i < cfg->num_regs; i++) {
 		status = qmp->base[i] + offs->pcs + cfg->regs[QPHY_PCS_STATUS];
 		ret = readl_poll_timeout(status, val, !(val & cfg->phy_status), 200,
@@ -342,56 +356,18 @@ static int qmp_pcie_power_on(struct phy *phy)
 		if (ret) {
 			dev_err(qmp->dev, "PHY power on timed-out (%s): %d\n",
 				cfg->reg_names[i], ret);
-			goto err_disable_pipe_clk;
+			return ret;
 		}
 	}
 
 	return 0;
-
-err_disable_pipe_clk:
-	clk_bulk_disable_unprepare(qmp->cfg->num_pipe_clks, qmp->pipe_clks);
-
-	return ret;
-}
-
-static int qmp_pcie_power_off(struct phy *phy)
-{
-	struct qmp_pcie *qmp = phy_get_drvdata(phy);
-
-	clk_bulk_disable_unprepare(qmp->cfg->num_pipe_clks, qmp->pipe_clks);
-
-	return 0;
-}
-
-static int qmp_pcie_enable(struct phy *phy)
-{
-	int ret;
-
-	ret = qmp_pcie_init(phy);
-	if (ret)
-		return ret;
-
-	ret = qmp_pcie_power_on(phy);
-	if (ret)
-		qmp_pcie_exit(phy);
-
-	return ret;
-}
-
-static int qmp_pcie_disable(struct phy *phy)
-{
-	int ret;
-
-	ret = qmp_pcie_power_off(phy);
-	if (ret)
-		return ret;
-
-	return qmp_pcie_exit(phy);
 }
 
 static const struct phy_ops qmp_pcie_phy_ops = {
-	.power_on	= qmp_pcie_enable,
-	.power_off	= qmp_pcie_disable,
+	.init		= qmp_pcie_init,
+	.exit		= qmp_pcie_exit,
+	.power_on	= qmp_pcie_power_on,
+	.reset		= qmp_pcie_reset,
 	.owner		= THIS_MODULE,
 };
 
