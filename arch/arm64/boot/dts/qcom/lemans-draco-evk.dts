@@ -12,6 +12,10 @@
 		     "qcom,sa8775p";
 	chassis-type = "embedded";
 
+	aliases {
+		serial1 = &uart17;
+	};
+
 	vreg_0p9: regulator-0v9 {
 		compatible = "regulator-fixed";
 		regulator-name = "VREG_0P9";
@@ -29,6 +33,48 @@
 		regulator-always-on;
 		regulator-boot-on;
 	};
+
+	vreg_keye_3p3: regulator-keye-3p3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_keye_3p3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
+	wifi-bt-connector {
+		compatible = "pcie-m2-e-connector";
+		vpcie3v3-supply = <&vreg_keye_3p3>;
+		w-disable2-gpios = <&pmm8654au_1_gpios 8 GPIO_ACTIVE_LOW>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				m2_e_pcie_ep: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&tc9563_pcie1_ep>;
+				};
+			};
+
+			port@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				m2_e_uart_ep: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&uart17_ep>;
+				};
+			};
+		};
+	};
+
 };
 
 &i2c2 {
@@ -266,6 +312,10 @@
 			device_type = "pci";
 			ranges;
 			bus-range = <0x3 0xff>;
+
+			port {
+				tc9563_pcie1_ep: endpoint {};
+			};
 		};
 
 		pcie@2,0 {
@@ -304,6 +354,10 @@
 	};
 };
 
+&tc9563_pcie1_ep {
+	remote-endpoint = <&m2_e_pcie_ep>;
+};
+
 &remoteproc_adsp {
 	firmware-name = "qcom/sa8775p/adsp.mbn";
 	iommus = <&apps_smmu 0x3000 0x0>;
@@ -337,4 +391,14 @@
 	iommus = <&apps_smmu 0x38c0 0x0>;
 
 	status = "okay";
+};
+
+&uart17 {
+	status = "okay";
+
+	port {
+		uart17_ep: endpoint {
+			remote-endpoint = <&m2_e_uart_ep>;
+		};
+	};
 };
