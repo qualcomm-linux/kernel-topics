@@ -17,6 +17,7 @@
 #include <linux/sizes.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include <dt-bindings/media/qcom,qcs615-venus.h>
+#include <linux/string.h>
 
 #include "core.h"
 #include "firmware.h"
@@ -254,12 +255,13 @@ int venus_boot(struct venus_core *core)
 	const struct venus_resources *res = core->res;
 	const struct firmware *mdt;
 	const char *fwpath = NULL;
+	const char *pas_backend;
 	phys_addr_t mem_phys;
 	size_t res_size;
 	int ret;
 
 	if (!IS_ENABLED(CONFIG_QCOM_MDT_LOADER) ||
-	    (!core->use_tz && !core->fw.dev))
+	    (!core->use_tz && !qcom_pas_is_available()))
 		return driver_deferred_probe_check_state(core->dev);
 
 	ret = of_property_read_string_index(dev->of_node, "firmware-name", 0, &fwpath);
@@ -283,6 +285,14 @@ int venus_boot(struct venus_core *core)
 	}
 
 	if (core->use_tz && res->cp_size) {
+		/*
+		 * qcom_scm_mem_protect_video_var() only applies to the SCM
+		 * backend; other backends (e.g. OP-TEE) own secure memory
+		 * protection and do not service this call.
+		 */
+		pas_backend = qcom_pas_get_backend();
+		if (!pas_backend || strcmp(pas_backend, QCOM_PAS_BACKEND_SCM))
+			return ret;
 		/*
 		 * Clues for porting using downstream data:
 		 * cp_start = 0
@@ -411,8 +421,8 @@ static int venus_firmware_init_auto_detect(struct venus_core *core)
 	int ret;
 
 	core->use_tz = false;
-	if (qcom_scm_is_available()) {
-		if (qcom_scm_pas_supported(VENUS_PAS_ID))
+	if (qcom_pas_is_available()) {
+		if (qcom_pas_supported(VENUS_PAS_ID))
 			core->use_tz = true;
 	} else {
 		ret = driver_deferred_probe_check_state(core->dev);
