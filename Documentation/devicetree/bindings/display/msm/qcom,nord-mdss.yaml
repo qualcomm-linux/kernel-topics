@@ -74,7 +74,8 @@ unevaluatedProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/qcom,dispcc-nord.h>
+    #include <dt-bindings/clock/qcom,nord-dispcc.h>
+    #include <dt-bindings/clock/qcom,nord-nwgcc.h>
     #include <dt-bindings/interrupt-controller/arm-gic.h>
     #include <dt-bindings/power/qcom,rpmhpd.h>
 
@@ -83,15 +84,15 @@ examples:
         reg = <0x0ae00000 0x1000>;
         reg-names = "mdss";
         power-domains = <&dispcc_gdsc>;
-        clocks = <&dispcc DISPCC_MDSS_AHB_CLK>,
-                 <&gcc GCC_DISP_HF_AXI_CLK>,
-                 <&dispcc DISPCC_MDSS_MDP_CLK>;
+        clocks = <&dispcc0 MDSS_DISP_CC_MDSS_AHB_CLK>,
+                 <&nwgcc NW_GCC_DISP_0_HF_AXI_CLK>,
+                 <&dispcc0 MDSS_DISP_CC_MDSS_MDP_CLK>;
         clock-names = "iface", "bus", "core";
-        resets = <&dispcc DISP_CC_MDSS_CORE_BCR>;
+        resets = <&dispcc MDSS_DISP_CC_MDSS_CORE_BCR>;
         interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
         interrupt-controller;
         #interrupt-cells = <1>;
-        iommus = <&apps_smmu 0x800 0x420>;
+        iommus = <&apps_smmu_1 0x3e0 0x2>;
         #address-cells = <1>;
         #size-cells = <1>;
         ranges;
