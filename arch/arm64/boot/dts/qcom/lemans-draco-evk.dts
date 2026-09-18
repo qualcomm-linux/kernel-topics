@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ */
+/dts-v1/;
+
+#include "lemans-draco-evk-som.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. Lemans Draco EVK";
+	compatible = "qcom,lemans-draco-evk", "qcom,lemans-draco-evk-som", "qcom,qcs9100",
+		     "qcom,sa8775p";
+	chassis-type = "embedded";
+};
+
+&i2c2 {
+	status = "okay";
+
+	/*
+	 * U236: 16-bit GPIO expander (KTS1620EUAA-TR, TCA6416-compatible)
+	 * Address 0x20 (A1=VDD, A2=A0=GND). Camera OCP power enables,
+	 * USB power enables and detection signals.
+	 * INT_N → EXP2_INT → SoC TLMM gpio22.
+	 */
+	expander0: gpio@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	/*
+	 * U238: 16-bit GPIO expander (KTS1620EUAA-TR, TCA6416-compatible)
+	 * Address 0x21 (A1=VDD, A0=VDD, A2=GND). USB2 power, PCIe power
+	 * enables, display/SAL-ETH power enables.
+	 * INT_N → EXP3_INT → SoC TLMM gpio22.
+	 */
+	expander1: gpio@21 {
+		compatible = "ti,tca6416";
+		reg = <0x21>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	/*
+	 * U422: 16-bit GPIO expander (KTS1620EUAA-TR, TCA6416-compatible)
+	 * Address 0x22 (A1=VDD, A2=A0=GND).
+	 * INT_N → SoC TLMM gpio22.
+	 */
+	expander2: gpio@22 {
+		compatible = "ti,tca6416";
+		reg = <0x22>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	/*
+	 * U417: 16-bit GPIO expander (KTS1620EUAA-TR, TCA6416-compatible)
+	 * Address 0x23 (A1=VDD, A0=VDD, A2=GND).
+	 * INT_N → SoC TLMM gpio22.
+	 */
+	expander3: gpio@23 {
+		compatible = "ti,tca6416";
+		reg = <0x23>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	/*
+	 * U445: 8-bit GPIO expander (TCA9534APWR, PCA9534-compatible)
+	 * Address 0x38 (A2=A1=A0=GND, base 0x38). Camera MCLK enables on
+	 * P0–P4; P5–P7 are unconnected test points.
+	 * INT_N → IOEXP_INT → SoC TLMM gpio22.
+	 */
+	expander4: gpio@38 {
+		compatible = "nxp,pca9534";
+		reg = <0x38>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+
+	eeprom@50 {
+		compatible = "giantec,gt24c256c", "atmel,24c256";
+		reg = <0x50>;
+		pagesize = <64>;
+
+		nvmem-layout {
+			compatible = "fixed-layout";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			mac_addr0: mac-addr@0 {
+				reg = <0x0 0x6>;
+			};
+		};
+	};
+};
+
+&tlmm {
+	expander_int: expander-int-state {
+		pins = "gpio22";
+		function = "gpio";
+		bias-pull-up;
+		input-enable;
+	};
+};
+
+&i2c18 {
+	status = "okay";
+
+	/*
+	 * U76: 8-bit GPIO expander (TCA9534APWR, PCA9534-compatible)
+	 * Address 0x3c. M.2 Key-B & Key-E PCIe control.
+	 * INT_N → EXP1_INT_N → TP150 (no SoC interrupt connection).
+	 */
+	expander5: gpio@3c {
+		compatible = "nxp,pca9534";
+		reg = <0x3c>;
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+};
+
+&remoteproc_adsp {
+	firmware-name = "qcom/sa8775p/adsp.mbn";
+	iommus = <&apps_smmu 0x3000 0x0>;
+
+	status = "okay";
+};
+
+&remoteproc_cdsp0 {
+	firmware-name = "qcom/sa8775p/cdsp0.mbn";
+	iommus = <&apps_smmu 0x21c0 0x0400>;
+
+	status = "okay";
+};
+
+&remoteproc_cdsp1 {
+	firmware-name = "qcom/sa8775p/cdsp1.mbn";
+	iommus = <&apps_smmu 0x29c0 0x0400>;
+
+	status = "okay";
+};
+
+&remoteproc_gpdsp0 {
+	firmware-name = "qcom/sa8775p/gpdsp0.mbn";
+	iommus = <&apps_smmu 0x38a0 0x0>;
+
+	status = "okay";
+};
+
+&remoteproc_gpdsp1 {
+	firmware-name = "qcom/sa8775p/gpdsp1.mbn";
+	iommus = <&apps_smmu 0x38c0 0x0>;
+
+	status = "okay";
+};
