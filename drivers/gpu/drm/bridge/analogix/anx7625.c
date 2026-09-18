@@ -606,6 +606,16 @@ static int anx7625_api_dsi_config(struct anx7625_data *ctx)
 		return ret;
 	}
 
+	for (int i = 0; i < 5; i++) {
+			/* Set MIPI RX termination to 75ohm */
+			ret = anx7625_reg_write(ctx, ctx->i2c.rx_p1_client,
+									MIPI_ANALOG_CTRL_0 + i, 0xf8);
+			if (ret < 0) {
+					DRM_DEV_ERROR(dev, "IO error : set lane %d termination fail.\n", i);
+					return ret;
+			}
+	}
+
 	/* DSI clock settings */
 	val = (0 << MIPI_HS_PWD_CLK)		|
 		(0 << MIPI_HS_RT_CLK)		|
@@ -1326,6 +1336,39 @@ static int anx7625_read_hpd_gpio_config_status(struct anx7625_data *ctx)
 	return anx7625_reg_read(ctx, ctx->i2c.rx_p0_client, GPIO_CTRL_2);
 }
 
+static ssize_t mipi_check_sum_err_hs_show(struct device *dev,
+					  struct device_attribute *attr,
+					  char *buf)
+{
+	struct anx7625_data *ctx = dev_get_drvdata(dev);
+	int ret;
+
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		return ret;
+
+	mutex_lock(&ctx->lock);
+	ret = anx7625_reg_read(ctx, ctx->i2c.rx_p1_client, 0x19);
+	mutex_unlock(&ctx->lock);
+
+	pm_runtime_put_autosuspend(dev);
+
+	if (ret < 0)
+		return ret;
+
+	return sysfs_emit(buf, "%u\n", !!(ret & BIT(5)));
+}
+static DEVICE_ATTR_RO(mipi_check_sum_err_hs);
+
+static struct attribute *anx7625_attrs[] = {
+	&dev_attr_mipi_check_sum_err_hs.attr,
+	NULL,
+};
+
+static const struct attribute_group anx7625_attr_group = {
+	.attrs = anx7625_attrs,
+};
+
 static void anx7625_disable_pd_protocol(struct anx7625_data *ctx)
 {
 	struct device *dev = ctx->dev;
@@ -1796,6 +1839,9 @@ static void anx7625_work_func(struct work_struct *work)
 	struct anx7625_data *ctx = container_of(work,
 						struct anx7625_data, work);
 
+	if (!ctx->display)
+		return;
+
 	mutex_lock(&ctx->lock);
 
 	if (pm_runtime_suspended(ctx->dev)) {
@@ -2044,6 +2090,7 @@ static int anx7625_audio_hw_params(struct device *dev, void *data,
 		wl = AUDIO_W_LEN_20_20MAX;
 		break;
 	case 24:
+	case 32:
 		wl = AUDIO_W_LEN_24_24MAX;
 		break;
 	default:
@@ -2082,6 +2129,11 @@ static int anx7625_audio_hw_params(struct device *dev, void *data,
 	else
 		ret |= anx7625_write_and(ctx, ctx->i2c.tx_p2_client,
 				AUDIO_CHANNEL_STATUS_6, ~AUDIO_LAYOUT);
+
+
+	/* Right justified for Qualcomm DSP limitations */
+	ret |= anx7625_write_or(ctx, ctx->i2c.tx_p2_client,
+				AUDIO_CONTROL_REGISTER,	1);
 
 	/* FS */
 	switch (params->sample_rate) {
@@ -2867,6 +2919,7 @@ static int anx7625_i2c_probe(struct i2c_client *client)
 		}
 	}
 
+	platform->display = true;
 	platform->aux.name = "anx7625-aux";
 	platform->aux.dev = dev;
 	platform->aux.transfer = anx7625_aux_transfer;
@@ -2874,13 +2927,16 @@ static int anx7625_i2c_probe(struct i2c_client *client)
 	drm_dp_aux_init(&platform->aux);
 
 	ret = anx7625_parse_dt(dev, pdata);
-	if (ret) {
+	if (ret == -ENODEV) {
+		/* Not using the display function, but we want USB-C function */
+		platform->display = false;
+	} else if (ret) {
 		if (ret != -EPROBE_DEFER)
 			DRM_DEV_ERROR(dev, "fail to parse DT : %d\n", ret);
 		goto free_wq;
 	}
 
-	if (!platform->pdata.is_dpi) {
+	if (platform->display && !platform->pdata.is_dpi) {
 		ret = anx7625_setup_dsi_device(platform);
 		if (ret < 0)
 			goto free_wq;
@@ -2904,12 +2960,17 @@ static int anx7625_i2c_probe(struct i2c_client *client)
 	if (ret)
 		goto free_wq;
 
+	ret = devm_device_add_group(dev, &anx7625_attr_group);
+	if (ret)
+		goto free_wq;
+
 	/*
 	 * Populating the aux bus will retrigger deferred probe, so it needs to
 	 * be done after calls that might return EPROBE_DEFER, otherwise we can
 	 * get an infinite loop.
 	 */
-	ret = devm_of_dp_aux_populate_bus(&platform->aux, anx7625_link_bridge);
+	if (platform->display)
+		ret = devm_of_dp_aux_populate_bus(&platform->aux, anx7625_link_bridge);
 	if (ret) {
 		if (ret != -ENODEV) {
 			DRM_DEV_ERROR(dev, "failed to populate aux bus : %d\n", ret);
@@ -2974,7 +3035,8 @@ static void anx7625_i2c_remove(struct i2c_client *client)
 
 	anx7625_typec_unregister(platform);
 
-	drm_bridge_remove(&platform->bridge);
+	if (platform->display)
+		drm_bridge_remove(&platform->bridge);
 
 	if (platform->pdata.intp_irq)
 		destroy_workqueue(platform->workqueue);
