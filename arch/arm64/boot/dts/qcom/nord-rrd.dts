@@ -542,6 +542,10 @@
 	};
 };
 
+&camss {
+	status = "okay";
+};
+
 &dp0_phy {
 	vdda-phy-supply = <&vreg_l2h_1p2>;
 	vdda-pll-supply = <&vreg_l1h_0p9>;
