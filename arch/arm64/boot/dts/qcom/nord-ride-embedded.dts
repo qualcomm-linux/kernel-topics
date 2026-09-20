@@ -891,6 +891,10 @@
 	};
 };
 
+&camss {
+	status = "okay";
+};
+
 &qupv3_0 {
 	firmware-name = "qcom/nord/qupv3fw.elf";
 
