@@ -469,6 +469,13 @@ properties:
 
       - items:
           - enum:
+              - qcom,lemans-draco-evk
+          - const: qcom,lemans-draco-evk-som
+          - const: qcom,qcs9100
+          - const: qcom,sa8775p
+
+      - items:
+          - enum:
               - qcom,lemans-evk
               - qcom,qcs9100-ride
               - qcom,qcs9100-ride-r3
