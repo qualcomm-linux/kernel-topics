@@ -123,6 +123,9 @@ struct ethqos_emac_driver_data {
 	struct dwxgmac_addrs dwxgmac_addrs;
 	enum dwmac_core_type core_type;
 	void (*set_sgmii_loopback)(struct qcom_ethqos *ethqos, bool enable);
+	const u8 *vdma_tc_map;
+	const u8 *pdma_tc_map;
+	u32 dma_map_size;
 };
 
 struct qcom_ethqos {
@@ -849,6 +852,9 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 				     "Failed to map rgmii resource\n");
 
 	data = of_device_get_match_data(dev);
+	plat_dat->dma_cfg->vdma_tc_map = data->vdma_tc_map;
+	plat_dat->dma_cfg->pdma_tc_map = data->pdma_tc_map;
+	plat_dat->dma_cfg->dma_map_size = data->dma_map_size;
 	ethqos->rgmii_por = data->rgmii_por;
 	ethqos->num_rgmii_por = data->num_rgmii_por;
 	ethqos->rgmii_config_loopback_en = data->rgmii_config_loopback_en;
@@ -931,6 +937,14 @@ static const struct ethqos_emac_por emac_nord_por[] = {
 	{ .offset = RGMII_IO_MACRO_SCRATCH_2, .value = 0x4c },
 };
 
+static const u8 nord_vdma_tc_map[] = {
+	0, 1, 2, 3, 4, 5, 6, 6, 1, 2, 3, 4,
+};
+
+static const u8 nord_pdma_tc_map[] = {
+	0, 1, 2, 3, 4, 5, 6, 6, 6, 6, 7, 7,
+};
+
 static const struct ethqos_emac_driver_data emac_nord_data = {
 	.rgmii_por = emac_nord_por,
 	.num_rgmii_por = ARRAY_SIZE(emac_nord_por),
@@ -938,6 +952,9 @@ static const struct ethqos_emac_driver_data emac_nord_data = {
 	.link_clk_name = "phyaux",
 	.core_type = DWMAC_CORE_25GMAC,
 	.set_sgmii_loopback = qcom_ethqos_set_sgmii_loopback_nord,
+	.vdma_tc_map = nord_vdma_tc_map,
+	.pdma_tc_map = nord_pdma_tc_map,
+	.dma_map_size = ARRAY_SIZE(nord_vdma_tc_map),
 	.dwxgmac_addrs = {
 		.dma_even_chan_base = 0x00008500,
 		.dma_odd_chan_base  = 0x00008580,
