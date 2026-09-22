@@ -890,7 +890,7 @@ static int wcd9378_sdca_populate_function(struct sdw_slave *slave,
 	return 0;
 }
 
-static const struct sdca_class_ops wcd9378_sdca_class_ops = {
+static const struct sdca_class_hw_ops wcd9378_sdca_class_ops = {
 	.populate_function = wcd9378_sdca_populate_function,
 };
 
