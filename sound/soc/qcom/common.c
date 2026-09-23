@@ -296,6 +296,21 @@ int qcom_snd_parse_of(struct snd_soc_card *card)
 				return ret;
 			}
 
+			if (link->num_codecs > 8) {
+				struct snd_soc_dai_link_ch_map *ch_maps;
+				int i;
+
+				ch_maps = devm_kcalloc(dev, link->num_codecs,
+						       sizeof(*ch_maps), GFP_KERNEL);
+				if (!ch_maps)
+					return -ENOMEM;
+
+				for (i = 0; i < link->num_codecs; i++)
+					ch_maps[i].codec = i;
+
+				link->ch_maps = ch_maps;
+			}
+
 			if (platform) {
 				/* DPCM backend */
 				link->no_pcm = 1;
