@@ -507,6 +507,10 @@ static const struct of_device_id iris_dt_match[] = {
 		.data = &qcm2290_data,
 	},
 	{
+		.compatible = "qcom,maili-iris",
+		.data = &maili_data,
+	},
+	{
 		.compatible = "qcom,milos-iris",
 		.data = &milos_data,
 	},
