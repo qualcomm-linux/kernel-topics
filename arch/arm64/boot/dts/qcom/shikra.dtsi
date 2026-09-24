@@ -5479,12 +5479,6 @@
 					hysteresis = <5000>;
 					type = "hot";
 				};
-
-				cpu00-critical {
-					temperature = <115000>;
-					hysteresis = <0>;
-					type = "critical";
-				};
 			};
 		};
 
@@ -5496,12 +5490,6 @@
 					temperature = <110000>;
 					hysteresis = <5000>;
 					type = "hot";
-				};
-
-				cpu01-critical {
-					temperature = <115000>;
-					hysteresis = <0>;
-					type = "critical";
 				};
 			};
 		};
@@ -5515,12 +5503,6 @@
 					hysteresis = <5000>;
 					type = "hot";
 				};
-
-				cpu10-critical {
-					temperature = <115000>;
-					hysteresis = <0>;
-					type = "critical";
-				};
 			};
 		};
 
@@ -5533,12 +5515,6 @@
 					hysteresis = <5000>;
 					type = "hot";
 				};
-
-				cpu11-critical {
-					temperature = <115000>;
-					hysteresis = <0>;
-					type = "critical";
-				};
 			};
 		};
 
@@ -5550,12 +5526,6 @@
 					temperature = <110000>;
 					hysteresis = <5000>;
 					type = "hot";
-				};
-
-				cpuss0-critical {
-					temperature = <115000>;
-					hysteresis = <0>;
-					type = "critical";
 				};
 			};
 		};
@@ -5751,12 +5721,6 @@
 					hysteresis = <5000>;
 					type = "hot";
 				};
-
-				cpu02-critical {
-					temperature = <115000>;
-					hysteresis = <0>;
-					type = "critical";
-				};
 			};
 		};
 
@@ -5768,12 +5732,6 @@
 					temperature = <110000>;
 					hysteresis = <5000>;
 					type = "hot";
-				};
-
-				cpuss1-critical {
-					temperature = <115000>;
-					hysteresis = <0>;
-					type = "critical";
 				};
 			};
 		};
