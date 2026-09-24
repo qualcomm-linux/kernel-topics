@@ -28,7 +28,7 @@ int camss_isp_params_apply(struct device *dev,
 	int ret;
 
 	ret = v4l2_isp_params_validate_buffer_size(dev, vb,
-					v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD));
+					v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD));
 	if (ret)
 		return ret;
 

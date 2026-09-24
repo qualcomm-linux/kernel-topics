@@ -21,7 +21,7 @@
 #define CAMSS_ISP_PARAMS_FMT_INIT \
 	{ .fourcc = V4L2_META_FMT_QCOM_ISP_PARAMS, .depth = 8, .align = 0, .num_planes = 1 }
 
-#define CAMSS_ISP_PARAMS_FL_BLOCK_DIRTY   (1U << V4L2_ISP_PARAMS_FL_DRIVER_FLAGS(0))
+#define CAMSS_ISP_PARAMS_FL_BLOCK_DIRTY   (1U << V4L2_ISP_FL_DRIVER_FLAGS(0))
 
 struct device;
 struct vb2_buffer;

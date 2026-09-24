@@ -1616,7 +1616,7 @@ static int ope_queue_setup(struct vb2_queue *q, unsigned int *nbuffers,
 	else if (idx == OPE_QUEUE_DISP_OUT)
 		size = ctx->fmt_out.sizeimage ? ctx->fmt_out.sizeimage : PAGE_SIZE;
 	else
-		size = v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
+		size = v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
 
 	if (*nplanes) {
 		if (*nplanes != 1 || sizes[0] < size)
@@ -1641,7 +1641,7 @@ static int ope_buf_prepare(struct vb2_buffer *vb)
 	else if (idx == OPE_QUEUE_DISP_OUT)
 		sizeimage = ctx->fmt_out.sizeimage;
 	else
-		sizeimage = v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
+		sizeimage = v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
 
 	if (V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
 		if (vb->vb2_queue->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
@@ -2106,7 +2106,7 @@ static int ope_s_fmt_vid_cap(struct file *file, void *priv, struct v4l2_format *
 static int ope_g_fmt_meta(struct file *file, void *priv, struct v4l2_format *f)
 {
 	f->fmt.meta.dataformat = V4L2_META_FMT_QCOM_ISP_PARAMS;
-	f->fmt.meta.buffersize = v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
+	f->fmt.meta.buffersize = v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
 
 	return 0;
 }
