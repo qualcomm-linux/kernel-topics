@@ -143,6 +143,14 @@ static int class_function_sdw_add_peripheral(struct snd_pcm_substream *substream
 	snd_sdw_params_to_config(substream, params, &sconfig, &pconfig);
 
 	/*
+	 * Defer BPS selection to the per-port values programmed by
+	 * qcom_swrm_compute_params() so a single stream can carry ports
+	 * with different wire widths (e.g. WCD9378 HPH DP6 2-bit PDM +
+	 * DP7 8-bit PCM envelope).
+	 */
+	sconfig.bps = 0;
+
+	/*
 	 * FIXME: As also noted in sdca_asoc_get_port(), currently only
 	 * a single unshared port is supported for each DAI.
 	 */
@@ -363,10 +371,10 @@ static int class_function_probe(struct auxiliary_device *auxdev,
 	drv->core = core;
 	drv->function = &sdev->function;
 
-	if (core->ops && core->ops->populate_function) {
-		ret = core->ops->populate_function(core->sdw, drv->function);
-	} else if (drv->function->desc->node) {
+	if (drv->function->desc->node) {
 		ret = sdca_parse_function(dev, drv->function);
+	} else if (core->hw_ops && core->hw_ops->populate_function) {
+		ret = core->hw_ops->populate_function(core->sdw, drv->function);
 	} else {
 		dev_err(dev, "no firmware node and no populate_function hook\n");
 		return -ENOENT;
@@ -408,6 +416,7 @@ static int class_function_probe(struct auxiliary_device *auxdev,
 	switch (drv->function->desc->type) {
 	case SDCA_FUNCTION_TYPE_UAJ:
 	case SDCA_FUNCTION_TYPE_RJ:
+	case SDCA_FUNCTION_TYPE_SIMPLE_JACK:
 		cmp_drv->set_jack = class_function_set_jack;
 		break;
 	default:
@@ -592,6 +601,10 @@ static const struct auxiliary_device_id class_function_id_table[] = {
 	{
 		.name = "snd_soc_sdca." SDCA_FUNCTION_TYPE_RJ_NAME,
 		.driver_data = SDCA_FUNCTION_TYPE_RJ,
+	},
+	{
+		.name = "snd_soc_sdca." SDCA_FUNCTION_TYPE_SIMPLE_NAME,
+		.driver_data = SDCA_FUNCTION_TYPE_SIMPLE_JACK,
 	},
 	{},
 };
