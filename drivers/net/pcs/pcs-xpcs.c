@@ -736,8 +736,11 @@ static unsigned int xpcs_inband_caps(struct phylink_pcs *pcs,
 
 	case DW_10GBASER:
 	case DW_2500BASEX:
-	case DW_AN_C37_USXGMII:
 		return LINK_INBAND_DISABLE;
+
+	case DW_AN_C37_USXGMII:
+		/* The PCS consumes the PHY's CL37 in-band link and speed status. */
+		return LINK_INBAND_ENABLE;
 
 	default:
 		return 0;
