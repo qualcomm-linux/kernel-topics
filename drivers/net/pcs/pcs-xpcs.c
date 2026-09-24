@@ -30,6 +30,19 @@ static const int xpcs_usxgmii_features[] = {
 	__ETHTOOL_LINK_MODE_MASK_NBITS,
 };
 
+static const int xpcs_c37_usxgmii_features[] = {
+	ETHTOOL_LINK_MODE_Pause_BIT,
+	ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+	ETHTOOL_LINK_MODE_Autoneg_BIT,
+	ETHTOOL_LINK_MODE_10baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+	__ETHTOOL_LINK_MODE_MASK_NBITS,
+};
+
 static const int xpcs_10gkr_features[] = {
 	ETHTOOL_LINK_MODE_Pause_BIT,
 	ETHTOOL_LINK_MODE_Asym_Pause_BIT,
@@ -1577,7 +1590,7 @@ static const struct dw_xpcs_compat nxp_sja1110_xpcs_compat[] = {
 static const struct dw_xpcs_compat qcom_nord_xpcs_compat[] = {
 	{
 		.interface = PHY_INTERFACE_MODE_USXGMII,
-		.supported = xpcs_usxgmii_features,
+		.supported = xpcs_c37_usxgmii_features,
 		.an_mode = DW_AN_C37_USXGMII,
 	}, {
 	}
