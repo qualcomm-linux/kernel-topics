@@ -553,6 +553,10 @@
 				reg = <0x13>;
 				#power-domain-cells = <1>;
 			};
+
+			scmi_vendor: protocol@80 {
+				reg = <0x80>;
+			};
 		};
 	};
 
@@ -676,6 +680,11 @@
 		system_pd: power-domain-system {
 			#power-domain-cells = <0>;
 			domain-idle-states = <&domain_ss3>;
+		};
+
+		reboot-mode {
+			mode-bootloader = <0x80010001 0x2>;
+			mode-edl = <0x80000000 0x1>;
 		};
 	};
 
