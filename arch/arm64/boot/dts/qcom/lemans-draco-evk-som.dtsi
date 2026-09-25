@@ -248,6 +248,10 @@
 	};
 };
 
+&gpu {
+	status = "okay";
+};
+
 &gpu_zap_shader {
 	firmware-name = "qcom/sa8775p/a663_zap.mbn";
 };
