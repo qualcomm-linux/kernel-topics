@@ -14,6 +14,9 @@ description:
   dwmmac based Qualcomm ethernet devices which support Gigabit
   ethernet (version v2.3.0 and onwards).
 
+allOf:
+  - $ref: snps,dwmac.yaml#
+
 properties:
   compatible:
     oneOf:
@@ -29,7 +32,6 @@ properties:
           - qcom,qcs404-ethqos
           - qcom,sa8775p-ethqos
           - qcom,sc8280xp-ethqos
-          - qcom,shikra-ethqos
           - qcom,sm8150-ethqos
 
   reg:
@@ -55,11 +57,9 @@ properties:
       - const: sfty
 
   clocks:
-    minItems: 4
-    maxItems: 6
+    maxItems: 4
 
   clock-names:
-    minItems: 4
     items:
       - const: stmmaceth
       - const: pclk
@@ -67,8 +67,6 @@ properties:
       - enum:
           - rgmii
           - phyaux
-      - const: axi-noc
-      - const: pcie-tile-axi-noc
 
   iommus:
     maxItems: 1
@@ -83,11 +81,6 @@ properties:
       - const: cpu-mac
       - const: mac-mem
 
-  operating-points-v2: true
-
-  opp-table:
-    type: object
-
   phys: true
 
   phy-names:
@@ -98,41 +91,6 @@ required:
   - clocks
   - clock-names
   - reg-names
-
-allOf:
-  - $ref: snps,dwmac.yaml#
-
-  - if:
-      properties:
-        compatible:
-          contains:
-            const: qcom,shikra-ethqos
-    then:
-      properties:
-        clocks:
-          minItems: 6
-        clock-names:
-          items:
-            - const: stmmaceth
-            - const: pclk
-            - const: ptp_ref
-            - const: rgmii
-            - const: axi-noc
-            - const: pcie-tile-axi-noc
-      required:
-        - operating-points-v2
-    else:
-      properties:
-        clocks:
-          maxItems: 4
-        clock-names:
-          items:
-            - const: stmmaceth
-            - const: pclk
-            - const: ptp_ref
-            - enum:
-                - rgmii
-                - phyaux
 
 unevaluatedProperties: false
 
