@@ -502,10 +502,38 @@ static void pscrr_record_current(void)
 					     first : last);
 }
 
+/*
+ * Well-known restart command strings passed via LINUX_REBOOT_CMD_RESTART2,
+ * mapped to a PSCRR reason automatically so userspace needs no extra sysfs
+ * write. reboot(2) delivers these as the notifier's data pointer when
+ * action == SYS_RESTART.
+ */
+static const struct {
+	const char *cmd;
+	enum psc_reason reason;
+} pscrr_restart_cmd_map[] = {
+	{ "ota-update",		PSCR_OTA_UPDATE },
+	{ "bootloader",		PSCR_BOOTLOADER },
+	{ "recovery",		PSCR_RECOVERY },
+	{ "edl",		PSCR_EDL },
+	{ "rootfs-corruption",	PSCR_ROOTFS_CORRUPTION },
+};
+
 static int pscrr_reboot_notifier(struct notifier_block *nb,
-				 unsigned long action, void *unused)
+				 unsigned long action, void *data)
 {
+	const char *cmd = data;
+	int i;
+
 	guard(mutex)(&pscrr_lock);
+
+	if (action == SYS_RESTART && cmd) {
+		for (i = 0; i < ARRAY_SIZE(pscrr_restart_cmd_map); i++)
+			if (!strcmp(cmd, pscrr_restart_cmd_map[i].cmd)) {
+				set_psc_reason(pscrr_restart_cmd_map[i].reason);
+				break;
+			}
+	}
 
 	/*
 	 * A reboot, halt or power-off that reaches here with no more specific

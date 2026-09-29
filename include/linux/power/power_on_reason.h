@@ -22,5 +22,10 @@
 #define POWER_ON_REASON_EXTERNAL "external reset"
 #define POWER_ON_REASON_KERNEL_PANIC "kernel panic"
 #define POWER_ON_REASON_WATCHDOG_PRETIMEOUT "watchdog pretimeout"
+#define POWER_ON_REASON_OTA_UPDATE "OTA update"
+#define POWER_ON_REASON_BOOTLOADER "bootloader"
+#define POWER_ON_REASON_RECOVERY "recovery"
+#define POWER_ON_REASON_EDL "emergency download mode"
+#define POWER_ON_REASON_ROOTFS_CORRUPTION "rootfs corruption"
 
 #endif /* POWER_ON_REASON_H */
