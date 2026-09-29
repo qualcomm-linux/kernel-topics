@@ -171,10 +171,9 @@ static void drm_bridge_connector_handle_hpd(struct drm_bridge_connector *drm_bri
 }
 
 static void drm_bridge_connector_hpd_cb(void *cb_data,
-					enum drm_connector_status status,
-					enum drm_connector_status_extra extra_status)
+					enum drm_connector_status status)
 {
-	drm_bridge_connector_handle_hpd(cb_data, status, extra_status);
+	drm_bridge_connector_handle_hpd(cb_data, status, DRM_CONNECTOR_NO_EXTRA_STATUS);
 }
 
 static void drm_bridge_connector_oob_hotplug_event(struct drm_connector *connector,

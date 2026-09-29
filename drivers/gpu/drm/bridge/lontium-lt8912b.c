@@ -506,8 +506,7 @@ static int lt8912_attach_dsi(struct lt8912 *lt)
 	return 0;
 }
 
-static void lt8912_bridge_hpd_cb(void *data, enum drm_connector_status status,
-				 enum drm_connector_status_extra extra_status)
+static void lt8912_bridge_hpd_cb(void *data, enum drm_connector_status status)
 {
 	struct lt8912 *lt = data;
 
