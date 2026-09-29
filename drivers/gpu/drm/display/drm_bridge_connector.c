@@ -162,7 +162,6 @@ static void drm_bridge_connector_handle_hpd(struct drm_bridge_connector *drm_bri
 {
 	struct drm_connector *connector = &drm_bridge_connector->base;
 	struct drm_device *dev = connector->dev;
-	bool send_hotplug = true;
 
 	/*
 	 * IRQ-only notification: extra_status carries the event but
@@ -180,10 +179,9 @@ static void drm_bridge_connector_handle_hpd(struct drm_bridge_connector *drm_bri
 	connector->status = status;
 	mutex_unlock(&dev->mode_config.mutex);
 
-	drm_bridge_connector_hpd_notify(connector, status, extra_status, &send_hotplug);
+	drm_bridge_connector_hpd_notify(connector, status, extra_status, NULL);
 
-	if (send_hotplug)
-		drm_kms_helper_connector_hotplug_event(connector);
+	drm_kms_helper_connector_hotplug_event(connector);
 }
 
 static void drm_bridge_connector_hpd_cb(void *cb_data,
