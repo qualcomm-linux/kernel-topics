@@ -246,6 +246,33 @@ extern void orderly_reboot(void);
  * @PSCR_WATCHDOG_PRETIMEOUT: Recorded when a watchdog pretimeout fires, before
  *  the pretimeout governor brings the system down.
  *
+ * @PSCR_OTA_UPDATE: Reboot triggered by userspace to apply a firmware or
+ *	software update. This reason is set before the reboot so that the
+ *	PSCRR framework can record it persistently, allowing bootloaders and
+ *	post-boot diagnostics to distinguish a deliberate update-driven
+ *	reboot from unexpected resets.
+ *
+ * @PSCR_BOOTLOADER: Reboot into the bootloader's interactive or
+ *	service mode, triggered by ``reboot bootloader`` from userspace. The
+ *	kernel passes the string "bootloader" as the restart command via
+ *	LINUX_REBOOT_CMD_RESTART2. PSCRR intercepts this and records it so
+ *	the next boot can identify a deliberate bootloader-mode entry.
+ *
+ * @PSCR_RECOVERY: Reboot into the system's recovery environment,
+ *	triggered by ``reboot recovery`` from userspace (update installs,
+ *	factory reset, sideloading). Distinct from PSCR_OTA_UPDATE: this
+ *	records the boot *target* the bootloader must honor, not just the
+ *	intent behind the reboot.
+ *
+ * @PSCR_EDL: Reboot into an emergency download or low-level flashing
+ *	mode, triggered by ``reboot edl``. Used by factory or service
+ *	flashing tools when the device cannot otherwise be booted normally.
+ *
+ * @PSCR_ROOTFS_CORRUPTION: Reboot triggered because the running system
+ *	detected that its root filesystem is corrupted or unreadable, so
+ *	that recovery logic (bootloader fallback slot, forced recovery, A/B
+ *	slot switch) can run on the next boot.
+ *
  * @PSCR_REASON_COUNT: Number of defined power state change reasons. This
  *	value is useful for range checking and potential future extensions
  *	while maintaining compatibility.
@@ -271,6 +298,11 @@ enum psc_reason {
 	PSCR_XTAL_FAIL,
 	PSCR_KERNEL_PANIC,
 	PSCR_WATCHDOG_PRETIMEOUT,
+	PSCR_OTA_UPDATE,
+	PSCR_BOOTLOADER,
+	PSCR_RECOVERY,
+	PSCR_EDL,
+	PSCR_ROOTFS_CORRUPTION,
 
 	/* Number of reasons */
 	PSCR_REASON_COUNT,

@@ -60,6 +60,13 @@ Description:
 		11  reset-button       User reset button
 		12  cpu-clock-failure  CPU clock failure
 		13  crystal-failure    Crystal oscillator failure
+		14  kernel-panic       Kernel panic
+		15  watchdog-pretimeout Watchdog pretimeout
+		16  ota-update         Userspace-initiated reboot for OTA update
+		17  bootloader         Reboot into the bootloader's interactive mode
+		18  recovery           Reboot into the recovery environment
+		19  edl                Reboot into emergency download mode
+		20  rootfs-corruption  Reboot due to a detected rootfs corruption
 		==  =================  ============================================
 
 		The numeric order is stable ABI: new reasons are only ever

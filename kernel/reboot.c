@@ -1114,6 +1114,11 @@ static const struct psc_reason_desc psc_reason_descs[] = {
 	[PSCR_XTAL_FAIL]	 = { "crystal-failure",	  POWER_ON_REASON_XTAL_FAIL },
 	[PSCR_KERNEL_PANIC]	 = { "kernel-panic",	  POWER_ON_REASON_KERNEL_PANIC },
 	[PSCR_WATCHDOG_PRETIMEOUT] = { "watchdog-pretimeout", POWER_ON_REASON_WATCHDOG_PRETIMEOUT },
+	[PSCR_OTA_UPDATE]	 = { "ota-update",	  POWER_ON_REASON_OTA_UPDATE },
+	[PSCR_BOOTLOADER]	 = { "bootloader",	  POWER_ON_REASON_BOOTLOADER },
+	[PSCR_RECOVERY]		 = { "recovery",	  POWER_ON_REASON_RECOVERY },
+	[PSCR_EDL]		 = { "edl",		  POWER_ON_REASON_EDL },
+	[PSCR_ROOTFS_CORRUPTION] = { "rootfs-corruption", POWER_ON_REASON_ROOTFS_CORRUPTION },
 };
 static_assert(ARRAY_SIZE(psc_reason_descs) == PSCR_REASON_COUNT,
 	      "psc_reason_descs[] must have an entry for every psc_reason");
