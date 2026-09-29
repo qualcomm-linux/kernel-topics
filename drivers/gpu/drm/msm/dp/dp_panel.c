@@ -25,8 +25,6 @@ struct msm_dp_panel_private {
 	struct drm_dp_aux *aux;
 	struct msm_dp_link *link;
 	void __iomem *link_base;
-	void __iomem *mst2link_base;
-	void __iomem *mst3link_base;
 	void __iomem *pixel_base;
 	bool panel_on;
 };
@@ -98,19 +96,7 @@ u32 msm_dp_stream_reg(enum msm_dp_stream_id id, u32 reg)
 
 static inline u32 msm_dp_read_link(struct msm_dp_panel_private *panel, u32 offset)
 {
-	offset = msm_dp_stream_reg(panel->msm_dp_panel.stream_id, offset);
-	switch (panel->msm_dp_panel.stream_id) {
-	case DP_STREAM_0:
-	case DP_STREAM_1:
-		return readl_relaxed(panel->link_base + offset);
-	case DP_STREAM_2:
-		return readl_relaxed(panel->mst2link_base + offset);
-	case DP_STREAM_3:
-		return readl_relaxed(panel->mst3link_base + offset);
-	default:
-		DRM_ERROR("error stream_id\n");
-		return 0;
-	}
+	return readl_relaxed(panel->link_base + offset);
 }
 
 static inline void msm_dp_write_link(struct msm_dp_panel_private *panel,
@@ -120,22 +106,7 @@ static inline void msm_dp_write_link(struct msm_dp_panel_private *panel,
 	 * To make sure link reg writes happens before any other operation,
 	 * this function uses writel() instread of writel_relaxed()
 	 */
-	offset = msm_dp_stream_reg(panel->msm_dp_panel.stream_id, offset);
-	switch (panel->msm_dp_panel.stream_id) {
-	case DP_STREAM_0:
-	case DP_STREAM_1:
-		writel(data, panel->link_base + offset);
-		break;
-	case DP_STREAM_2:
-		writel(data, panel->mst2link_base + offset);
-		break;
-	case DP_STREAM_3:
-		writel(data, panel->mst3link_base + offset);
-		break;
-	default:
-		DRM_ERROR("error stream_id\n");
-		break;
-	}
+	writel(data, panel->link_base + offset);
 }
 
 static inline void msm_dp_write_pn(struct msm_dp_panel_private *panel,
@@ -795,8 +766,6 @@ int msm_dp_panel_init_panel_info(struct msm_dp_panel *msm_dp_panel,
 struct msm_dp_panel *msm_dp_panel_get(struct device *dev, struct drm_dp_aux *aux,
 			      struct msm_dp_link *link,
 			      void __iomem *link_base,
-			      void __iomem *mst2link_base,
-			      void __iomem *mst3link_base,
 			      void __iomem *pixel_base)
 {
 	struct msm_dp_panel_private *panel;
@@ -816,8 +785,6 @@ struct msm_dp_panel *msm_dp_panel_get(struct device *dev, struct drm_dp_aux *aux
 	panel->link = link;
 	panel->link_base = link_base;
 	panel->pixel_base = pixel_base;
-	panel->mst2link_base = mst2link_base;
-	panel->mst3link_base = mst3link_base;
 
 	msm_dp_panel = &panel->msm_dp_panel;
 	msm_dp_panel->max_bw_code = DP_LINK_BW_8_1;
