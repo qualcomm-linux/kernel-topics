@@ -316,13 +316,10 @@ static void gaokun_ucsi_handle_usb_mode(struct gaokun_ucsi_port *port)
 
 	/* UCSI callback .connector_status() have set orientation */
 	if (port->bridge && port->svid == USB_TYPEC_DP_SID)
-		drm_aux_hpd_bridge_notify_extra(&port->bridge->dev,
-						port->hpd_state ?
-						connector_status_connected :
-						connector_status_disconnected,
-						port->hpd_irq ?
-						DRM_CONNECTOR_DP_IRQ_HPD :
-						DRM_CONNECTOR_NO_EXTRA_STATUS);
+		drm_aux_hpd_bridge_notify(&port->bridge->dev,
+					  port->hpd_state ?
+					  connector_status_connected :
+					  connector_status_disconnected);
 
 	gaokun_ec_ucsi_pan_ack(uec->ec, port->idx);
 }
