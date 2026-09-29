@@ -46,10 +46,18 @@ struct iris_inst;
 #define VIDEO_REGION_SECURE_FW_REGION_ID	0
 #define VIDEO_REGION_VM0_SECURE_NP_ID		1
 #define VIDEO_REGION_VM0_NONSECURE_NP_ID	5
+#define PIXEL_COUNT(width, height, fps) ((u64)(width) * (height) * (fps))
 
 enum stage_type {
 	STAGE_1 = 1,
 	STAGE_2 = 2,
+};
+
+struct iris_vsp_freq_tbl {
+	const u32 *min_freq;
+	const u64 *pixel_count;
+	u32 pixel_count_size;
+	const u32 * const *ref_bitrate;
 };
 
 enum pipe_type {
@@ -326,6 +334,7 @@ struct iris_platform_data {
 	const struct platform_inst_slice_caps *slice_caps;
 	const struct tz_cp_config *tz_cp_config_data;
 	u32 tz_cp_config_data_size;
+	const struct iris_vsp_freq_tbl *vsp_freq_tbl;
 	u32 num_vpp_pipe;
 	bool no_aon;
 	bool no_rpmh;

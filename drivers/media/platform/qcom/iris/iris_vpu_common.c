@@ -369,11 +369,51 @@ u64 iris_vpu2_calculate_frequency(struct iris_inst *inst, size_t data_size)
 	return max(vpp_freq, vsp_freq);
 }
 
+static u32 iris_vsp_codec_index(struct iris_inst *inst)
+{
+	const u32 *fmts = inst->core->iris_platform_data->inst_iris_fmts;
+	u32 size = inst->core->iris_platform_data->inst_iris_fmts_size;
+	u32 idx;
+
+	for (idx = 0; idx < size; idx++) {
+		if (inst->codec == fmts[idx])
+			return idx;
+	}
+
+	return 0;
+}
+
+static u32 iris_vsp_bitrate_index(struct iris_inst *inst)
+{
+	const struct iris_vsp_freq_tbl *vsp_tbl = inst->core->iris_platform_data->vsp_freq_tbl;
+	u32 height = max(inst->fmt_src->fmt.pix_mp.height, inst->crop.height);
+	u32 width = max(inst->fmt_src->fmt.pix_mp.width, inst->crop.width);
+	u32 max_idx = vsp_tbl->pixel_count_size;
+	u32 fps = inst->frame_rate;
+	u64 pixel_count;
+	u32 idx = 0;
+
+	pixel_count = (u64)width * height * fps;
+
+	if (pixel_count >= vsp_tbl->pixel_count[idx++] &&
+	    inst->fw_caps[B_FRAME].value)
+		return 0;
+
+	for (; idx < max_idx; idx++) {
+		if (pixel_count >= vsp_tbl->pixel_count[idx])
+			return idx;
+	}
+
+	return max_idx - 1;
+}
+
 u64 iris_vpu3x_vpu4x_calculate_frequency(struct iris_inst *inst, size_t data_size)
 {
+	const struct iris_vsp_freq_tbl *vsp_tbl = inst->core->iris_platform_data->vsp_freq_tbl;
 	struct platform_inst_caps *caps = inst->core->iris_platform_data->inst_caps;
 	struct v4l2_format *inp_f = inst->fmt_src;
 	u32 height, width, mbs_per_second, mbpf;
+	u32 codec_idx, bitrate_idx;
 	u64 fw_cycles, fw_vpp_cycles;
 	u64 vsp_cycles, vpp_cycles;
 	u32 fps = inst->frame_rate;
@@ -400,7 +440,14 @@ u64 iris_vpu3x_vpu4x_calculate_frequency(struct iris_inst *inst, size_t data_siz
 		vpp_cycles += div_u64(vpp_cycles * 5, 100);
 
 	vsp_cycles = fps * data_size * 8;
-	vsp_cycles = div_u64(vsp_cycles, 2);
+	codec_idx = iris_vsp_codec_index(inst);
+	bitrate_idx = iris_vsp_bitrate_index(inst);
+	vsp_cycles = div_u64(vsp_tbl->min_freq[codec_idx] * vsp_cycles,
+			     vsp_tbl->ref_bitrate[codec_idx][bitrate_idx]);
+
+	/* Apply fw_sw_vsp_offset (÷1.055) */
+	vsp_cycles = div_u64(vsp_cycles * 1000, 1055);
+
 	/* VSP FW overhead 1.05 */
 	vsp_cycles = div_u64(vsp_cycles * 21, 20);
 
