@@ -616,6 +616,43 @@ static int qcom_sdm845_smmu500_reset(struct arm_smmu_device *smmu)
 	return ret;
 }
 
+/*
+ * Some Qualcomm platforms using qcom,smmu-500 lack a coherent
+ * pagetable-walk interface. On those platforms ARM_SMMU_FEAT_COHERENT_WALK
+ * is not set (no dma-coherent in the SMMU DT node), and arm_smmu_capable()
+ * returns false for IOMMU_CAP_CACHE_COHERENCY, blocking VFIO and iommufd
+ * device binding even when the caller manages cache coherency in software.
+ *
+ * Other platforms using the same compatible string (e.g. qcom,sa8775p-smmu-500)
+ * do have a coherent interconnect and carry dma-coherent in their DT node;
+ * arm_smmu_capable() already returns true for those without any override.
+ *
+ * Override only when ARM_SMMU_FEAT_COHERENT_WALK is absent: advertise
+ * IOMMU_CAP_CACHE_COHERENCY so that VFIO/iommufd binding succeeds, while
+ * relying on arm_smmu_map_pages() to strip IOMMU_CACHE from iommu_prot
+ * (via prot_mask) so that io-pgtable does not select WB+IS attributes on
+ * a non-coherent interconnect.
+ */
+static bool qcom_smmu_500_capable(struct device *dev, enum iommu_cap cap)
+{
+	struct arm_smmu_master_cfg *cfg = dev_iommu_priv_get(dev);
+
+	switch (cap) {
+	case IOMMU_CAP_CACHE_COHERENCY:
+		/*
+		 * If the SMMU has a coherent walk interface, the default
+		 * logic in arm_smmu_capable() already returns true. Only
+		 * advertise the capability on non-coherent instances so
+		 * that callers managing coherency in software can bind.
+		 */
+		if (!(cfg->smmu->features & ARM_SMMU_FEAT_COHERENT_WALK))
+			return true;
+		fallthrough;
+	default:
+		return arm_smmu_capable(dev, cap);
+	}
+}
+
 static const struct arm_smmu_impl qcom_smmu_v2_impl = {
 	.init_context = qcom_smmu_init_context,
 	.cfg_probe = qcom_smmu_cfg_probe,
@@ -631,6 +668,8 @@ static const struct arm_smmu_impl qcom_smmu_500_impl = {
 	.reset = arm_mmu500_reset,
 	.write_s2cr = qcom_smmu_write_s2cr,
 	.tlb_sync = qcom_smmu_tlb_sync,
+	.capable = qcom_smmu_500_capable,
+	.prot_mask = IOMMU_CACHE,
 #ifdef CONFIG_ARM_SMMU_QCOM_DEBUG
 	.context_fault = qcom_smmu_context_fault,
 	.context_fault_needs_threaded_irq = true,
