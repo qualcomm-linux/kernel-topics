@@ -19,14 +19,6 @@
 	iommus = <&apps_smmu_0 0x09e0 0x0>;
 };
 
-&remoteproc_adsp1 {
-	iommus = <&apps_smmu_0 0x0a08 0x0>;
-};
-
-&remoteproc_adsp2 {
-	iommus = <&apps_smmu_0 0x0a30 0x0>;
-};
-
 &remoteproc_cdsp0 {
 	iommus = <&apps_smmu_2 0x0360 0x0>;
 };
