@@ -68,6 +68,16 @@
 	};
 };
 
+&spi16 {
+        status = "okay";
+
+        tpm@0 {
+                compatible = "st,st33htpm-spi", "tcg,tpm_tis-spi";
+                reg = <0>;
+                spi-max-frequency = <20000000>;
+        };
+};
+
 &tlmm {
 	expander_int: expander-int-state {
 		pins = "gpio22";
