@@ -499,6 +499,10 @@ static const struct of_device_id iris_dt_match[] = {
 		.data = &glymur_data,
 	},
 	{
+		.compatible = "qcom,kaanapali-iris",
+		.data = &kaanapali_data,
+	},
+	{
 		.compatible = "qcom,qcm2290-venus",
 		.data = &qcm2290_data,
 	},
