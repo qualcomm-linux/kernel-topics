@@ -159,6 +159,25 @@
 		gpio = <&expander1 10 GPIO_ACTIVE_HIGH>;
 	};
 
+	vreg_va_micb_en: regulator-va-micb-en {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_va_micb_en";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&expander1 4 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	vreg_va_micb_1p8: regulator-va-micb-1p8 {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_va_micb_1p8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&expander1 5 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		vin-supply = <&vreg_va_micb_en>;
+	};
+
 	vreg_keye_3p3: regulator-keye-3p3 {
 		compatible = "regulator-fixed";
 		regulator-name = "vreg_keye_3p3";
@@ -199,7 +218,140 @@
 			};
 		};
 	};
+
+        sound {
+                compatible = "qcom,qcs9100-draco-sndcard";
+                model = "lemans-draco-snd-card";
+
+                pinctrl-names = "default";
+                pinctrl-0 = <&mi2s_mclk_a>, <&mi2s2_data0>, <&mi2s2_data1>, <&mi2s2_sck>, <&mi2s2_ws>;
+
+                mi2s2-playback-dai-link {
+                        link-name = "Tertiary MI2S Playback";
+
+                        cpu {
+                                sound-dai = <&q6apmbedai TERTIARY_MI2S_RX>;
+                        };
+
+                        codec {
+                                sound-dai = <&max98091>;
+                        };
+
+                        platform {
+                                sound-dai = <&q6apm>;
+                        };
+                };
+
+                mi2s2-capture-dai-link {
+                        link-name = "Tertiary MI2S Capture";
+
+                        cpu {
+                                sound-dai = <&q6apmbedai TERTIARY_MI2S_TX>;
+                        };
+
+                        codec {
+                                sound-dai = <&max98091>;
+                        };
+
+                        platform {
+                                sound-dai = <&q6apm>;
+                        };
+                };
+
+		va-dai-link {
+			link-name = "CODEC_DMA-LPAIF_VA-TX-0";
+
+			cpu {
+				sound-dai = <&q6apmbedai VA_CODEC_DMA_TX_0>;
+			};
+
+			codec {
+				sound-dai = <&lpass_va_macro 0>;
+			};
+
+			platform {
+				sound-dai = <&q6apm>;
+			};
+		};
+        };
 };
+
+
+&soc {
+	lpass_tlmm: pinctrl@3440000 {
+		compatible = "qcom,sc8280xp-lpass-lpi-pinctrl";
+		reg = <0x0 0x03440000 0x0 0x20000>,
+			<0x0 0x034d0000 0x0 0x10000>;
+		clocks = <&q6prmcc LPASS_HW_MACRO_VOTE LPASS_CLK_ATTRIBUTE_COUPLE_NO>,
+			<&q6prmcc LPASS_HW_DCODEC_VOTE LPASS_CLK_ATTRIBUTE_COUPLE_NO>;
+		clock-names = "core", "audio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-ranges = <&lpass_tlmm 0 0 19>;
+
+		lpass_dmic01_clk: dmic01-clk-state {
+			pins = "gpio6";
+			function = "dmic1_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		lpass_dmic01_data: dmic01-data-state {
+			pins = "gpio7";
+			function = "dmic1_data";
+			drive-strength = <8>;
+			bias-pull-down;
+		};
+
+		lpass_dmic23_clk: dmic23-clk-state {
+			pins = "gpio8";
+			function = "dmic2_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		lpass_dmic23_data: dmic23-data-state {
+			pins = "gpio9";
+			function = "dmic2_data";
+			drive-strength = <8>;
+			bias-pull-down;
+		};
+
+		lpass_dmic45_clk: dmic45-clk-state {
+			pins = "gpio12";
+			function = "dmic3_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		lpass_dmic45_data: dmic45-data-state {
+			pins = "gpio13";
+			function = "dmic3_data";
+			drive-strength = <8>;
+			bias-pull-down;
+		};
+	};
+
+	lpass_va_macro: codec@33F0000 {
+		compatible = "qcom,sc7280-lpass-va-macro";
+		reg = <0 0x33F0000 0 0x1000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&lpass_dmic01_clk>, <&lpass_dmic01_data>,
+			<&lpass_dmic23_clk>, <&lpass_dmic23_data>,
+			<&lpass_dmic45_clk>, <&lpass_dmic45_data>;
+		clocks = <&q6prmcc LPASS_CLK_ID_TX_CORE_MCLK LPASS_CLK_ATTRIBUTE_COUPLE_NO>,
+			<&q6prmcc LPASS_HW_MACRO_VOTE LPASS_CLK_ATTRIBUTE_COUPLE_NO>,
+			<&q6prmcc LPASS_HW_DCODEC_VOTE LPASS_CLK_ATTRIBUTE_COUPLE_NO>;
+		clock-names = "mclk", "macro", "dcodec";
+
+		#clock-cells = <0>;
+		#sound-dai-cells = <1>;
+		status = "okay";
+		qcom,dmic-sample-rate = <4800000>;
+		vdd-micb-supply = <&vreg_va_micb_1p8>;
+	};
+};
+
 
 &i2c1 {
 	status = "okay";
@@ -347,6 +499,23 @@
 	};
 };
 
+&i2c7 {
+	status = "okay";
+	max98091: max98091@10 {
+		compatible = "maxim,max98091";
+		reg = <0x10>;
+		#sound-dai-cells = <0>;
+		clock-names = "mclk";
+		clocks = <&q6prmcc LPASS_CLK_ID_MCLK_1 LPASS_CLK_ATTRIBUTE_COUPLE_NO>;
+		assigned-clocks = <&q6prmcc LPASS_CLK_ID_MCLK_1 LPASS_CLK_ATTRIBUTE_COUPLE_NO>;
+		assigned-clock-rates = <12288000>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <51 IRQ_TYPE_NONE>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&int_codec>;
+	};
+};
+
 &tlmm {
 	bridge_irq_pin: bridge-irq-state {
 		pins = "gpio97";
@@ -380,6 +549,49 @@
 		function = "gpio";
 		bias-pull-up;
 		input-enable;
+	};
+
+        int_codec: gpio-irq-state {
+                pins = "gpio51";
+                function = "gpio";
+        };
+
+        mi2s_mclk_a: mi2s-mclk-a-state {
+                pins = "gpio105";
+                function = "mi2s_mclk0";
+                drive-strength = <16>;
+                bias-disable;
+                output-high;
+        };
+
+	mi2s2_data0: mi2s2-data0-state {
+		pins = "gpio112";
+		function = "mi2s2_data0";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	mi2s2_data1: mi2s2-data1-state {
+		pins = "gpio113";
+		function = "mi2s2_data1";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	mi2s2_sck: mi2s2-sck-state {
+		pins = "gpio110";
+		function = "mi2s2_sck";
+		drive-strength = <8>;
+		bias-disable;
+		output-high;
+	};
+
+	mi2s2_ws: mi2s2-ws-state {
+		pins = "gpio111";
+		function = "mi2s2_ws";
+		drive-strength = <8>;
+		bias-disable;
+		output-high;
 	};
 
 	pcie0_default_state: pcie0-default-state {
