@@ -243,6 +243,8 @@
 		label = "eDP2";
 		type = "full-size";
 
+		status = "disabled";
+
 		port {
 			dp2_connector_in: endpoint {
 				remote-endpoint = <&mdss1_dp0_out>;
@@ -254,6 +256,8 @@
 		compatible = "dp-connector";
 		label = "eDP3";
 		type = "full-size";
+
+		status = "disabled";
 
 		port {
 			dp3_connector_in: endpoint {
@@ -592,14 +596,14 @@
 	vdda-phy-supply = <&vreg_l2h_1p2>;
 	vdda-pll-supply = <&vreg_l1h_0p9>;
 
-	status = "okay";
+	status = "disabled";
 };
 
 &dp3_phy {
 	vdda-phy-supply = <&vreg_l2h_1p2>;
 	vdda-pll-supply = <&vreg_l1h_0p9>;
 
-	status = "okay";
+	status = "disabled";
 };
 
 &i2c9 {
@@ -794,11 +798,11 @@
 };
 
 &mdss1 {
-	status = "okay";
+	status = "disabled";
 };
 
 &mdss1_dp0 {
-	status = "okay";
+	status = "disabled";
 };
 
 /* eDP2 */
@@ -809,7 +813,7 @@
 };
 
 &mdss1_dp1 {
-	status = "okay";
+	status = "disabled";
 };
 
 /* eDP3 */
