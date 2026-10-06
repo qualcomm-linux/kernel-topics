@@ -212,12 +212,6 @@ static struct qcom_icc_node xm_sdc1 = {
 	.name = "xm_sdc1",
 	.channels = 1,
 	.buswidth = 8,
-	.qosbox = &(const struct qcom_icc_qosbox) {
-		.num_ports = 1,
-		.port_offsets = { 0xc000 },
-		.prio = 2,
-		.urg_fwd = 0,
-	},
 	.num_links = 1,
 	.link_nodes = { &qns_a1noc_snoc },
 };
