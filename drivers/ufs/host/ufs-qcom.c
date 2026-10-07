@@ -386,17 +386,28 @@ out:
 
 static int ufs_qcom_init_lane_clks(struct ufs_qcom_host *host)
 {
-	int err, i;
 	struct device *dev = host->hba->dev;
 
 	if (has_acpi_companion(dev))
 		return 0;
 
-	err = devm_clk_bulk_get_all(dev, &host->clks);
-	if (err <= 0)
-		return err;
+	host->tx_lane0_sync_clk = devm_clk_get(dev, "tx_lane0_sync_clk");
+	if (IS_ERR(host->tx_lane0_sync_clk))
+		return dev_err_probe(dev, PTR_ERR(host->tx_lane0_sync_clk),
+				     "failed to get tx_lane0_sync_clk\n");
 
-	host->num_clks = err;
+	host->rx_lane0_sync_clk = devm_clk_get(dev, "rx_lane0_sync_clk");
+	if (IS_ERR(host->rx_lane0_sync_clk))
+		return dev_err_probe(dev, PTR_ERR(host->rx_lane0_sync_clk),
+				     "failed to get rx_lane0_sync_clk\n");
+
+	/* In case of single lane per direction, don't read lane1 clocks */
+	if (host->hba->lanes_per_direction > 1) {
+		host->rx_lane1_sync_clk = devm_clk_get(dev, "rx_lane1_sync_clk");
+		if (IS_ERR(host->rx_lane1_sync_clk))
+			return dev_err_probe(dev, PTR_ERR(host->rx_lane1_sync_clk),
+					     "failed to get rx_lane1_sync_clk\n");
+	}
 
 	for (i = 0; i < host->num_clks; i++) {
 		if (!host->clks[i].id)
