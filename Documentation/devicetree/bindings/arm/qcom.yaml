@@ -434,6 +434,7 @@ properties:
           - enum:
               - arduino,monza
               - qcom,monaco-evk
+              - qcom,monaco-draco-ac-evk
               - qcom,qcs8300-ride
           - const: qcom,qcs8300
 
