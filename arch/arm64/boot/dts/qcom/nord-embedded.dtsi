@@ -2493,8 +2493,10 @@
 			     "qcom,sm8550-snps-eusb2-phy";
 		reg = <0x0 0x088e0000 0x0 0x154>;
 
-		clocks = <&tcsrcc TCSR_USB2_2_CLKREF_EN>;
-		clock-names = "ref";
+		clocks = <&tcsrcc TCSR_USB2_2_CLKREF_EN>,
+			 <&negcc NE_GCC_AHB2PHY_CLK>;
+		clock-names = "ref",
+			      "bus";
 
 		/*
 		 * The SoC has three eUSB2 PHYs but only two QUSB2PHY block
@@ -2518,11 +2520,13 @@
 		clocks = <&negcc NE_GCC_USB3_PRIM_PHY_AUX_CLK>,
 			 <&tcsrcc TCSR_USB3_0_CLKREF_EN>,
 			 <&negcc NE_GCC_USB3_PRIM_PHY_COM_AUX_CLK>,
-			 <&negcc NE_GCC_USB3_PRIM_PHY_PIPE_CLK>;
+			 <&negcc NE_GCC_USB3_PRIM_PHY_PIPE_CLK>,
+			 <&negcc NE_GCC_AHB2PHY_CLK>;
 		clock-names = "aux",
 			      "ref",
 			      "com_aux",
-			      "usb3_pipe";
+			      "usb3_pipe",
+			      "cfg_ahb";
 
 		power-domains = <&negcc NE_GCC_USB3_PHY_GDSC>;
 
@@ -2569,11 +2573,13 @@
 		clocks = <&negcc NE_GCC_USB3_SEC_PHY_AUX_CLK>,
 			 <&tcsrcc TCSR_USB3_1_CLKREF_EN>,
 			 <&negcc NE_GCC_USB3_SEC_PHY_COM_AUX_CLK>,
-			 <&negcc NE_GCC_USB3_SEC_PHY_PIPE_CLK>;
+			 <&negcc NE_GCC_USB3_SEC_PHY_PIPE_CLK>,
+			 <&negcc NE_GCC_AHB2PHY_CLK>;
 		clock-names = "aux",
 			      "ref",
 			      "com_aux",
-			      "usb3_pipe";
+			      "usb3_pipe",
+			      "cfg_ahb";
 
 		power-domains = <&negcc NE_GCC_USB3_SEC_PHY_GDSC>;
 
@@ -2618,8 +2624,10 @@
 			     "qcom,sm8550-snps-eusb2-phy";
 		reg = <0x0 0x088ea000 0x0 0x154>;
 
-		clocks = <&tcsrcc TCSR_USB2_0_CLKREF_EN>;
-		clock-names = "ref";
+		clocks = <&tcsrcc TCSR_USB2_0_CLKREF_EN>,
+			 <&negcc NE_GCC_AHB2PHY_CLK>;
+		clock-names = "ref",
+			      "bus";
 
 		resets = <&negcc NE_GCC_QUSB2PHY_PRIM_BCR>;
 
@@ -2633,8 +2641,10 @@
 			     "qcom,sm8550-snps-eusb2-phy";
 		reg = <0x0 0x088eb000 0x0 0x154>;
 
-		clocks = <&tcsrcc TCSR_USB2_1_CLKREF_EN>;
-		clock-names = "ref";
+		clocks = <&tcsrcc TCSR_USB2_1_CLKREF_EN>,
+			 <&negcc NE_GCC_AHB2PHY_CLK>;
+		clock-names = "ref",
+			      "bus";
 
 		resets = <&negcc NE_GCC_QUSB2PHY_SEC_BCR>;
 
