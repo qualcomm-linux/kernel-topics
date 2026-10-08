@@ -2408,15 +2408,7 @@
 		clock-names = "ref",
 			      "bus";
 
-		/*
-		 * The SoC has three eUSB2 PHYs but only two QUSB2PHY block
-		 * resets, which belong to instances 0 and 1 (usb_0 and usb_1).
-		 * This PHY, instance 2, has none of its own: it is taken out of
-		 * reset together with the rest of the USB20 tile by
-		 * NE_GCC_USB20_PRIM_BCR, which the controller owns and pulses
-		 * before touching any register. So no 'resets' here - both
-		 * consumers would need that single reset exclusively.
-		 */
+		resets = <&negcc NE_GCC_QUSB2PHY_PRIM_BCR>;
 
 		#phy-cells = <0>;
 
@@ -2538,8 +2530,6 @@
 			 <&negcc NE_GCC_AHB2PHY_CLK>;
 		clock-names = "ref",
 			      "bus";
-
-		resets = <&negcc NE_GCC_QUSB2PHY_PRIM_BCR>;
 
 		#phy-cells = <0>;
 
