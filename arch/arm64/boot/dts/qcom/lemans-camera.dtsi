@@ -2206,6 +2206,266 @@
 };
 
 &tlmm {
+	cci_timer0_active: cci_timer0_active {
+		mux {
+			pins = "gpio68";
+			function = "cci_timer0";
+		};
+
+		config {
+			pins = "gpio68";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer0_suspend: cci_timer0_suspend {
+		mux {
+			pins = "gpio68";
+			function = "cci_timer0";
+		};
+
+		config {
+			pins = "gpio68";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer1_active: cci_timer1_active {
+		mux {
+			pins = "gpio69";
+			function = "cci_timer1";
+		};
+
+		config {
+			pins = "gpio69";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer1_suspend: cci_timer1_suspend {
+		mux {
+			pins = "gpio69";
+			function = "cci_timer1";
+		};
+
+		config {
+			pins = "gpio69";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer2_active: cci_timer2_active {
+		mux {
+			pins = "gpio70";
+			function = "cci_timer2";
+		};
+
+		config {
+			pins = "gpio70";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer2_suspend: cci_timer2_suspend {
+		mux {
+			pins = "gpio70";
+			function = "cci_timer2";
+		};
+
+		config {
+			pins = "gpio70";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer3_active: cci_timer3_active {
+		mux {
+			pins = "gpio71";
+			function = "cci_timer3";
+		};
+
+		config {
+			pins = "gpio71";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer3_suspend: cci_timer3_suspend {
+		mux {
+			pins = "gpio71";
+			function = "cci_timer3";
+		};
+
+		config {
+			pins = "gpio71";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer4_active: cci_timer4_active {
+		mux {
+			pins = "gpio52";
+			function = "cci_timer4";
+		};
+
+		config {
+			pins = "gpio52";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer4_suspend: cci_timer4_suspend {
+		mux {
+			pins = "gpio52";
+			function = "cci_timer4";
+		};
+
+		config {
+			pins = "gpio52";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer5_active: cci_timer5_active {
+		mux {
+			pins = "gpio53";
+			function = "cci_timer5";
+		};
+
+		config {
+			pins = "gpio53";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer5_suspend: cci_timer5_suspend {
+		mux {
+			pins = "gpio53";
+			function = "cci_timer5";
+		};
+
+		config {
+			pins = "gpio53";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer6_active: cci_timer6_active {
+		mux {
+			pins = "gpio54";
+			function = "cci_timer6";
+		};
+
+		config {
+			pins = "gpio54";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer6_suspend: cci_timer6_suspend {
+		mux {
+			pins = "gpio54";
+			function = "cci_timer6";
+		};
+
+		config {
+			pins = "gpio54";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer7_active: cci_timer7_active {
+		mux {
+			pins = "gpio55";
+			function = "cci_timer7";
+		};
+
+		config {
+			pins = "gpio55";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer7_suspend: cci_timer7_suspend {
+		mux {
+			pins = "gpio55";
+			function = "cci_timer7";
+		};
+
+		config {
+			pins = "gpio55";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer8_active: cci_timer8_active {
+		mux {
+			pins = "gpio56";
+			function = "cci_timer8";
+		};
+
+		config {
+			pins = "gpio56";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer8_suspend: cci_timer8_suspend {
+		mux {
+			pins = "gpio56";
+			function = "cci_timer8";
+		};
+
+		config {
+			pins = "gpio56";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer9_active: cci_timer9_active {
+		mux {
+			pins = "gpio57";
+			function = "cci_timer9";
+		};
+
+		config {
+			pins = "gpio57";
+			bias-disable;
+			drive-strength = <6>;
+		};
+	};
+
+	cci_timer9_suspend: cci_timer9_suspend {
+		mux {
+			pins = "gpio57";
+			function = "cci_timer9";
+		};
+
+		config {
+			pins = "gpio57";
+			bias-pull-down;
+			drive-strength = <6>;
+		};
+	};
+
 	cam_sensor_mclk0_active: cam-sensor-mclk0-active {
 		/* MCLK0 */
 		mux {
