@@ -620,6 +620,28 @@
 	status = "okay";
 };
 
+&ethernet0 {
+	phy-mode = "usxgmii";
+
+	status = "okay";
+
+	fixed-link {
+		speed = <10000>;
+		full-duplex;
+	};
+};
+
+&ethernet1 {
+	phy-mode = "usxgmii";
+
+	status = "okay";
+
+	fixed-link {
+		speed = <10000>;
+		full-duplex;
+	};
+};
+
 &i2c9 {
 	clock-frequency = <400000>;
 
@@ -991,6 +1013,20 @@
 	status = "okay";
 };
 
+&serdes0 {
+	vdda-0p9-supply = <&vreg_l1h_0p9>;
+	vdda-1p2-supply = <&vreg_l2h_1p2>;
+
+	status = "okay";
+};
+
+&serdes1 {
+	vdda-0p9-supply = <&vreg_l1h_0p9>;
+	vdda-1p2-supply = <&vreg_l2h_1p2>;
+
+	status = "okay";
+};
+
 &tlmm {
 	pcie0_perst_wake: pcie0-perst-wake-state {
 		perst-pins {
@@ -1168,5 +1204,13 @@
 
 	phys = <&usb2_repeater>;
 
+	status = "okay";
+};
+
+&xpcs0 {
+	status = "okay";
+};
+
+&xpcs1 {
 	status = "okay";
 };
