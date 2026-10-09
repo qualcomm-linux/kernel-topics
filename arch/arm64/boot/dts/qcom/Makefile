@@ -51,7 +51,10 @@ lemans-evk-camera-csi1-imx577-dtbs	:= lemans-evk.dtb lemans-evk-camera-csi1-imx5
 lemans-evk-camera-dtbs	:= lemans-evk.dtb lemans-evk-camera.dtbo
 lemans-draco-evk-raspberrypi-dsi-7inch-dtbs	:= lemans-draco-evk.dtb lemans-draco-evk-raspberrypi-dsi-7inch.dtbo
 lemans-draco-evk-waveshare-dsi-8inch-dtbs	:= lemans-draco-evk.dtb lemans-draco-evk-waveshare-dsi-8inch.dtbo
+lemans-draco-evk-dlc0697-dsi-dtbs	:= lemans-draco-evk.dtb lemans-draco-evk-dlc0697-dsi.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-draco-evk-raspberrypi-dsi-7inch.dtbo
+dtb-$(CONFIG_ARCH_QCOM)	+= lemans-draco-evk-dlc0697-dsi.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= lemans-draco-evk-dlc0697-dsi.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-draco-evk-waveshare-dsi-8inch.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-camera-csi1-imx577.dtb
