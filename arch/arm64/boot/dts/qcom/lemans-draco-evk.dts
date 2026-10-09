@@ -14,7 +14,7 @@
 
 	aliases {
 		ethernet0 = &ethernet0;
-    	ethernet1 = &ethernet1;
+		ethernet1 = &ethernet1;
 		serial1 = &uart17;
 	};
 
@@ -654,6 +654,25 @@
 		#gpio-cells = <2>;
 		gpio-controller;
 	};
+};
+
+&i2c19 {
+	status = "okay";
+
+	fan_controller: fan@18 {
+		compatible = "ti,amc6821";
+		reg = <0x18>;
+		#pwm-cells = <2>;
+
+		fan {
+			pwms = <&fan_controller 40000 PWM_POLARITY_INVERTED>;
+		};
+	};
+};
+
+&qup_i2c19_default {
+	drive-strength = <2>;
+	bias-pull-up;
 };
 
 &pcie0 {
