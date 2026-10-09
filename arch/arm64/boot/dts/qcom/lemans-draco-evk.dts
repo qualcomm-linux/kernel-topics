@@ -14,7 +14,7 @@
 
 	aliases {
 		ethernet0 = &ethernet0;
-    	ethernet1 = &ethernet1;
+		ethernet1 = &ethernet1;
 	};
 
 	dp0-connector {
@@ -541,6 +541,25 @@
 		#gpio-cells = <2>;
 		gpio-controller;
 	};
+};
+
+&i2c4 {
+	status = "okay";
+
+	fan_controller: fan@1a {
+		compatible = "ti,amc6821";
+		reg = <0x1a>;
+		#pwm-cells = <2>;
+
+		fan {
+			pwms = <&fan_controller 40000 PWM_POLARITY_INVERTED>;
+		};
+	};
+};
+
+&qup_i2c4_default {
+	drive-strength = <6>;
+	bias-pull-up;
 };
 
 &mdss0 {
