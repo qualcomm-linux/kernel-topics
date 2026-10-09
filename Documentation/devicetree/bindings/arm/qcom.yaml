@@ -179,6 +179,7 @@ properties:
       - items:
           - enum:
               - qcom,mahua-crd
+              - qcom,mahua-qcb
           - const: qcom,mahua
 
       - description: Sierra Wireless MangOH Green with WP8548 Module
