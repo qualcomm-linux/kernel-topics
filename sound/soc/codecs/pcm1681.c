@@ -44,6 +44,7 @@
  * complete its internal reset sequence before it is ready to be used.
  */
 #define PCM1681_SCK_SETTLE_CYCLES	65536
+#define PCM1681_POWER_ON_DELAY_US	300000
 
 static const struct reg_default pcm1681_reg_defaults[] = {
 	{ 0x01,	0xff },
@@ -379,6 +380,8 @@ static int pcm1681_i2c_probe(struct i2c_client *client)
 		return dev_err_probe(dev, ret, "Failed to enable sck\n");
 
 	pcm1681_sck_settle(priv);
+	/* Allow the initial power-on sequence to complete before gating sck. */
+	fsleep(PCM1681_POWER_ON_DELAY_US);
 
 	/* The clock is on, so hand the now-active device over to runtime PM */
 	pm_runtime_set_autosuspend_delay(dev, 100);
