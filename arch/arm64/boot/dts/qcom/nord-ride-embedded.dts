@@ -606,6 +606,14 @@
 	status = "disabled";
 };
 
+&gpu_0 {
+	status = "okay";
+};
+
+&gpu_0_zap_shader {
+	firmware-name = "qcom/nord/gen71300_zap.mbn";
+};
+
 &i2c9 {
 	clock-frequency = <400000>;
 
