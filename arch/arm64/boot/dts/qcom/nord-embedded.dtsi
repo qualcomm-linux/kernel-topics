@@ -2163,95 +2163,31 @@
 	};
 
 	pcie0_default: pcie0-default-state {
-		wake-pins {
-			pins = "gpio0";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		clkreq-pins {
-			pins = "gpio1";
-			function = "pcie0_clk_req_n";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		perst-pins {
-			pins = "gpio2";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-disable;
-		};
+		pins = "gpio1";
+		function = "pcie0_clk_req_n";
+		drive-strength = <2>;
+		bias-pull-up;
 	};
 
 	pcie1_default: pcie1-default-state {
-		wake-pins {
-			pins = "gpio3";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		clkreq-pins {
-			pins = "gpio4";
-			function = "pcie1_clk_req_n";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		perst-pins {
-			pins = "gpio5";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-disable;
-		};
+		pins = "gpio4";
+		function = "pcie1_clk_req_n";
+		drive-strength = <2>;
+		bias-pull-up;
 	};
 
 	pcie2_default: pcie2-default-state {
-		wake-pins {
-			pins = "gpio6";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		clkreq-pins {
-			pins = "gpio7";
-			function = "pcie2_clk_req_n";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		perst-pins {
-			pins = "gpio8";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-disable;
-		};
+		pins = "gpio7";
+		function = "pcie2_clk_req_n";
+		drive-strength = <2>;
+		bias-pull-up;
 	};
 
 	pcie3_default: pcie3-default-state {
-		wake-pins {
-			pins = "gpio9";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		clkreq-pins {
-			pins = "gpio10";
-			function = "pcie3_clk_req_n";
-			drive-strength = <2>;
-			bias-pull-up;
-		};
-
-		perst-pins {
-			pins = "gpio11";
-			function = "gpio";
-			drive-strength = <2>;
-			bias-disable;
-		};
+		pins = "gpio10";
+		function = "pcie3_clk_req_n";
+		drive-strength = <2>;
+		bias-pull-up;
 	};
 
 	qup_i2c0_default: qup-i2c0-default-state {
