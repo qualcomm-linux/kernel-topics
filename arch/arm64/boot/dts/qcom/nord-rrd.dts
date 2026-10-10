@@ -691,6 +691,8 @@
 };
 
 &pcie0 {
+	pinctrl-0 = <&pcie0_default>, <&pcie0_perst_wake>;
+
 	status = "okay";
 };
 
@@ -700,6 +702,8 @@
 };
 
 &pcie1 {
+	pinctrl-0 = <&pcie1_default>, <&pcie1_perst_wake>;
+
 	status = "okay";
 };
 
@@ -709,6 +713,8 @@
 };
 
 &pcie2 {
+	pinctrl-0 = <&pcie2_default>, <&pcie2_perst_wake>;
+
 	status = "okay";
 };
 
@@ -733,6 +739,8 @@
 };
 
 &pcie3 {
+	pinctrl-0 = <&pcie3_default>, <&pcie3_perst_wake>;
+
 	status = "okay";
 };
 
@@ -813,6 +821,72 @@
 
 &spi16 {
 	status = "okay";
+};
+
+&tlmm {
+	pcie0_perst_wake: pcie0-perst-wake-state {
+		perst-pins {
+			pins = "gpio2";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		wake-pins {
+			pins = "gpio0";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	pcie1_perst_wake: pcie1-perst-wake-state {
+		perst-pins {
+			pins = "gpio5";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		wake-pins {
+			pins = "gpio3";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	pcie2_perst_wake: pcie2-perst-wake-state {
+		perst-pins {
+			pins = "gpio8";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		wake-pins {
+			pins = "gpio6";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	pcie3_perst_wake: pcie3-perst-wake-state {
+		perst-pins {
+			pins = "gpio11";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		wake-pins {
+			pins = "gpio9";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
 };
 
 &uart4 {
