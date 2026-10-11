@@ -777,6 +777,37 @@ static void ethqos_ptp_clk_freq_config(struct stmmac_priv *priv)
 	netdev_dbg(priv->dev, "PTP rate %lu\n", plat_dat->clk_ptp_rate);
 }
 
+static int qcom_ethqos_pcs_init(struct stmmac_priv *priv)
+{
+	struct fwnode_handle *pcsnode;
+	struct dw_xpcs *xpcs;
+
+	pcsnode = fwnode_find_reference(dev_fwnode(priv->device),
+					"pcs-handle", 0);
+	if (IS_ERR(pcsnode))
+		return PTR_ERR(pcsnode);
+
+	xpcs = xpcs_create_fwnode(pcsnode);
+	fwnode_handle_put(pcsnode);
+	if (IS_ERR(xpcs))
+		return PTR_ERR(xpcs);
+
+	xpcs_config_eee_mult_fact(xpcs, priv->plat->mult_fact_100ns);
+
+	priv->hw->xpcs = xpcs;
+
+	return 0;
+}
+
+static void qcom_ethqos_pcs_exit(struct stmmac_priv *priv)
+{
+	if (!priv->hw->xpcs)
+		return;
+
+	xpcs_destroy(priv->hw->xpcs);
+	priv->hw->xpcs = NULL;
+}
+
 static struct phylink_pcs *
 qcom_ethqos_select_pcs(struct stmmac_priv *priv, phy_interface_t interface)
 {
@@ -918,8 +949,11 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	for (i = 1; i < plat_dat->tx_queues_to_use; i++)
 		plat_dat->tx_queues_cfg[i].tbs_en = 1;
 
-	if (fwnode_property_present(dev_fwnode(dev), "pcs-handle"))
+	if (fwnode_property_present(dev_fwnode(dev), "pcs-handle")) {
+		plat_dat->pcs_init = qcom_ethqos_pcs_init;
+		plat_dat->pcs_exit = qcom_ethqos_pcs_exit;
 		plat_dat->select_pcs = qcom_ethqos_select_pcs;
+	}
 
 	return devm_stmmac_pltfr_probe(pdev, plat_dat, &stmmac_res);
 }
