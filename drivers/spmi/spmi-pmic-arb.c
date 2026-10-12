@@ -2085,6 +2085,8 @@ static int spmi_pmic_arb_probe(struct platform_device *pdev)
 	u32 channel, ee, hw_ver;
 	int err;
 
+	pr_err("G: Probe called \n");
+
 	pmic_arb = devm_kzalloc(dev, sizeof(*pmic_arb), GFP_KERNEL);
 	if (!pmic_arb)
 		return -ENOMEM;
