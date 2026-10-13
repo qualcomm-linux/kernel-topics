@@ -991,53 +991,15 @@ static int sdw_port_config(struct sdw_port_runtime *p_rt,
 	return 0;
 }
 
-/*
- * sdw_stream_add_master()/sdw_stream_add_slave() can be called more than
- * once for the same stream: .hw_params may be invoked repeatedly for a
- * DAI, and a device may route several DAIs - each contributing its own
- * data port - through a single stream. Look up the port runtime by port
- * number so that repeated calls reconfigure the existing entry while a
- * port which is not part of the stream yet gets a new one appended.
- */
-static struct sdw_port_runtime *sdw_port_find(struct list_head *port_list,
-					      unsigned int num)
-{
-	struct sdw_port_runtime *p_rt;
-
-	list_for_each_entry(p_rt, port_list, port_node) {
-		if (p_rt->num == num)
-			return p_rt;
-	}
-
-	return NULL;
-}
-
-static int sdw_port_alloc_missing(struct list_head *port_list,
-				  const struct sdw_port_config *port_config,
-				  unsigned int num_ports)
-{
-	struct sdw_port_runtime *p_rt;
-	int i;
-
-	for (i = 0; i < num_ports; i++) {
-		if (sdw_port_find(port_list, port_config[i].num))
-			continue;
-
-		p_rt = sdw_port_alloc(port_list);
-		if (!p_rt)
-			return -ENOMEM;
-
-		/* claim the number so the next iteration finds this entry */
-		p_rt->num = port_config[i].num;
-	}
-
-	return 0;
-}
-
 static void sdw_port_free(struct sdw_port_runtime *p_rt)
 {
 	list_del(&p_rt->port_node);
 	kfree(p_rt);
+}
+
+static bool sdw_slave_port_allocated(struct sdw_slave_runtime *s_rt)
+{
+	return !list_empty(&s_rt->port_list);
 }
 
 static void sdw_slave_port_free(struct sdw_slave *slave,
@@ -1060,6 +1022,23 @@ static void sdw_slave_port_free(struct sdw_slave *slave,
 	}
 }
 
+static int sdw_slave_port_alloc(struct sdw_slave *slave,
+				struct sdw_slave_runtime *s_rt,
+				unsigned int num_config)
+{
+	struct sdw_port_runtime *p_rt;
+	int i;
+
+	/* Iterate for number of ports to perform initialization */
+	for (i = 0; i < num_config; i++) {
+		p_rt = sdw_port_alloc(&s_rt->port_list);
+		if (!p_rt)
+			return -ENOMEM;
+	}
+
+	return 0;
+}
+
 static int sdw_slave_port_is_valid_range(struct device *dev, int num)
 {
 	if (!SDW_VALID_PORT_RANGE(num)) {
@@ -1073,14 +1052,14 @@ static int sdw_slave_port_is_valid_range(struct device *dev, int num)
 static int sdw_slave_port_config(struct sdw_slave *slave,
 				 struct sdw_slave_runtime *s_rt,
 				 const struct sdw_port_config *port_config,
-				 unsigned int num_ports,
 				 bool is_bpt_stream)
 {
 	struct sdw_port_runtime *p_rt;
 	int ret;
 	int i;
 
-	for (i = 0; i < num_ports; i++) {
+	i = 0;
+	list_for_each_entry(p_rt, &s_rt->port_list, port_node) {
 		if (!is_bpt_stream) {
 			ret = sdw_slave_port_is_valid_range(&slave->dev, port_config[i].num);
 			if (ret < 0)
@@ -1102,13 +1081,10 @@ static int sdw_slave_port_config(struct sdw_slave *slave,
 			return -EINVAL;
 		}
 
-		p_rt = sdw_port_find(&s_rt->port_list, port_config[i].num);
-		if (!p_rt)
-			return -EINVAL;
-
 		ret = sdw_port_config(p_rt, port_config, i);
 		if (ret < 0)
 			return ret;
+		i++;
 	}
 
 	return 0;
@@ -1128,22 +1104,35 @@ static void sdw_master_port_free(struct sdw_master_runtime *m_rt)
 	}
 }
 
+static int sdw_master_port_alloc(struct sdw_master_runtime *m_rt,
+				 unsigned int num_ports)
+{
+	struct sdw_port_runtime *p_rt;
+	int i;
+
+	/* Iterate for number of ports to perform initialization */
+	for (i = 0; i < num_ports; i++) {
+		p_rt = sdw_port_alloc(&m_rt->port_list);
+		if (!p_rt)
+			return -ENOMEM;
+	}
+
+	return 0;
+}
+
 static int sdw_master_port_config(struct sdw_master_runtime *m_rt,
-				  const struct sdw_port_config *port_config,
-				  unsigned int num_ports)
+				  const struct sdw_port_config *port_config)
 {
 	struct sdw_port_runtime *p_rt;
 	int ret;
 	int i;
 
-	for (i = 0; i < num_ports; i++) {
-		p_rt = sdw_port_find(&m_rt->port_list, port_config[i].num);
-		if (!p_rt)
-			return -EINVAL;
-
+	i = 0;
+	list_for_each_entry(p_rt, &m_rt->port_list, port_node) {
 		ret = sdw_port_config(p_rt, port_config, i);
 		if (ret < 0)
 			return ret;
+		i++;
 	}
 
 	return 0;
@@ -1387,8 +1376,7 @@ static int sdw_config_stream(struct device *dev,
 
 	if (stream->params.bps &&
 	    stream->params.bps != stream_config->bps) {
-		dev_err(dev, "bps not matching, stream:%s, %u vs %u\n",
-			stream->name, stream->params.bps, stream_config->bps);
+		dev_err(dev, "bps not matching, stream:%s\n", stream->name);
 		return -EINVAL;
 	}
 
@@ -2029,7 +2017,6 @@ int sdw_stream_add_master(struct sdw_bus *bus,
 {
 	struct sdw_master_runtime *m_rt;
 	bool alloc_master_rt = false;
-	bool first_ports = false;
 	int ret;
 
 	mutex_lock(&bus->bus_lock);
@@ -2069,15 +2056,13 @@ int sdw_stream_add_master(struct sdw_bus *bus,
 		alloc_master_rt = true;
 	}
 
-	if (!sdw_master_port_allocated(m_rt))
-		first_ports = true;
+	if (!sdw_master_port_allocated(m_rt)) {
+		ret = sdw_master_port_alloc(m_rt, num_ports);
+		if (ret)
+			goto alloc_error;
 
-	ret = sdw_port_alloc_missing(&m_rt->port_list, port_config, num_ports);
-	if (ret)
-		goto alloc_error;
-
-	if (first_ports)
 		stream->m_rt_count++;
+	}
 
 	ret = sdw_master_rt_config(m_rt, stream_config);
 	if (ret < 0)
@@ -2087,7 +2072,7 @@ int sdw_stream_add_master(struct sdw_bus *bus,
 	if (ret)
 		goto unlock;
 
-	ret = sdw_master_port_config(m_rt, port_config, num_ports);
+	ret = sdw_master_port_config(m_rt, port_config);
 
 	goto unlock;
 
@@ -2205,9 +2190,11 @@ int sdw_stream_add_slave(struct sdw_slave *slave,
 		alloc_slave_rt = true;
 	}
 
-	ret = sdw_port_alloc_missing(&s_rt->port_list, port_config, num_ports);
-	if (ret)
-		goto alloc_error;
+	if (!sdw_slave_port_allocated(s_rt)) {
+		ret = sdw_slave_port_alloc(slave, s_rt, num_ports);
+		if (ret)
+			goto alloc_error;
+	}
 
 	ret =  sdw_master_rt_config(m_rt, stream_config);
 	if (ret)
@@ -2221,7 +2208,7 @@ int sdw_stream_add_slave(struct sdw_slave *slave,
 	if (ret)
 		goto unlock;
 
-	ret = sdw_slave_port_config(slave, s_rt, port_config, num_ports,
+	ret = sdw_slave_port_config(slave, s_rt, port_config,
 				    stream->type == SDW_STREAM_BPT);
 	if (ret)
 		goto unlock;
