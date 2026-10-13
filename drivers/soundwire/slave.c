@@ -243,27 +243,17 @@ int sdw_of_find_slaves(struct sdw_bus *bus)
 		const char *compat = NULL;
 		struct sdw_slave_id id;
 		const __be32 *addr;
-		struct property *prop;
-		bool matched = false;
 
-		/*
-		 * Match any entry of the compatible list, not only the first
-		 * one, so that a node can name a more specific vendor
-		 * compatible ahead of the SoundWire class ID one, e.g.
-		 * compatible = "vendor,part", "sdw20217011000";
-		 */
-		of_property_for_each_string(node, "compatible", prop, compat) {
-			ret = sscanf(compat, "sdw%01x%04hx%04hx%02hhx", &sdw_version,
-				     &id.mfg_id, &id.part_id, &id.class_id);
-			if (ret == 4) {
-				matched = true;
-				break;
-			}
-		}
+		ret = of_property_read_string(node, "compatible", &compat);
+		if (ret)
+			continue;
 
-		if (!matched) {
-			dev_err(dev, "%pOF: no SoundWire class ID compatible found\n",
-				node);
+		ret = sscanf(compat, "sdw%01x%04hx%04hx%02hhx", &sdw_version,
+			     &id.mfg_id, &id.part_id, &id.class_id);
+
+		if (ret != 4) {
+			dev_err(dev, "Invalid compatible string found %s\n",
+				compat);
 			continue;
 		}
 
