@@ -190,6 +190,15 @@
 		enable-active-high;
 	};
 
+	vreg_wcn_1p9: regulator-wcn-1p9 {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_wcn_1p9";
+		regulator-min-microvolt = <1900000>;
+		regulator-max-microvolt = <1900000>;
+		gpio = <&pmau0102_e_gpios 7 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
 	vreg_wcn_core_vl_0p95: regulator-wcn-core-vl-0p95 {
 		compatible = "regulator-fixed";
 		regulator-name = "vreg_wcn_core_vl_0p95";
@@ -225,7 +234,7 @@
 		vdd-supply = <&vreg_wcn_3p3>;
 		vddio-supply = <&vreg_s3a_1p8>;
 		vddaon-supply = <&vreg_wcn_core_vl_0p95>;
-		vdddig-supply = <&vreg_wcn_core_vl_0p95>;
+		vdddig-supply = <&vreg_wcn_1p9>;
 		vddrfa1p2-supply = <&vreg_wcn_core_vm_1p35>;
 		vddrfa1p8-supply = <&vreg_wcn_core_vh_1p95>;
 
