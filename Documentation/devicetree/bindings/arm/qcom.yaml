@@ -88,6 +88,7 @@ properties:
           - enum:
               - asus,zenbook-a16-ux3607oa
               - qcom,glymur-crd
+              - qcom,glymur-qcb
           - const: qcom,glymur
 
       - items:
@@ -174,6 +175,11 @@ properties:
               - qcom,kaanapali-mtp
               - qcom,kaanapali-qrd
           - const: qcom,kaanapali
+
+      - items:
+          - enum:
+              - qcom,kalambo-crd
+          - const: qcom,kalambo
 
       - items:
           - enum:
