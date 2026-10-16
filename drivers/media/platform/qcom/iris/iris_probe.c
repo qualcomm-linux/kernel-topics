@@ -19,6 +19,7 @@
 static int iris_init_icc(struct iris_core *core)
 {
 	const struct icc_info *icc_tbl;
+	int ret;
 	u32 i = 0;
 
 	icc_tbl = core->iris_platform_data->icc_tbl;
@@ -36,7 +37,12 @@ static int iris_init_icc(struct iris_core *core)
 		core->icc_tbl[i].peak_bw = 0;
 	}
 
-	return devm_of_icc_bulk_get(core->dev, core->icc_count, core->icc_tbl);
+	ret = devm_of_icc_bulk_get(core->dev, core->icc_count, core->icc_tbl);
+	if (ret)
+		return dev_err_probe(core->dev, ret,
+				     "failed to acquire interconnects\n");
+
+	return 0;
 }
 
 static int iris_init_power_domains(struct iris_core *core)
@@ -62,7 +68,8 @@ static int iris_init_power_domains(struct iris_core *core)
 
 	ret = devm_pm_domain_attach_list(core->dev, &iris_pd_data, &core->pmdomain_tbl);
 	if (ret < 0)
-		return ret;
+		return dev_err_probe(core->dev, ret,
+				     "failed to attach power domains\n");
 
 	ret =  devm_pm_domain_attach_list(core->dev, &iris_opp_pd_data, &core->opp_pmdomain_tbl);
 	/* backwards compatibility for incomplete ABI SM8250 */
@@ -73,13 +80,20 @@ static int iris_init_power_domains(struct iris_core *core)
 						 &core->opp_pmdomain_tbl);
 	}
 	if (ret < 0)
-		return ret;
+		return dev_err_probe(core->dev, ret,
+				     "failed to attach OPP power domains\n");
 
 	ret = devm_pm_opp_set_config(core->dev, &iris_opp_clk_data);
 	if (ret)
-		return ret;
+		return dev_err_probe(core->dev, ret,
+				     "failed to configure OPP clocks\n");
 
-	return devm_pm_opp_of_add_table(core->dev);
+	ret = devm_pm_opp_of_add_table(core->dev);
+	if (ret)
+		return dev_err_probe(core->dev, ret,
+				     "failed to add OPP table\n");
+
+	return 0;
 }
 
 static int iris_init_clocks(struct iris_core *core)
@@ -88,7 +102,8 @@ static int iris_init_clocks(struct iris_core *core)
 
 	ret = devm_clk_bulk_get_all(core->dev, &core->clock_tbl);
 	if (ret < 0)
-		return ret;
+		return dev_err_probe(core->dev, ret,
+				     "failed to acquire clocks\n");
 
 	core->clk_count = ret;
 
@@ -97,8 +112,10 @@ static int iris_init_clocks(struct iris_core *core)
 
 static int iris_init_reset_table(struct iris_core *core,
 				 struct reset_control_bulk_data **resets,
-				 const char * const *rst_tbl, u32 rst_tbl_size)
+				 const char * const *rst_tbl, u32 rst_tbl_size,
+				 const char *name)
 {
+	int ret;
 	u32 i = 0;
 
 	*resets = devm_kzalloc(core->dev,
@@ -110,25 +127,34 @@ static int iris_init_reset_table(struct iris_core *core,
 	for (i = 0; i < rst_tbl_size; i++)
 		(*resets)[i].id = rst_tbl[i];
 
-	return devm_reset_control_bulk_get_exclusive(core->dev, rst_tbl_size, *resets);
+	ret = devm_reset_control_bulk_get_exclusive(core->dev, rst_tbl_size,
+						    *resets);
+	if (ret)
+		return dev_err_probe(core->dev, ret,
+				     "failed to acquire %s resets\n", name);
+
+	return 0;
 }
 
 static int iris_init_resets(struct iris_core *core)
 {
+	const struct iris_platform_data *data = core->iris_platform_data;
 	int ret;
 
 	ret = iris_init_reset_table(core, &core->resets,
-				    core->iris_platform_data->clk_rst_tbl,
-				    core->iris_platform_data->clk_rst_tbl_size);
+				    data->clk_rst_tbl,
+				    data->clk_rst_tbl_size,
+				    "clock");
 	if (ret)
 		return ret;
 
-	if (!core->iris_platform_data->controller_rst_tbl_size)
+	if (!data->controller_rst_tbl_size)
 		return 0;
 
 	return iris_init_reset_table(core, &core->controller_resets,
-				     core->iris_platform_data->controller_rst_tbl,
-				     core->iris_platform_data->controller_rst_tbl_size);
+				     data->controller_rst_tbl,
+				     data->controller_rst_tbl_size,
+				     "controller");
 }
 
 static int iris_init_resources(struct iris_core *core)
@@ -195,6 +221,8 @@ static int iris_reserve_iova_region(struct device *dev, struct dma_iova_state **
 	return 0;
 
 err_free_iova:
+	dev_err(dev, "failed to reserve IOVA range %#lx-%#lx\n",
+		end - chunk, end - 1);
 	iris_unreserve_iova_region(dev, state);
 	dev->bus_dma_limit = dma_limit;
 
@@ -204,7 +232,16 @@ err_free_iova:
 static int iris_register_video_device(struct iris_core *core, enum domain_type type)
 {
 	struct video_device *vdev;
+	const char *name;
 	int ret;
+
+	if (type == DECODER)
+		name = "decoder";
+	else if (type == ENCODER)
+		name = "encoder";
+	else
+		return dev_err_probe(core->dev, -EINVAL,
+				     "invalid video device type %d\n", type);
 
 	vdev = video_device_alloc();
 	if (!vdev)
@@ -220,18 +257,18 @@ static int iris_register_video_device(struct iris_core *core, enum domain_type t
 		strscpy(vdev->name, "qcom-iris-decoder", sizeof(vdev->name));
 		vdev->ioctl_ops = core->iris_v4l2_ioctl_ops_dec;
 		core->vdev_dec = vdev;
-	} else if (type == ENCODER) {
+	} else {
 		strscpy(vdev->name, "qcom-iris-encoder", sizeof(vdev->name));
 		vdev->ioctl_ops = core->iris_v4l2_ioctl_ops_enc;
 		core->vdev_enc = vdev;
-	} else {
-		ret = -EINVAL;
-		goto err_vdev_release;
 	}
 
 	ret = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
-	if (ret)
+	if (ret) {
+		dev_err_probe(core->dev, ret,
+			      "failed to register %s video device\n", name);
 		goto err_vdev_release;
+	}
 
 	video_set_drvdata(vdev, core);
 
@@ -306,17 +343,22 @@ static int iris_probe(struct platform_device *pdev)
 		return core->irq;
 
 	core->iris_platform_data = of_device_get_match_data(core->dev);
+	if (!core->iris_platform_data)
+		return dev_err_probe(dev, -ENODEV,
+				     "missing platform match data\n");
 
 	core->ubwc_cfg = qcom_ubwc_config_get_data();
 	if (IS_ERR(core->ubwc_cfg))
-		return PTR_ERR(core->ubwc_cfg);
+		return dev_err_probe(dev, PTR_ERR(core->ubwc_cfg),
+				     "failed to get UBWC configuration\n");
 
 	ret = devm_request_threaded_irq(core->dev, core->irq, iris_hfi_isr,
 					iris_hfi_isr_handler,
 					IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN,
 					"iris", core);
 	if (ret)
-		return ret;
+		return dev_err_probe(dev, ret, "failed to request IRQ %d\n",
+				     core->irq);
 
 	iris_init_ops(core);
 
@@ -327,11 +369,14 @@ static int iris_probe(struct platform_device *pdev)
 	ret = iris_reserve_iova_region(dev, &core->iova_state, IRIS_NP_RESERVE_IOVA_START,
 				       IRIS_NP_RESERVE_IOVA_SIZE);
 	if (ret)
-		return ret;
+		return dev_err_probe(dev, ret,
+				     "failed to reserve IOVA region\n");
 
 	ret = v4l2_device_register(dev, &core->v4l2_dev);
-	if (ret)
+	if (ret) {
+		dev_err_probe(dev, ret, "failed to register V4L2 device\n");
 		goto err_unresv_iova_region;
+	}
 
 	ret = iris_register_video_device(core, DECODER);
 	if (ret)
@@ -346,8 +391,11 @@ static int iris_probe(struct platform_device *pdev)
 	dma_mask = core->iris_platform_data->dma_mask;
 
 	ret = dma_set_mask_and_coherent(dev, dma_mask);
-	if (ret)
+	if (ret) {
+		dev_err_probe(dev, ret, "failed to set DMA mask %#llx\n",
+			      (unsigned long long)dma_mask);
 		goto err_vdev_unreg_enc;
+	}
 
 	dma_set_max_seg_size(&pdev->dev, DMA_BIT_MASK(32));
 	dma_set_seg_boundary(&pdev->dev, DMA_BIT_MASK(32));
@@ -355,8 +403,10 @@ static int iris_probe(struct platform_device *pdev)
 	pm_runtime_set_autosuspend_delay(core->dev, AUTOSUSPEND_DELAY_VALUE);
 	pm_runtime_use_autosuspend(core->dev);
 	ret = devm_pm_runtime_enable(core->dev);
-	if (ret)
+	if (ret) {
+		dev_err_probe(dev, ret, "failed to enable runtime PM\n");
 		goto err_vdev_unreg_enc;
+	}
 
 	return 0;
 
