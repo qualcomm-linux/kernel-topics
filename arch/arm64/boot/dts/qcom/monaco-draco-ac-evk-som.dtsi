@@ -179,6 +179,11 @@
 	};
 };
 
+&qup_i2c13_data_clk {
+	drive-strength = <6>;
+	bias-pull-up;
+};
+
 &qupv3_id_0 {
 	firmware-name = "qcom/qcs8300/qupv3fw.elf";
 	status = "okay";
