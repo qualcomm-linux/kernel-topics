@@ -14,6 +14,13 @@
 	compatible = "qcom,monaco-draco-evk", "qcom,qcs8300";
 	chassis-type = "embedded";
 
+	aliases {
+		i2c8 = &i2c8;
+		i2c13 = &i2c13;
+		i2c14 = &i2c14;
+		i2c15 = &i2c15;
+	};
+
 	dp0-connector {
 		compatible = "dp-connector";
 		label = "DP0";
