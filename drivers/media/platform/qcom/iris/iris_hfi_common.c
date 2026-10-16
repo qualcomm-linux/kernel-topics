@@ -91,8 +91,8 @@ int iris_hfi_core_init(struct iris_core *core)
 		ret = hfi_ops->sys_set_debug(core);
 		if (ret)
 			dev_warn(core->dev,
-				"failed to configure firmware debug logging: %d\n",
-				ret);
+				 "failed to configure firmware debug logging: %d\n",
+				 ret);
 	}
 
 	return hfi_ops->sys_interframe_powercollapse(core);
@@ -201,6 +201,14 @@ int iris_hfi_pm_resume(struct iris_core *core)
 
 	if (vpu_ops->disable_arp)
 		vpu_ops->disable_arp(core);
+
+	if (ops->sys_set_debug) {
+		ret = ops->sys_set_debug(core);
+		if (ret)
+			dev_warn(core->dev,
+				 "failed to configure firmware debug logging: %d\n",
+				 ret);
+	}
 
 	ret = ops->sys_interframe_powercollapse(core);
 	if (ret)

@@ -82,6 +82,7 @@
 #define HFI_BUFFER_INTERNAL_SCRATCH_2			0x8
 
 #define HFI_DEBUG_MODE_QUEUE				0x01
+
 struct hfi_debug_config {
 	u32 config;
 	u32 mode;

@@ -129,7 +129,8 @@ int iris_vb2_queue_setup(struct vb2_queue *q,
 	if (!inst->once_per_session_set) {
 		ret = iris_hfi_set_debug(core);
 		if (ret)
-			dev_warn(core->dev, "failed to set firmware debug level: %d\n", ret);
+			dev_dbg(core->dev,
+				"failed to set firmware debug level: %d\n", ret);
 
 		ret = inst->hfi_session_ops->session_open(inst);
 		if (ret) {
