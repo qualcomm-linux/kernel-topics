@@ -140,6 +140,26 @@ static int iris_init_power_domains(struct iris_core *core)
 			return ret;
 	}
 
+	if (plat->mm_int_data) {
+		core->mm_int = devm_kzalloc(core->dev, sizeof(*core->mm_int), GFP_KERNEL);
+		if (!core->mm_int)
+			return -ENOMEM;
+
+		ret = iris_init_power_domains_per_block(core, core->mm_int, plat->mm_int_data);
+		if (ret)
+			return ret;
+	}
+
+	if (plat->cx_int_data) {
+		core->cx_int = devm_kzalloc(core->dev, sizeof(*core->cx_int), GFP_KERNEL);
+		if (!core->cx_int)
+			return -ENOMEM;
+
+		ret = iris_init_power_domains_per_block(core, core->cx_int, plat->cx_int_data);
+		if (ret)
+			return ret;
+	}
+
 	ret =  devm_pm_domain_attach_list(core->dev, &iris_opp_pd_data, &core->opp_pmdomain_tbl);
 	/* backwards compatibility for incomplete ABI SM8250 */
 	if (ret == -ENODEV &&
@@ -202,7 +222,15 @@ static int iris_init_clocks(struct iris_core *core)
 	if (ret)
 		return ret;
 
-	return iris_init_clocks_per_block(core, core->apv, plat->apv_data);
+	ret = iris_init_clocks_per_block(core, core->apv, plat->apv_data);
+	if (ret)
+		return ret;
+
+	ret = iris_init_clocks_per_block(core, core->mm_int, plat->mm_int_data);
+	if (ret)
+		return ret;
+
+	return iris_init_clocks_per_block(core, core->cx_int, plat->cx_int_data);
 }
 
 static int iris_init_reset_table(struct iris_core *core,
@@ -499,12 +527,20 @@ static const struct of_device_id iris_dt_match[] = {
 		.data = &glymur_data,
 	},
 	{
+		.compatible = "qcom,hawi-iris",
+		.data = &hawi_data,
+	},
+	{
 		.compatible = "qcom,kaanapali-iris",
 		.data = &kaanapali_data,
 	},
 	{
 		.compatible = "qcom,qcm2290-venus",
 		.data = &qcm2290_data,
+	},
+	{
+		.compatible = "qcom,maili-iris",
+		.data = &maili_data,
 	},
 	{
 		.compatible = "qcom,milos-iris",
