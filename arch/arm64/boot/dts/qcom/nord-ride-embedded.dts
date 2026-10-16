@@ -612,6 +612,7 @@
 		interrupt-controller;
 		interrupts-extended = <&pmau0102_l_gpios 6 IRQ_TYPE_LEVEL_LOW>;
 		reset-gpios = <&pmau0102_l_gpios 5 GPIO_ACTIVE_LOW>;
+		vcc-supply =<&vreg_per_3p3>;
 	};
 
 	/* ADI ADAU1979 - 4-channel 24-bit ADC */
