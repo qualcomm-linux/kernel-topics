@@ -855,6 +855,10 @@
 	status = "okay";
 };
 
+&remoteproc_soccp {
+	firmware-name = "qcom/nord/soccp.mbn";
+};
+
 &serdes0 {
 	vdda-0p9-supply = <&vreg_l1h_0p9>;
 	vdda-1p2-supply = <&vreg_l2h_1p2>;
