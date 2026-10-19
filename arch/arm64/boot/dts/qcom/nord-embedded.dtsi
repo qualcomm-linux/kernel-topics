@@ -1878,6 +1878,7 @@
 };
 
 &remoteproc_soccp {
+	compatible = "qcom,nord-soccp-pas";
 	clocks = <&rpmhcc RPMH_CXO_CLK>;
 	clock-names = "xo";
 	power-domains = <&rpmhpd RPMHPD_CX>,
