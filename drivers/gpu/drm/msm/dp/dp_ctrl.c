@@ -449,7 +449,7 @@ static u32 msm_dp_ctrl_get_mst_vcpf_interrupt_0_1(struct msm_dp_ctrl_private *ct
 	msm_dp_write_ahb(ctrl, REG_DP_INTR_STATUS5,
 			 intr_ack | DP_INTERRUPT_STATUS5_MASK);
 
-	return intr;
+	return intr & DP_INTERRUPT_STATUS5;
 }
 
 static u32 msm_dp_ctrl_get_mst_vcpf_interrupt_2_3(struct msm_dp_ctrl_private *ctrl)
@@ -463,7 +463,7 @@ static u32 msm_dp_ctrl_get_mst_vcpf_interrupt_2_3(struct msm_dp_ctrl_private *ct
 	msm_dp_write_ahb(ctrl, REG_DP_INTR_STATUS7,
 			 intr_ack | DP_INTERRUPT_STATUS7_MASK);
 
-	return intr;
+	return intr & DP_INTERRUPT_STATUS7;
 }
 
 static void msm_dp_ctrl_psr_mainlink_enable(struct msm_dp_ctrl_private *ctrl)
