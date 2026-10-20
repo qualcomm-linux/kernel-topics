@@ -2761,16 +2761,15 @@ static void msm_dp_ctrl_mst_calculate_rg(struct msm_dp_ctrl_private *ctrl,
 					 u32 *p_x_int, u32 *p_y_frac_enum)
 {
 	u64 min_slot_cnt, max_slot_cnt;
-	u64 raw_target_sc, target_sc_fixp;
-	u64 ts_denom, ts_enum, ts_int;
+	u64 raw_target_sc, target_sc_fixp, scale_fixp;
 	u64 pclk = panel->msm_dp_mode.drm_mode.clock;
 	u64 lclk = 0;
 	u64 lanes = ctrl->link->link_params.num_lanes;
 	u64 bpp = panel->msm_dp_mode.bpp;
 	u64 pbn = ctrl->mst_ch_info[panel->stream_id].pbn;
-	u64 numerator, denominator, temp, temp1, temp2;
+	u64 numerator, denominator, temp, temp1, scaled_target_sc;
 	u32 x_int = 0, y_frac_enum = 0;
-	u64 target_strm_sym, ts_int_fixp, ts_frac_fixp, y_frac_enum_fixp;
+	u64 target_strm_sym, y_frac_enum_fixp;
 
 	lclk = ctrl->link->link_params.rate;
 
@@ -2789,30 +2788,15 @@ static void msm_dp_ctrl_mst_calculate_rg(struct msm_dp_ctrl_private *ctrl,
 	denominator = drm_fixp_from_fraction(2, 1);
 	raw_target_sc = drm_fixp_div(numerator, denominator);
 
-	/* target_sc */
-	temp = drm_fixp_from_fraction(256 * lanes, 1);
-	numerator = drm_fixp_mul(raw_target_sc, temp);
-	denominator = drm_fixp_from_fraction(256 * lanes, 1);
-	target_sc_fixp = drm_fixp_div(numerator, denominator);
-
-	ts_enum = 256 * lanes;
-	ts_denom = drm_fixp_from_fraction(256 * lanes, 1);
-	ts_int = drm_fixp2int(target_sc_fixp);
-
-	temp = drm_fixp2int_ceil(raw_target_sc);
-	if (temp != ts_int) {
-		temp = drm_fixp_from_fraction(ts_int, 1);
-		temp1 = raw_target_sc - temp;
-		temp2 = drm_fixp_mul(temp1, ts_denom);
-		ts_enum = drm_fixp2int(temp2);
-	}
+	/* Quantize target_sc to the nearest 1 / (256 * lanes). */
+	scale_fixp = drm_fixp_from_fraction(256 * lanes, 1);
+	scaled_target_sc = drm_fixp_mul(raw_target_sc, scale_fixp);
+	numerator = drm_fixp_from_fraction(drm_fixp2int_round(scaled_target_sc), 1);
+	target_sc_fixp = drm_fixp_div(numerator, scale_fixp);
 
 	/* target_strm_sym */
-	ts_int_fixp = drm_fixp_from_fraction(ts_int, 1);
-	ts_frac_fixp = drm_fixp_from_fraction(ts_enum, drm_fixp2int(ts_denom));
-	temp = ts_int_fixp + ts_frac_fixp;
 	temp1 = drm_fixp_from_fraction(lanes, 1);
-	target_strm_sym = drm_fixp_mul(temp, temp1);
+	target_strm_sym = drm_fixp_mul(target_sc_fixp, temp1);
 
 	/* x_int */
 	x_int = drm_fixp2int(target_strm_sym);
@@ -2820,13 +2804,10 @@ static void msm_dp_ctrl_mst_calculate_rg(struct msm_dp_ctrl_private *ctrl,
 	/* y_enum_frac */
 	temp = drm_fixp_from_fraction(x_int, 1);
 	temp1 = target_strm_sym - temp;
-	temp2 = drm_fixp_from_fraction(256, 1);
-	y_frac_enum_fixp = drm_fixp_mul(temp1, temp2);
+	temp = drm_fixp_from_fraction(256, 1);
+	y_frac_enum_fixp = drm_fixp_mul(temp1, temp);
 
-	temp1 = drm_fixp2int(y_frac_enum_fixp);
-	temp2 = drm_fixp2int_ceil(y_frac_enum_fixp);
-
-	y_frac_enum = (u32)((temp1 == temp2) ? temp1 : temp1 + 1);
+	y_frac_enum = drm_fixp2int(y_frac_enum_fixp);
 
 	*p_x_int = x_int;
 	*p_y_frac_enum = y_frac_enum;
