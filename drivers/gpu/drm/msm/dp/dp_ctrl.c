@@ -277,8 +277,8 @@ int msm_dp_ctrl_mst_send_act(struct msm_dp_ctrl *msm_dp_ctrl,
 		return 0;
 
 	mode = &panel->msm_dp_mode.drm_mode;
-	frame_time_ms = DIV_ROUND_UP((u64)mode->htotal * mode->vtotal,
-				     mode->clock) + 1;
+	frame_time_ms = DIV_ROUND_UP_ULL((u64)mode->htotal * mode->vtotal,
+					 mode->clock) + 1;
 
 	msm_dp_write_link(ctrl, REG_DP_MST_ACT, 0x1);
 	/* make sure ACT signal is performed */
