@@ -18,7 +18,6 @@
 #include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
 #include <linux/i2c.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/regmap.h>
 #include <linux/unaligned.h>
@@ -711,6 +710,7 @@ static irqreturn_t cyttsp5_handle_irq(int irq, void *handle)
 		size = 2;
 	} else {
 		report_id = ts->input_buf[2];
+		size = min(size, CY_MAX_INPUT);
 	}
 
 	switch (report_id) {
