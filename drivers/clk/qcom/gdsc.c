@@ -376,7 +376,7 @@ static int gdsc_disable(struct generic_pm_domain *domain)
 	 * Retention state. This happens in HW when the parent
 	 * domain goes down to a Low power state
 	 */
-	if (sc->pwrsts == PWRSTS_RET_ON)
+	if (sc->pwrsts == PWRSTS_RET_ON || sc->hw_mode)
 		return 0;
 
 	ret = gdsc_toggle_logic(sc, GDSC_OFF, domain->synced_poweroff);
@@ -393,6 +393,11 @@ static int gdsc_set_hwmode(struct generic_pm_domain *domain, struct device *dev,
 {
 	struct gdsc *sc = domain_to_gdsc(domain);
 	int ret;
+
+	if (!(sc->flags & HW_CTRL_TRIGGER)) {
+		sc->hw_mode = mode;
+		return 0;
+	}
 
 	ret = gdsc_hwctrl(sc, mode);
 	if (ret)
@@ -420,6 +425,9 @@ static bool gdsc_get_hwmode(struct generic_pm_domain *domain, struct device *dev
 {
 	struct gdsc *sc = domain_to_gdsc(domain);
 	u32 val;
+
+	if (!(sc->flags & HW_CTRL_TRIGGER))
+		return sc->hw_mode;
 
 	regmap_read(sc->regmap, sc->gdscr, &val);
 
@@ -517,10 +525,10 @@ static int gdsc_init(struct gdsc *sc)
 		sc->pd.power_off = gdsc_disable;
 	if (!sc->pd.power_on)
 		sc->pd.power_on = gdsc_enable;
-	if (sc->flags & HW_CTRL_TRIGGER) {
+	if (!sc->pd.set_hwmode_dev)
 		sc->pd.set_hwmode_dev = gdsc_set_hwmode;
+	if (!sc->pd.get_hwmode_dev)
 		sc->pd.get_hwmode_dev = gdsc_get_hwmode;
-	}
 
 	ret = pm_genpd_init(&sc->pd, NULL, !on);
 	if (ret)
