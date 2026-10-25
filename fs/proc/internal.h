@@ -386,6 +386,7 @@ struct mem_size_stats;
 struct proc_maps_locking_ctx {
 	struct mm_struct *mm;
 	bool mmap_locked;
+	unsigned int mm_wr_seq;
 	struct vm_area_struct *locked_vma;
 };
 

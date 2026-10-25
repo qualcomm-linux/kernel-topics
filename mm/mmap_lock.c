@@ -428,21 +428,50 @@ static struct vm_area_struct *lock_next_vma_under_mmap_lock(struct mm_struct *mm
 	return vma;
 }
 
+static bool vma_range_is_empty(struct mm_struct *mm, unsigned long start,
+		unsigned long last)
+{
+	MA_STATE(mas, &mm->mm_mt, start, start);
+
+	return !mas_walk(&mas) && mas.last >= last;
+}
+
 struct vm_area_struct *lock_next_vma(struct mm_struct *mm,
-				     struct vma_iterator *vmi,
-				     unsigned long from_addr)
+		struct vma_iterator *vmi, unsigned long from_addr,
+		unsigned int *last_seq)
 {
 	struct vm_area_struct *vma;
-	unsigned int mm_wr_seq;
 	bool mmap_unlocked;
 
 	RCU_LOCKDEP_WARN(!rcu_read_lock_held(), "no rcu read lock held");
 retry:
-	/* Start mmap_lock speculation in case we need to verify the vma later */
-	mmap_unlocked = mmap_lock_speculate_try_begin(mm, &mm_wr_seq);
+	/*
+	 * Restart by address if a writer could have changed the cached range.
+	 * The retry check's smp_rmb() orders the previous lookup before reading
+	 * the sequence and pairs with smp_wmb() in do_raw_write_seqcount_begin().
+	 *
+	 * The vma_range_is_empty() checks below avoid unnecessary mmap_lock
+	 * fallbacks.
+	 */
+	mmap_unlocked = !(*last_seq & 1);
+	if (!mmap_unlocked || mmap_lock_speculate_retry(mm, *last_seq)) {
+		vma_iter_set(vmi, from_addr);
+		mmap_unlocked = mmap_lock_speculate_try_begin(mm, last_seq);
+	}
+
 	vma = vma_next(vmi);
-	if (!vma)
-		return NULL;
+	if (!vma) {
+		/*
+		 * There is no reason to fallback if there really isn't anything
+		 * in the remaining range.
+		 */
+		if ((mmap_unlocked && !mmap_lock_speculate_retry(mm, *last_seq)) ||
+		    vma_range_is_empty(mm, from_addr, ULONG_MAX))
+			return NULL;
+
+		rcu_read_unlock();
+		goto fallback;
+	}
 
 	vma = vma_start_read(mm, vma);
 	if (IS_ERR_OR_NULL(vma)) {
@@ -470,15 +499,14 @@ retry:
 	 * it was not shrunk after we found it and another vma has not been
 	 * installed ahead of it. Otherwise we might observe a gap that should
 	 * not be there.
+	 *
+	 * If speculation fails, avoid taking the mmap_lock when a direct lookup
+	 * confirms that the gap is empty.
 	 */
-	if (from_addr < vma->vm_start) {
-		/* Verify only if the address space might have changed since vma lookup. */
-		if (!mmap_unlocked || mmap_lock_speculate_retry(mm, mm_wr_seq)) {
-			vma_iter_set(vmi, from_addr);
-			if (vma != vma_next(vmi))
-				goto fallback_unlock;
-		}
-	}
+	if (from_addr < vma->vm_start &&
+	    (!mmap_unlocked || mmap_lock_speculate_retry(mm, *last_seq)) &&
+	    !vma_range_is_empty(mm, from_addr, vma->vm_start - 1))
+		goto fallback_unlock;
 
 	return vma;
 

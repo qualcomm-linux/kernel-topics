@@ -148,6 +148,7 @@ static void reset_lock_ctx(struct proc_maps_locking_ctx *lock_ctx)
 {
 	lock_ctx->locked_vma = NULL;
 	lock_ctx->mmap_locked = false;
+	lock_ctx->mm_wr_seq = UINT_MAX;
 }
 
 static struct vm_area_struct *get_next_vma(struct proc_maps_private *priv,
@@ -160,7 +161,8 @@ static struct vm_area_struct *get_next_vma(struct proc_maps_private *priv,
 		return vma_next(&priv->iter);
 
 	unlock_ctx_vma(lock_ctx);
-	vma = lock_next_vma(lock_ctx->mm, &priv->iter, last_pos);
+	vma = lock_next_vma(lock_ctx->mm, &priv->iter, last_pos,
+			    &lock_ctx->mm_wr_seq);
 	if (!IS_ERR_OR_NULL(vma))
 		lock_ctx->locked_vma = vma;
 
@@ -523,7 +525,7 @@ static struct vm_area_struct *query_vma_find_by_addr(struct proc_maps_locking_ct
 	unlock_ctx_vma(lock_ctx);
 	rcu_read_lock();
 	vma_iter_init(&vmi, mm, addr);
-	vma = lock_next_vma(mm, &vmi, addr);
+	vma = lock_next_vma(mm, &vmi, addr, &lock_ctx->mm_wr_seq);
 	rcu_read_unlock();
 
 	if (!vma)
