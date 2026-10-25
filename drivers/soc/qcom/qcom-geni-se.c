@@ -1453,18 +1453,6 @@ static int geni_load_se_fw(struct geni_se *se, const struct firmware *fw,
 	cfg_idx_arr = (const u8 *)hdr + le16_to_cpu(hdr->cfg_idx_offset);
 	cfg_val_arr = (const u32 *)((const u8 *)hdr + le16_to_cpu(hdr->cfg_val_offset));
 
-	ret = geni_icc_set_bw(se);
-	if (ret)
-		return ret;
-
-	ret = geni_icc_enable(se);
-	if (ret)
-		return ret;
-
-	ret = geni_se_resources_on(se);
-	if (ret)
-		goto out_icc_disable;
-
 	/*
 	 * Disable high-priority interrupts until all currently executing
 	 * low-priority interrupts have been fully handled.
@@ -1514,7 +1502,7 @@ static int geni_load_se_fw(struct geni_se *se, const struct firmware *fw,
 
 	ret = geni_configure_xfer_mode(se, mode);
 	if (ret)
-		goto out_resources_off;
+		return ret;
 
 	geni_enable_interrupts(se);
 
@@ -1541,11 +1529,6 @@ static int geni_load_se_fw(struct geni_se *se, const struct firmware *fw,
 	else
 		geni_setbits32(se->base + SE_FIFO_IF_DISABLE, FIFO_IF_DISABLE);
 
-out_resources_off:
-	geni_se_resources_off(se);
-
-out_icc_disable:
-	geni_icc_disable(se);
 	return ret;
 }
 
@@ -1558,6 +1541,10 @@ out_icc_disable:
  * (FIFO or GSI DMA) based on device tree configuration. Enforces FIFO mode for
  * UART protocol due to lack of GSI DMA support. Requests the firmware and loads
  * it into the SE.
+ *
+ * The caller must keep the SE resources and interconnect paths enabled for the
+ * duration of this call, including holding a runtime PM reference when runtime
+ * PM manages these resources.
  *
  * Return: 0 on success, negative error code on failure.
  */
