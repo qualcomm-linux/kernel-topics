@@ -171,6 +171,10 @@ nord-ride-embedded-camx-dtbs := nord-ride-embedded.dtb nord-ride-embedded-camx.d
 dtb-$(CONFIG_ARCH_QCOM)   += nord-ride-embedded-camx.dtb
 dtb-$(CONFIG_ARCH_QCOM)   += nord-ride-embedded-camx.dtbo
 
+nord-ride-embedded-camx-el2-dtbs	:= nord-ride-embedded.dtb nord-embedded-el2.dtbo nord-ride-embedded-camx.dtbo nord-camx-el2.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= nord-ride-embedded-camx-el2.dtb
+
 dtb-$(CONFIG_ARCH_QCOM)	+= nord-rrd.dtb
 
 nord-rrd-el2-dtbs	:= nord-rrd.dtb nord-embedded-el2.dtbo
@@ -180,6 +184,10 @@ nord-rrd-camx-dtbs        := nord-rrd.dtb nord-rrd-camx.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)   += nord-rrd-camx.dtb
 dtb-$(CONFIG_ARCH_QCOM)   += nord-rrd-camx.dtbo
+
+nord-rrd-camx-el2-dtbs	:= nord-rrd.dtb nord-embedded-el2.dtbo nord-rrd-camx.dtbo nord-camx-el2.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= nord-rrd-camx-el2.dtb
 
 dtb-$(CONFIG_ARCH_QCOM)	+= purwa-iot-evk.dtb
 

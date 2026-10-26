@@ -836,6 +836,7 @@
 		operating-points-v2 = <&icp1_opp_table>;
 		icp-version = <0x0300>;
 		cam_hw_pid = <15>;
+		fw-pas-id = <50>;
 		cell-index = <1>;
 		status = "okay";
 
