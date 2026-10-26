@@ -1349,8 +1349,8 @@
 		wlf,gpsw = <0x1>;
 		wlf,inmode = <2 0 2 0>;
 
-		wlf,reset = <&gpc0 7 GPIO_ACTIVE_HIGH>;
-		wlf,ldoena = <&gpf0 0 GPIO_ACTIVE_HIGH>;
+		wlf,reset-gpios = <&gpc0 7 GPIO_ACTIVE_HIGH>;
+		wlf,ldoena-gpios = <&gpf0 0 GPIO_ACTIVE_HIGH>;
 
 		/* core supplies */
 		AVDD-supply = <&ldo18_reg>;
