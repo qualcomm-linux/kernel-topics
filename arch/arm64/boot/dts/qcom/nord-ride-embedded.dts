@@ -132,12 +132,6 @@
 		power-role = "source";
 
 		vbus-supply = <&usb2_vbus>;
-
-		port {
-			usb2_con_hs: endpoint {
-				remote-endpoint = <&usb_2_dwc3_hs>;
-			};
-		};
 	};
 
 	vreg_wcn_3p3: regulator-wcn-3p3 {
@@ -688,7 +682,7 @@
 					reg = <0>;
 
 					usb_0_con_hs: endpoint {
-						remote-endpoint = <&usb_0_dwc3_hs>;
+						remote-endpoint = <&eud_con>;
 					};
 				};
 
@@ -1035,10 +1029,6 @@
 	status = "okay";
 };
 
-&usb_0_dwc3_hs {
-	remote-endpoint = <&usb_0_con_hs>;
-};
-
 &usb_0_hsphy {
 	vdd-supply = <&vreg_l1h_0p9>;
 	vdda12-supply = <&vreg_l2h_1p2>;
@@ -1093,8 +1083,8 @@
 	status = "okay";
 };
 
-&usb_2_dwc3_hs {
-	remote-endpoint = <&usb2_con_hs>;
+&usb_0_dwc3_hs {
+	remote-endpoint = <&eud_usb>;
 };
 
 &usb_2_hsphy {
@@ -1144,4 +1134,16 @@
 		speed = <10000>;
 		full-duplex;
 	};
+};
+
+&eud {
+	status = "okay";
+};
+
+&eud_con {
+	remote-endpoint = <&usb_0_con_hs>;
+};
+
+&eud_usb {
+	remote-endpoint = <&usb_0_dwc3_hs>;
 };
