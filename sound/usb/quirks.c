@@ -1794,7 +1794,7 @@ int snd_usb_apply_boot_quirk_once(struct usb_device *dev,
 		/* the quirk seems breaking on some Behringer devices */
 		switch (id) {
 		case USB_ID(0x1397, 0x0508): /* UMC204HD */
-		case USB_ID(0x1397, 0x0509): /* UMC204HD */
+		case USB_ID(0x1397, 0x0509): /* UMC404HD */
 			return 0;
 		}
 		return snd_usb_cm1a_boot_quirk(dev);
@@ -2495,6 +2495,8 @@ static const struct usb_audio_quirk_flags_table quirk_flags_table[] = {
 	DEVICE_FLG(0x0020, 0x0b21, /* GHW-123P */
 		   QUIRK_FLAG_FORCE_IFACE_RESET | QUIRK_FLAG_IFACE_DELAY),
 	DEVICE_FLG(0x0124, 0x0c21, /* Generic USB Headphone */
+		   QUIRK_FLAG_FORCE_IFACE_RESET | QUIRK_FLAG_IFACE_DELAY),
+	DEVICE_FLG(0x0124, 0x0c36, /* RYDZ Technology USB Headphone */
 		   QUIRK_FLAG_FORCE_IFACE_RESET | QUIRK_FLAG_IFACE_DELAY),
 	DEVICE_FLG(0x03f0, 0x0c56, /* HP Elite x3 Lap Dock */
 		   QUIRK_FLAG_FIXED_RATE),
