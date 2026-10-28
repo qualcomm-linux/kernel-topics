@@ -602,7 +602,8 @@ int iris_venc_start_cmd(struct iris_inst *inst)
 			clear_sub_state |= IRIS_INST_SUB_OUTPUT_PAUSE;
 		}
 	} else {
-		dev_err(inst->core->dev, "start called before receiving last_flag\n");
+		dev_err(inst->core->dev, "start before last buffer (sub-state %#x)\n",
+			inst->sub_state);
 		iris_inst_change_state(inst, IRIS_INST_ERROR);
 		return -EBUSY;
 	}

@@ -138,8 +138,8 @@ int iris_vb2_queue_setup(struct vb2_queue *q,
 
 		ret = inst->hfi_session_ops->session_open(inst);
 		if (ret) {
+			dev_err(core->dev, "session open failed: %d\n", ret);
 			ret = -EINVAL;
-			dev_err(core->dev, "session open failed\n");
 			goto unlock;
 		}
 
