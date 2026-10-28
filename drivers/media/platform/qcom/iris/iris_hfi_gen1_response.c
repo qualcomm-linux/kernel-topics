@@ -284,6 +284,8 @@ static void iris_hfi_gen1_sys_init_done(struct iris_core *core, void *packet)
 	struct hfi_msg_sys_init_done_pkt *pkt = packet;
 
 	if (pkt->error_type != HFI_ERR_NONE) {
+		dev_err(core->dev, "system init failed (HFI error %#x)\n",
+			pkt->error_type);
 		core->state = IRIS_CORE_ERROR;
 		return;
 	}
@@ -740,8 +742,12 @@ static void iris_hfi_gen1_handle_response(struct iris_core *core, void *response
 			struct hfi_msg_session_hdr_pkt *shdr;
 
 			shdr = (struct hfi_msg_session_hdr_pkt *)hdr;
-			if (shdr->error_type != HFI_ERR_NONE)
+			if (shdr->error_type != HFI_ERR_NONE) {
+				dev_err(dev, "session %#x response %#x failed (HFI error %#x)\n",
+					inst->session_id, hdr->pkt_type,
+					shdr->error_type);
 				iris_inst_change_state(inst, IRIS_INST_ERROR);
+			}
 
 			if (pkt_info->pkt == HFI_MSG_SESSION_FLUSH) {
 				if (!(--inst->flush_responses_pending))
