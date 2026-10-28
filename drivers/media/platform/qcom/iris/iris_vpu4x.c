@@ -135,7 +135,8 @@ static void iris_vpu4x_power_off_hardware(struct iris_core *core)
 	} while (++count < 1000);
 
 	if (!handshake_done && handshake_busy)
-		dev_err(core->dev, "LPI handshake timeout\n");
+		dev_err(core->dev, "hardware LPI handshake timeout (status %#x)\n",
+			value);
 
 	readl_poll_timeout(core->reg_base + AON_WRAPPER_MVP_NOC_LPI_STATUS,
 			   value, value & BIT(0), 200, 2000);

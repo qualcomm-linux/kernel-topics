@@ -168,12 +168,14 @@ static void iris_vpu5x_noc_lpi_handshake(struct iris_core *core,
 	} while (++count < 1000);
 
 	if (!handshake_done && handshake_busy)
-		dev_err(core->dev, "%s NOC LPI handshake timeout\n", name);
+		dev_err(core->dev, "%s NOC LPI handshake timeout (status %#x)\n",
+			name, value);
 
 	ret = readl_poll_timeout(core->reg_base + status_offs,
 				 value, value & NOC_LPI_STATUS_DONE, 200, 2000);
 	if (ret)
-		dev_err(core->dev, "%s NOC LPI status timeout\n", name);
+		dev_err(core->dev, "%s NOC LPI status timeout (status %#x)\n",
+			name, value);
 
 	value = readl(core->reg_base + ctrl_offs);
 	value &= ~NOC_LPI_PD_QREQ;
@@ -336,7 +338,8 @@ static void iris_vpu5x_power_off_hardware(struct iris_core *core)
 	ret = readl_poll_timeout(core->reg_base + AON_WRAPPER_MVP_NOC_RESET_ACK,
 				 value, (value & noc_reset_mask) == noc_reset_mask, 200, 2000);
 	if (ret)
-		dev_err(core->dev, "MVP NOC reset ack timeout\n");
+		dev_err(core->dev, "MVP NOC reset ack timeout (ack %#x, mask %#x)\n",
+			value, noc_reset_mask);
 
 	writel(noc_reset_mask, core->reg_base + AON_WRAPPER_MVP_NOC_RESET_SYNCRST);
 	writel(0x0, core->reg_base + AON_WRAPPER_MVP_NOC_RESET_SYNCRST);
@@ -345,7 +348,8 @@ static void iris_vpu5x_power_off_hardware(struct iris_core *core)
 	ret = readl_poll_timeout(core->reg_base + AON_WRAPPER_MVP_NOC_RESET_ACK,
 				 value, value == 0x0, 200, 2000);
 	if (ret)
-		dev_err(core->dev, "MVP NOC reset deassert timeout\n");
+		dev_err(core->dev, "MVP NOC reset deassert timeout (ack %#x)\n",
+			value);
 
 	writel(CORE_BRIDGE_SW_RESET | CORE_BRIDGE_HW_RESET_DISABLE,
 	       core->reg_base + CPU_CS_AHB_BRIDGE_SYNC_RESET);
