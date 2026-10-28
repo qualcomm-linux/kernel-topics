@@ -535,9 +535,15 @@ static void iris_sys_error_handler(struct work_struct *work)
 {
 	struct iris_core *core =
 			container_of(work, struct iris_core, sys_error_handler.work);
+	int ret;
 
 	iris_core_deinit(core);
-	iris_core_init(core);
+	ret = iris_core_init(core);
+	if (ret)
+		dev_err(core->dev, "failed to recover from system error: %d\n",
+			ret);
+	else
+		dev_dbg(core->dev, "recovered from system error\n");
 }
 
 static int iris_probe(struct platform_device *pdev)
