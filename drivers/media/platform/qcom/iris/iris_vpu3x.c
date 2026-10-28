@@ -17,14 +17,12 @@
 #define NOC_HALT				BIT(0)
 #define AON_WRAPPER_SPARE			(AON_BASE_OFFS + 0x28)
 
-static bool iris_vpu3x_hw_power_collapsed(struct iris_core *core)
+static bool iris_vpu3x_hw_power_collapsed(struct iris_core *core,
+					  u32 *power_status)
 {
-	u32 value, pwr_status;
+	*power_status = readl(core->reg_base + WRAPPER_CORE_POWER_STATUS);
 
-	value = readl(core->reg_base + WRAPPER_CORE_POWER_STATUS);
-	pwr_status = value & BIT(1);
-
-	return pwr_status ? false : true;
+	return !(*power_status & BIT(1));
 }
 
 static void iris_vpu3_power_off_hardware(struct iris_core *core)
@@ -32,10 +30,11 @@ static void iris_vpu3_power_off_hardware(struct iris_core *core)
 	u32 reg_val = 0, value, i;
 	int ret;
 
-	if (iris_vpu3x_hw_power_collapsed(core))
+	if (iris_vpu3x_hw_power_collapsed(core, &value))
 		goto disable_power;
 
-	dev_err(core->dev, "video hw is power on\n");
+	dev_err(core->dev, "video hardware still powered on (status %#x)\n",
+		value);
 
 	value = readl(core->reg_base + WRAPPER_CORE_CLOCK_CONFIG);
 	if (value)
@@ -78,10 +77,11 @@ static void iris_vpu33_power_off_hardware(struct iris_core *core)
 	u32 count = 0;
 	int ret;
 
-	if (iris_vpu3x_hw_power_collapsed(core))
+	if (iris_vpu3x_hw_power_collapsed(core, &value))
 		goto disable_power;
 
-	dev_err(core->dev, "video hw is power on\n");
+	dev_err(core->dev, "video hardware still powered on (status %#x)\n",
+		value);
 
 	value = readl(core->reg_base + WRAPPER_CORE_CLOCK_CONFIG);
 	if (value)
@@ -116,7 +116,8 @@ static void iris_vpu33_power_off_hardware(struct iris_core *core)
 	} while (++count < 1000);
 
 	if (!handshake_done && handshake_busy)
-		dev_err(core->dev, "LPI handshake timeout\n");
+		dev_err(core->dev, "LPI handshake timeout (status %#x)\n",
+			value);
 
 	ret = readl_poll_timeout(core->reg_base + AON_WRAPPER_MVP_NOC_LPI_STATUS,
 				 reg_val, reg_val & BIT(0), 200, 2000);

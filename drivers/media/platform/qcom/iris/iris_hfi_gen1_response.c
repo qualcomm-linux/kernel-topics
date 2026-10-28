@@ -301,7 +301,8 @@ iris_hfi_gen1_sys_get_prop_image_version(struct iris_core *core,
 	u32 i;
 
 	if (req_bytes < IRIS_FW_VERSION_LENGTH - 1 || !pkt->data[0] || pkt->num_properties > 1) {
-		dev_err(core->dev, "bad packet\n");
+		dev_err(core->dev, "invalid firmware version packet (size %u, properties %u)\n",
+			pkt->hdr.size, pkt->num_properties);
 		return;
 	}
 
@@ -382,7 +383,8 @@ static void iris_hfi_gen1_session_etb_done(struct iris_inst *inst, void *packet)
 
 error:
 	iris_inst_change_state(inst, IRIS_INST_ERROR);
-	dev_err(inst->core->dev, "error in etb done\n");
+	dev_err(inst->core->dev, "ETB done without input buffer (session %#x, tag %u)\n",
+		inst->session_id, pkt->input_tag);
 }
 
 static void iris_hfi_gen1_session_ftb_done(struct iris_inst *inst, void *packet)
@@ -530,7 +532,8 @@ static void iris_hfi_gen1_session_ftb_done(struct iris_inst *inst, void *packet)
 
 error:
 	iris_inst_change_state(inst, IRIS_INST_ERROR);
-	dev_err(core->dev, "error in ftb done\n");
+	dev_err(core->dev, "FTB done without output buffer (session %#x, tag %u, offset %u)\n",
+		inst->session_id, output_tag, offset);
 }
 
 static enum iris_buffer_type iris_hfi_gen1_buf_type(struct iris_inst *inst, u32 type)

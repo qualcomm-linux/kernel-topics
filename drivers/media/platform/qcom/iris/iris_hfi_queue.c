@@ -112,14 +112,18 @@ static int iris_hfi_queue_read(struct iris_iface_q_info *qinfo, void *packet)
 int iris_hfi_queue_cmd_write_locked(struct iris_core *core, void *pkt, u32 pkt_size)
 {
 	struct iris_iface_q_info *q_info = &core->command_queue;
+	int ret;
 
 	if (core->state == IRIS_CORE_ERROR || core->state == IRIS_CORE_DEINIT)
 		return -EINVAL;
 
-	if (!iris_hfi_queue_write(q_info, pkt, pkt_size)) {
+	ret = iris_hfi_queue_write(q_info, pkt, pkt_size);
+	if (!ret) {
 		iris_vpu_raise_interrupt(core);
 	} else {
-		dev_err(core->dev, "queue full\n");
+		dev_err(core->dev, "command queue write failed: %d (size %u, read %u, write %u)\n",
+			ret, pkt_size, q_info->qhdr->read_idx,
+			q_info->qhdr->write_idx);
 		return -ENODATA;
 	}
 
@@ -254,7 +258,8 @@ int iris_hfi_queues_init(struct iris_core *core)
 						    &core->iface_q_table_daddr,
 						    GFP_KERNEL, DMA_ATTR_WRITE_COMBINE);
 	if (!core->iface_q_table_vaddr) {
-		dev_err(core->dev, "queues alloc and map failed\n");
+		dev_err(core->dev, "failed to allocate HFI queues (%u bytes)\n",
+			queue_size);
 		return -ENOMEM;
 	}
 
@@ -262,7 +267,8 @@ int iris_hfi_queues_init(struct iris_core *core)
 					  &core->sfr_daddr,
 					  GFP_KERNEL, DMA_ATTR_WRITE_COMBINE);
 	if (!core->sfr_vaddr) {
-		dev_err(core->dev, "sfr alloc and map failed\n");
+		dev_err(core->dev, "failed to allocate SFR (%u bytes)\n",
+			(unsigned int)SFR_SIZE);
 		dma_free_attrs(core->dev, queue_size, core->iface_q_table_vaddr,
 			       core->iface_q_table_daddr, DMA_ATTR_WRITE_COMBINE);
 		return -ENOMEM;

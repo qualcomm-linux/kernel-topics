@@ -138,7 +138,7 @@ int iris_hfi_pm_suspend(struct iris_core *core)
 	return 0;
 
 error:
-	dev_err(core->dev, "failed to suspend\n");
+	dev_err(core->dev, "failed to suspend: %d\n", ret);
 
 	return ret;
 }
@@ -179,7 +179,7 @@ err_suspend_hw:
 err_power_off:
 	iris_vpu_power_off(core);
 error:
-	dev_err(core->dev, "failed to resume\n");
+	dev_err(core->dev, "failed to resume: %d\n", ret);
 
 	return -EBUSY;
 }

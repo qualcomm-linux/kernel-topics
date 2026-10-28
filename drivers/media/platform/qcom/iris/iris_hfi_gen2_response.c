@@ -980,8 +980,11 @@ static int iris_hfi_gen2_handle_response(struct iris_core *core, void *response)
 	int ret;
 
 	ret = iris_hfi_gen2_validate_hdr_packet(core, hdr);
-	if (ret)
+	if (ret) {
+		dev_err(core->dev, "invalid HFI response (size %u, packets %u): %d\n",
+			hdr->size, hdr->num_packets, ret);
 		return iris_hfi_gen2_handle_system_error(core, NULL);
+	}
 
 	if (!hdr->session_id)
 		return iris_hfi_gen2_handle_system_response(core, hdr);

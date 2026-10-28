@@ -117,7 +117,8 @@ static void iris_vpu4x_power_off_apv(struct iris_core *core)
 	} while (++count < 1000);
 
 	if (!handshake_done && handshake_busy)
-		dev_err(core->dev, "LPI handshake timeout\n");
+		dev_err(core->dev, "APV LPI handshake timeout (status %#x)\n",
+			value);
 
 	writel(0x080200, core->reg_base + AON_WRAPPER_MVP_NOC_RESET_REQ);
 	ret = readl_poll_timeout(core->reg_base + AON_WRAPPER_MVP_NOC_RESET_ACK,
@@ -314,7 +315,8 @@ static void iris_vpu4x_power_off_hardware(struct iris_core *core)
 	} while (++count < 1000);
 
 	if (!handshake_done && handshake_busy)
-		dev_err(core->dev, "LPI handshake timeout\n");
+		dev_err(core->dev, "hardware LPI handshake timeout (status %#x)\n",
+			value);
 
 	writel(MVP_NOC_RESET_REQ_MASK, core->reg_base + AON_WRAPPER_MVP_NOC_RESET_REQ);
 	ret = readl_poll_timeout(core->reg_base + AON_WRAPPER_MVP_NOC_RESET_ACK,

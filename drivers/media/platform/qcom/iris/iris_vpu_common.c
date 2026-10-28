@@ -83,7 +83,8 @@ int iris_vpu_boot_firmware(struct iris_core *core)
 	while (!ctrl_status && count < max_tries) {
 		ctrl_status = readl(core->reg_base + CTRL_STATUS);
 		if ((ctrl_status & CTRL_ERROR_STATUS__M) == 0x4) {
-			dev_err(core->dev, "invalid setting for uc_region\n");
+			dev_err(core->dev, "invalid UC region setting (CTRL_STATUS %#x)\n",
+				ctrl_status);
 			return -EINVAL;
 		}
 
@@ -92,7 +93,8 @@ int iris_vpu_boot_firmware(struct iris_core *core)
 	}
 
 	if (count >= max_tries) {
-		dev_err(core->dev, "error booting up iris firmware\n");
+		dev_err(core->dev, "firmware boot timed out (CTRL_STATUS %#x)\n",
+			ctrl_status);
 		return -ETIME;
 	}
 
@@ -128,7 +130,8 @@ int iris_vpu_watchdog(struct iris_core *core, u32 intr_status)
 	u32 wd_intr_mask = core->iris_platform_data->wd_intr_mask;
 
 	if (intr_status & wd_intr_mask) {
-		dev_err(core->dev, "received watchdog interrupt\n");
+		dev_err(core->dev, "received watchdog interrupt (status %#x)\n",
+			intr_status);
 		return -ETIME;
 	}
 
@@ -172,7 +175,7 @@ skip_power_off:
 	ctrl_status = readl(core->reg_base + CTRL_STATUS);
 	wfi_status = readl(core->reg_base + WRAPPER_TZ_CPU_STATUS);
 	wfi_status &= BIT(0);
-	dev_err(core->dev, "skip power collapse, wfi=%#x, idle=%#x, pcr=%#x, ctrl=%#x)\n",
+	dev_err(core->dev, "skip power collapse (wfi=%#x, idle=%#x, pcr=%#x, ctrl=%#x)\n",
 		wfi_status, idle_status, pc_ready, ctrl_status);
 
 	return -EAGAIN;
@@ -365,7 +368,7 @@ int iris_vpu35_vpu4x_power_off_controller(struct iris_core *core)
 	} while (++count < 1000);
 
 	if (!handshake_done && handshake_busy)
-		dev_err(core->dev, "LPI handshake timeout\n");
+		dev_err(core->dev, "LPI handshake timeout (status %#x)\n", val);
 
 	ret = readl_poll_timeout(core->reg_base + AON_WRAPPER_MVP_VIDEO_CTL_NOC_LPI_STATUS,
 				 val, val & BIT(0), 200, 2000);
@@ -530,7 +533,7 @@ err_power_off_ctrl:
 err_unvote_icc:
 	iris_unset_icc_bw(core);
 err:
-	dev_err(core->dev, "power on failed\n");
+	dev_err(core->dev, "power on failed: %d\n", ret);
 
 	return ret;
 }

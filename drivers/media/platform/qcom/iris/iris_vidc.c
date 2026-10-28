@@ -168,7 +168,7 @@ int iris_open(struct file *filp)
 
 	ret = iris_core_init(core);
 	if (ret) {
-		dev_err(core->dev, "core init failed\n");
+		dev_err(core->dev, "core init failed: %d\n", ret);
 		pm_runtime_put_sync(core->dev);
 		return ret;
 	}
