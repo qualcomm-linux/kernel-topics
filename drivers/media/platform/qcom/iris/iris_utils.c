@@ -78,6 +78,8 @@ int iris_wait_for_session_response(struct iris_inst *inst, bool is_flush)
 	ret = wait_for_completion_timeout(done, msecs_to_jiffies(HW_RESPONSE_TIMEOUT_VALUE));
 	mutex_lock(&inst->lock);
 	if (!ret) {
+		dev_err(inst->core->dev, "session %#x %s response timed out\n",
+			inst->session_id, is_flush ? "flush" : "command");
 		iris_inst_change_state(inst, IRIS_INST_ERROR);
 		return -ETIMEDOUT;
 	}

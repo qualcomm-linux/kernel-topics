@@ -296,6 +296,8 @@ static int iris_hfi_gen2_handle_system_init(struct iris_core *core,
 					    struct iris_hfi_packet *pkt)
 {
 	if (!(pkt->flags & HFI_FW_FLAGS_SUCCESS)) {
+		dev_err(core->dev, "system command %#x failed (flags %#x)\n",
+			pkt->type, pkt->flags);
 		core->state = IRIS_CORE_ERROR;
 		return 0;
 	}
@@ -929,8 +931,11 @@ static int iris_hfi_gen2_handle_session_response(struct iris_core *core,
 	};
 
 	inst = iris_get_instance(core, hdr->session_id);
-	if (!inst)
+	if (!inst) {
+		dev_dbg(core->dev, "response for unknown session %#x\n",
+			hdr->session_id);
 		return -EINVAL;
+	}
 
 	mutex_lock(&inst->lock);
 	inst_hfi_gen2 = to_iris_inst_hfi_gen2(inst);
@@ -958,6 +963,12 @@ static int iris_hfi_gen2_handle_session_response(struct iris_core *core,
 			if (packet->type > range[i].begin && packet->type < range[i].end) {
 				dequeue |= (packet->type == HFI_CMD_BUFFER);
 				ret = range[i].handle(inst, packet);
+				if (ret && !(packet->flags &
+					     HFI_FW_FLAGS_SESSION_ERROR))
+					dev_err_ratelimited(core->dev,
+							    "session %#x response %#x failed: %d\n",
+							    inst->session_id,
+							    packet->type, ret);
 				if (ret)
 					iris_inst_change_state(inst, IRIS_INST_ERROR);
 			}

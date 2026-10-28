@@ -56,8 +56,11 @@ int iris_inst_change_state(struct iris_inst *inst,
 	if (request_state == IRIS_INST_ERROR)
 		goto change_state;
 
-	if (!iris_allow_inst_state_change(inst, request_state))
+	if (!iris_allow_inst_state_change(inst, request_state)) {
+		dev_dbg(inst->core->dev, "session %#x invalid state change %x -> %x\n",
+			inst->session_id, inst->state, request_state);
 		return -EINVAL;
+	}
 
 change_state:
 	dev_dbg(inst->core->dev, "state changed from %x to %x\n",
