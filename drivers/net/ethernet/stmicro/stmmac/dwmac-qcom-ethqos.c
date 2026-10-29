@@ -1010,6 +1010,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	ethqos->phy_mode = plat_dat->phy_interface;
+	dev_info(dev, "Active PHY mode: %s\n", phy_modes(ethqos->phy_mode));
 	switch (ethqos->phy_mode) {
 	case PHY_INTERFACE_MODE_RGMII:
 	case PHY_INTERFACE_MODE_RGMII_RXID:
