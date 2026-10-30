@@ -135,7 +135,7 @@
 
 		port {
 			usb2_con_hs: endpoint {
-				remote-endpoint = <&usb_2_dwc3_hs>;
+				remote-endpoint = <&eud_con>;
 			};
 		};
 	};
@@ -1094,7 +1094,7 @@
 };
 
 &usb_2_dwc3_hs {
-	remote-endpoint = <&usb2_con_hs>;
+	remote-endpoint = <&eud_usb>;
 };
 
 &usb_2_hsphy {
@@ -1144,4 +1144,16 @@
 		speed = <10000>;
 		full-duplex;
 	};
+};
+
+&eud {
+	status = "okay";
+};
+
+&eud_con {
+	remote-endpoint = <&usb2_con_hs>;
+};
+
+&eud_usb {
+	remote-endpoint = <&usb_2_dwc3_hs>;
 };
