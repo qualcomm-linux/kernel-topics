@@ -360,6 +360,7 @@ static void iris_remove(struct platform_device *pdev)
 	v4l2_device_unregister(&core->v4l2_dev);
 
 	iris_deinit_cb_devs(core);
+
 	iris_debugfs_deinit(core);
 
 	mutex_destroy(&core->lock);
@@ -385,7 +386,8 @@ static int iris_probe(struct platform_device *pdev)
 	if (!core)
 		return -ENOMEM;
 	core->dev = dev;
-	core->fw_debug = IRIS_FW_DEBUG_ERROR | IRIS_FW_DEBUG_FATAL;
+	core->fw_debug = IRIS_FW_DEBUG_DEFAULT;
+	core->hw_response_timeout = HW_RESPONSE_TIMEOUT_VALUE;
 
 	core->state = IRIS_CORE_DEINIT;
 	mutex_init(&core->lock);
