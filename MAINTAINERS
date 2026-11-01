@@ -6816,29 +6816,6 @@ T:	git https://gitlab.freedesktop.org/drm/misc/kernel.git
 F:	include/linux/cgroup_dmem.h
 F:	kernel/cgroup/dmem.c
 
-MEMORY MANAGEMENT - MEMORY RESOURCE CONTROLLER (MEMCG)
-M:	Johannes Weiner <hannes@cmpxchg.org>
-M:	Michal Hocko <mhocko@kernel.org>
-M:	Roman Gushchin <roman.gushchin@linux.dev>
-M:	Shakeel Butt <shakeel.butt@linux.dev>
-R:	Muchun Song <muchun.song@linux.dev>
-L:	cgroups@vger.kernel.org
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/admin-guide/cgroup-v1/memory.rst
-F:	include/linux/memcontrol.h
-F:	include/linux/page_counter.h
-F:	include/trace/events/memcg.h
-F:	mm/memcontrol-v1.c
-F:	mm/memcontrol-v1.h
-F:	mm/memcontrol.c
-F:	mm/page_counter.c
-F:	samples/cgroup/*
-F:	tools/testing/selftests/cgroup/memcg_protection.m
-F:	tools/testing/selftests/cgroup/test_hugetlb_memcg.c
-F:	tools/testing/selftests/cgroup/test_kmem.c
-F:	tools/testing/selftests/cgroup/test_memcontrol.c
-
 COREBOOT CFR FIRMWARE ATTRIBUTES DRIVER
 M:	Sean Rhodes <sean@starlabs.systems>
 L:	chrome-platform@lists.linux.dev
@@ -7321,25 +7298,6 @@ M:	Michał Kopeć <michal.kopec@3mdeb.com>
 S:	Maintained
 W:	https://docs.dasharo.com/
 F:	drivers/platform/x86/dasharo-acpi.c
-
-MEMORY MANAGEMENT - DAMON
-M:	SJ Park <sj@kernel.org>
-L:	damon@lists.linux.dev
-L:	linux-mm@kvack.org
-S:	Maintained
-W:	https://damonitor.github.io
-P:	Documentation/mm/damon/maintainer-profile.rst
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
-T:	quilt git://git.kernel.org/pub/scm/linux/kernel/git/akpm/25-new
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/sj/linux.git damon/next
-F:	Documentation/ABI/testing/sysfs-kernel-mm-damon
-F:	Documentation/admin-guide/mm/damon/
-F:	Documentation/mm/damon/
-F:	include/linux/damon.h
-F:	include/trace/events/damon.h
-F:	mm/damon/
-F:	samples/damon/
-F:	tools/testing/selftests/damon/
 
 DAVICOM FAST ETHERNET (DMFE) NETWORK DRIVER
 L:	netdev@vger.kernel.org
@@ -12164,17 +12122,6 @@ S:	Maintained
 F:	Documentation/ABI/testing/debugfs-hisi-zip
 F:	drivers/crypto/hisilicon/zip/
 
-MEMORY MANAGEMENT - HMM (Heterogeneous Memory Management)
-M:	Jason Gunthorpe <jgg@nvidia.com>
-M:	Leon Romanovsky <leonro@nvidia.com>
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/mm/hmm.rst
-F:	include/linux/hmm*
-F:	lib/test_hmm*
-F:	mm/hmm*
-F:	tools/testing/selftests/mm/*hmm*
-
 HONEYWELL ABP2030PA PRESSURE SENSOR SERIES IIO DRIVER
 M:	Petre Rodan <petre.rodan@subdimension.ro>
 L:	linux-iio@vger.kernel.org
@@ -12328,32 +12275,6 @@ F:	drivers/power/supply/huawei-gaokun-battery.c
 F:	drivers/usb/typec/ucsi/ucsi_huawei_gaokun.c
 F:	include/linux/platform_data/huawei-gaokun-ec.h
 
-MEMORY MANAGEMENT - HUGETLB
-M:	Muchun Song <muchun.song@linux.dev>
-M:	Oscar Salvador <osalvador@suse.de>
-R:	David Hildenbrand <david@kernel.org>
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/ABI/testing/sysfs-kernel-mm-hugepages
-F:	Documentation/admin-guide/cgroup-v1/hugetlb.rst
-F:	Documentation/admin-guide/mm/hugetlbpage.rst
-F:	Documentation/mm/hugetlbfs_reserv.rst
-F:	Documentation/mm/vmemmap_dedup.rst
-F:	fs/hugetlbfs/
-F:	include/linux/hugetlb*
-F:	include/linux/vmemmap-optimization.h
-F:	include/trace/events/hugetlbfs.h
-F:	mm/hugetlb.c
-F:	mm/hugetlb_cgroup.c
-F:	mm/hugetlb_cma.c
-F:	mm/hugetlb_cma.h
-F:	mm/hugetlb_internal.h
-F:	mm/hugetlb_sysctl.c
-F:	mm/hugetlb_sysfs.c
-F:	mm/hugetlb_vmemmap.c
-F:	mm/hugetlb_vmemmap.h
-F:	tools/testing/selftests/cgroup/test_hugetlb_memcg.c
-
 HVA ST MEDIA DRIVER
 M:	Jean-Christophe Trotin <jean-christophe.trotin@foss.st.com>
 L:	linux-media@vger.kernel.org
@@ -12361,18 +12282,6 @@ S:	Supported
 W:	https://linuxtv.org
 T:	git git://linuxtv.org/media.git
 F:	drivers/media/platform/st/sti/hva
-
-MEMORY MANAGEMENT - HWPOISON MEMORY FAILURE HANDLING
-M:	Miaohe Lin <linmiaohe@huawei.com>
-R:	Naoya Horiguchi <nao.horiguchi@gmail.com>
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/ABI/testing/sysfs-memory-page-offline
-F:	include/linux/memory-failure.h
-F:	include/trace/events/memory-failure.h
-F:	mm/hwpoison-inject.c
-F:	mm/memory-failure.c
-F:	tools/testing/selftests/mm/memory-failure.c
 
 HYCON HY46XX TOUCHSCREEN SUPPORT
 M:	Giulio Benetti <giulio.benetti@benettiengineering.com>
@@ -14309,23 +14218,6 @@ L:	linux-hwmon@vger.kernel.org
 S:	Maintained
 F:	Documentation/hwmon/kb9002.rst
 F:	drivers/hwmon/kb9002.c
-
-MEMORY MANAGEMENT - KASAN
-M:	Andrey Ryabinin <ryabinin.a.a@gmail.com>
-R:	Alexander Potapenko <glider@google.com>
-R:	Andrey Konovalov <andreyknvl@gmail.com>
-R:	Dmitry Vyukov <dvyukov@google.com>
-R:	Vincenzo Frascino <vincenzo.frascino@arm.com>
-L:	kasan-dev@googlegroups.com
-S:	Maintained
-B:	https://bugzilla.kernel.org/buglist.cgi?component=Sanitizers&product=Memory%20Management
-F:	Documentation/dev-tools/kasan.rst
-F:	arch/*/include/asm/*kasan.h
-F:	arch/*/mm/kasan_init*
-F:	include/linux/kasan*.h
-F:	lib/Kconfig.kasan
-F:	mm/kasan/
-F:	scripts/Makefile.kasan
 
 KCONFIG
 M:	Nathan Chancellor <nathan@kernel.org>
@@ -17370,23 +17262,6 @@ F:	arch/*/include/asm/sync_core.h
 F:	include/uapi/linux/membarrier.h
 F:	kernel/sched/membarrier.c
 
-MEMORY MANAGEMENT - MEMBLOCK AND INITIALIZATION
-M:	Mike Rapoport <rppt@kernel.org>
-L:	linux-mm@kvack.org
-S:	Maintained
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mm/memblock.git for-next
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mm/memblock.git fixes
-F:	Documentation/core-api/boot-time-mm.rst
-F:	include/linux/kho/abi/memblock.h
-F:	include/linux/memblock.h
-F:	mm/arch_numa.c
-F:	mm/memblock.c
-F:	mm/memtest.c
-F:	mm/mm_init.c
-F:	mm/mm_init.h
-F:	mm/rodata_test.c
-F:	tools/testing/memblock/
-
 MEMORY CONTROLLER DRIVERS
 M:	Krzysztof Kozlowski <krzk@kernel.org>
 L:	linux-kernel@vger.kernel.org
@@ -17496,6 +17371,25 @@ F:	mm/vmstat.c
 F:	scripts/gdb/linux/mm.py
 N:	include\/linux\/page[-_][a-zA-Z]*
 
+MEMORY MANAGEMENT - DAMON
+M:	SJ Park <sj@kernel.org>
+L:	damon@lists.linux.dev
+L:	linux-mm@kvack.org
+S:	Maintained
+W:	https://damonitor.github.io
+P:	Documentation/mm/damon/maintainer-profile.rst
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
+T:	quilt git://git.kernel.org/pub/scm/linux/kernel/git/akpm/25-new
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/sj/linux.git damon/next
+F:	Documentation/ABI/testing/sysfs-kernel-mm-damon
+F:	Documentation/admin-guide/mm/damon/
+F:	Documentation/mm/damon/
+F:	include/linux/damon.h
+F:	include/trace/events/damon.h
+F:	mm/damon/
+F:	samples/damon/
+F:	tools/testing/selftests/damon/
+
 MEMORY MANAGEMENT - EXECMEM
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Mike Rapoport <rppt@kernel.org>
@@ -17520,6 +17414,72 @@ F:	tools/mm/gup_bench.c
 F:	tools/testing/selftests/mm/gup.c
 F:	tools/testing/selftests/mm/gup_longterm.c
 
+MEMORY MANAGEMENT - HMM (Heterogeneous Memory Management)
+M:	Jason Gunthorpe <jgg@nvidia.com>
+M:	Leon Romanovsky <leonro@nvidia.com>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	Documentation/mm/hmm.rst
+F:	include/linux/hmm*
+F:	lib/test_hmm*
+F:	mm/hmm*
+F:	tools/testing/selftests/mm/*hmm*
+
+MEMORY MANAGEMENT - HUGETLB
+M:	Muchun Song <muchun.song@linux.dev>
+M:	Oscar Salvador <osalvador@suse.de>
+R:	David Hildenbrand <david@kernel.org>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	Documentation/ABI/testing/sysfs-kernel-mm-hugepages
+F:	Documentation/admin-guide/cgroup-v1/hugetlb.rst
+F:	Documentation/admin-guide/mm/hugetlbpage.rst
+F:	Documentation/mm/hugetlbfs_reserv.rst
+F:	Documentation/mm/vmemmap_dedup.rst
+F:	fs/hugetlbfs/
+F:	include/linux/hugetlb*
+F:	include/linux/vmemmap-optimization.h
+F:	include/trace/events/hugetlbfs.h
+F:	mm/hugetlb.c
+F:	mm/hugetlb_cgroup.c
+F:	mm/hugetlb_cma.c
+F:	mm/hugetlb_cma.h
+F:	mm/hugetlb_internal.h
+F:	mm/hugetlb_sysctl.c
+F:	mm/hugetlb_sysfs.c
+F:	mm/hugetlb_vmemmap.c
+F:	mm/hugetlb_vmemmap.h
+F:	tools/testing/selftests/cgroup/test_hugetlb_memcg.c
+
+MEMORY MANAGEMENT - HWPOISON MEMORY FAILURE HANDLING
+M:	Miaohe Lin <linmiaohe@huawei.com>
+R:	Naoya Horiguchi <nao.horiguchi@gmail.com>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	Documentation/ABI/testing/sysfs-memory-page-offline
+F:	include/linux/memory-failure.h
+F:	include/trace/events/memory-failure.h
+F:	mm/hwpoison-inject.c
+F:	mm/memory-failure.c
+F:	tools/testing/selftests/mm/memory-failure.c
+
+MEMORY MANAGEMENT - KASAN
+M:	Andrey Ryabinin <ryabinin.a.a@gmail.com>
+R:	Alexander Potapenko <glider@google.com>
+R:	Andrey Konovalov <andreyknvl@gmail.com>
+R:	Dmitry Vyukov <dvyukov@google.com>
+R:	Vincenzo Frascino <vincenzo.frascino@arm.com>
+L:	kasan-dev@googlegroups.com
+S:	Maintained
+B:	https://bugzilla.kernel.org/buglist.cgi?component=Sanitizers&product=Memory%20Management
+F:	Documentation/dev-tools/kasan.rst
+F:	arch/*/include/asm/*kasan.h
+F:	arch/*/mm/kasan_init*
+F:	include/linux/kasan*.h
+F:	lib/Kconfig.kasan
+F:	mm/kasan/
+F:	scripts/Makefile.kasan
+
 MEMORY MANAGEMENT - KSM (Kernel Samepage Merging)
 M:	David Hildenbrand <david@kernel.org>
 R:	Xu Xin <xu.xin@linux.dev>
@@ -17534,6 +17494,23 @@ F:	include/linux/ksm.h
 F:	include/trace/events/ksm.h
 F:	mm/ksm.c
 F:	mm/mm_slot.h
+
+MEMORY MANAGEMENT - MEMBLOCK AND INITIALIZATION
+M:	Mike Rapoport <rppt@kernel.org>
+L:	linux-mm@kvack.org
+S:	Maintained
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mm/memblock.git for-next
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/mm/memblock.git fixes
+F:	Documentation/core-api/boot-time-mm.rst
+F:	include/linux/kho/abi/memblock.h
+F:	include/linux/memblock.h
+F:	mm/arch_numa.c
+F:	mm/memblock.c
+F:	mm/memtest.c
+F:	mm/mm_init.c
+F:	mm/mm_init.h
+F:	mm/rodata_test.c
+F:	tools/testing/memblock/
 
 MEMORY MANAGEMENT - MEMORY HOT(UN)PLUG
 M:	David Hildenbrand <david@kernel.org>
@@ -17566,6 +17543,96 @@ F:	mm/sparse-vmemmap.c
 F:	mm/sparse.c
 F:	mm/sparse.h
 K:	(?i:vmemmap)
+
+MEMORY MANAGEMENT - MEMORY MAPPING
+M:	Andrew Morton <akpm@linux-foundation.org>
+M:	Liam R. Howlett <liam@infradead.org>
+M:	Lorenzo Stoakes <ljs@kernel.org>
+R:	Vlastimil Babka <vbabka@kernel.org>
+R:	Jann Horn <jannh@google.com>
+R:	Pedro Falcato <pfalcato@suse.de>
+L:	linux-mm@kvack.org
+S:	Maintained
+W:	http://www.linux-mm.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
+F:	Documentation/core-api/protection-keys.rst
+F:	Documentation/filesystems/mmap_prepare.rst
+F:	Documentation/userspace-api/mseal.rst
+F:	fs/proc/task_mmu.c
+F:	fs/proc/task_nommu.c
+F:	include/linux/mman.h
+F:	include/linux/pkeys.h
+F:	include/trace/events/mmap.h
+F:	include/uapi/linux/mman.h
+F:	mm/char-mem.c
+F:	mm/mincore.c
+F:	mm/mlock.c
+F:	mm/mmap.c
+F:	mm/mprotect.c
+F:	mm/mremap.c
+F:	mm/mseal.c
+F:	mm/msync.c
+F:	mm/nommu.c
+F:	mm/vma.c
+F:	mm/vma.h
+F:	mm/vma_exec.c
+F:	mm/vma_init.c
+F:	mm/vma_internal.h
+F:	tools/testing/selftests/mm/merge.c
+F:	tools/testing/vma/
+
+MEMORY MANAGEMENT - MEMORY MAPPING - LOCKING
+M:	Andrew Morton <akpm@linux-foundation.org>
+M:	Suren Baghdasaryan <surenb@google.com>
+M:	Liam R. Howlett <liam@infradead.org>
+M:	Lorenzo Stoakes <ljs@kernel.org>
+R:	Vlastimil Babka <vbabka@kernel.org>
+R:	Shakeel Butt <shakeel.butt@linux.dev>
+L:	linux-mm@kvack.org
+S:	Maintained
+W:	http://www.linux-mm.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
+F:	Documentation/mm/process_addrs.rst
+F:	include/linux/mmap_lock.h
+F:	include/trace/events/mmap_lock.h
+F:	mm/mmap_lock.c
+
+MEMORY MANAGEMENT - MEMORY MAPPING - MADVISE (MEMORY ADVICE)
+M:	Andrew Morton <akpm@linux-foundation.org>
+M:	Liam R. Howlett <liam@infradead.org>
+M:	Lorenzo Stoakes <ljs@kernel.org>
+M:	David Hildenbrand <david@kernel.org>
+R:	Vlastimil Babka <vbabka@kernel.org>
+R:	Jann Horn <jannh@google.com>
+L:	linux-mm@kvack.org
+S:	Maintained
+W:	http://www.linux-mm.org
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
+F:	include/uapi/asm-generic/mman-common.h
+F:	mm/madvise.c
+
+MEMORY MANAGEMENT - MEMORY RESOURCE CONTROLLER (MEMCG)
+M:	Johannes Weiner <hannes@cmpxchg.org>
+M:	Michal Hocko <mhocko@kernel.org>
+M:	Roman Gushchin <roman.gushchin@linux.dev>
+M:	Shakeel Butt <shakeel.butt@linux.dev>
+R:	Muchun Song <muchun.song@linux.dev>
+L:	cgroups@vger.kernel.org
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	Documentation/admin-guide/cgroup-v1/memory.rst
+F:	include/linux/memcontrol.h
+F:	include/linux/page_counter.h
+F:	include/trace/events/memcg.h
+F:	mm/memcontrol-v1.c
+F:	mm/memcontrol-v1.h
+F:	mm/memcontrol.c
+F:	mm/page_counter.c
+F:	samples/cgroup/*
+F:	tools/testing/selftests/cgroup/memcg_protection.m
+F:	tools/testing/selftests/cgroup/test_hugetlb_memcg.c
+F:	tools/testing/selftests/cgroup/test_kmem.c
+F:	tools/testing/selftests/cgroup/test_memcontrol.c
 
 MEMORY MANAGEMENT - MGLRU (MULTI-GEN LRU)
 M:	Andrew Morton <akpm@linux-foundation.org>
@@ -17659,6 +17726,21 @@ X:	Documentation/ABI/testing/sysfs-kernel-mm-damon
 X:	Documentation/admin-guide/mm/damon/
 X:	Documentation/mm/damon/
 
+MEMORY MANAGEMENT - MMU GATHER AND TLB INVALIDATION
+M:	Will Deacon <will@kernel.org>
+M:	"Aneesh Kumar K.V" <aneesh.kumar@kernel.org>
+M:	Andrew Morton <akpm@linux-foundation.org>
+M:	Nick Piggin <npiggin@gmail.com>
+M:	Peter Zijlstra <peterz@infradead.org>
+L:	linux-arch@vger.kernel.org
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	Documentation/core-api/cachetlb.rst
+F:	arch/*/include/asm/tlb.h
+F:	include/asm-generic/tlb.h
+F:	include/trace/events/tlb.h
+F:	mm/mmu_gather.c
+
 MEMORY MANAGEMENT - NUMA MEMBLOCKS AND NUMA EMULATION
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Mike Rapoport <rppt@kernel.org>
@@ -17739,6 +17821,48 @@ F:	scripts/gdb/linux/page_owner.py
 F:	tools/mm/page_owner_filter.c
 F:	tools/mm/page_owner_sort.c
 
+MEMORY MANAGEMENT - PAGE CACHE
+M:	Matthew Wilcox (Oracle) <willy@infradead.org>
+M:	Jan Kara <jack@suse.cz>
+L:	linux-fsdevel@vger.kernel.org
+L:	linux-mm@kvack.org
+S:	Supported
+T:	git git://git.infradead.org/users/willy/pagecache.git
+F:	Documentation/filesystems/locking.rst
+F:	Documentation/filesystems/vfs.rst
+F:	include/linux/pagemap.h
+F:	include/linux/writeback.h
+F:	include/trace/events/filemap.h
+F:	include/trace/events/readahead.h
+F:	include/trace/events/writeback.h
+F:	mm/filemap.c
+F:	mm/page-writeback.c
+F:	mm/readahead.c
+F:	mm/truncate.c
+
+MEMORY MANAGEMENT - PAGE TABLE CHECK
+M:	Pasha Tatashin <pasha.tatashin@soleen.com>
+M:	Andrew Morton <akpm@linux-foundation.org>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	Documentation/mm/page_table_check.rst
+F:	include/linux/page_table_check.h
+F:	mm/page_table_check.c
+
+MEMORY MANAGEMENT - PER-CPU MEMORY ALLOCATOR
+M:	Dennis Zhou <dennis@kernel.org>
+M:	Tejun Heo <tj@kernel.org>
+M:	Christoph Lameter <cl@gentwo.org>
+L:	linux-mm@kvack.org
+S:	Maintained
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/dennis/percpu.git
+F:	arch/*/include/asm/percpu.h
+F:	include/linux/percpu*.h
+F:	include/trace/events/percpu.h
+F:	lib/percpu*.c
+F:	mm/percpu*.c
+F:	mm/percpu-internal.h
+
 MEMORY MANAGEMENT - RECLAIM
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Johannes Weiner <hannes@cmpxchg.org>
@@ -17797,6 +17921,22 @@ F:	mm/shmem.c
 F:	mm/shmem_quota.c
 F:	tools/testing/selftests/memfd/
 F:	tools/testing/selftests/tmpfs/
+
+MEMORY MANAGEMENT - SHRINKER
+M:	Andrew Morton <akpm@linux-foundation.org>
+M:	Dave Chinner <david@fromorbit.com>
+R:	Qi Zheng <qi.zheng@linux.dev>
+R:	Roman Gushchin <roman.gushchin@linux.dev>
+R:	Muchun Song <muchun.song@linux.dev>
+L:	linux-mm@kvack.org
+S:	Maintained
+F:	Documentation/admin-guide/mm/shrinker_debugfs.rst
+F:	include/linux/list_lru.h
+F:	include/linux/shrinker.h
+F:	mm/list_lru.c
+F:	mm/shrinker.c
+F:	mm/shrinker_debug.c
+F:	tools/cgroup/memcg_shrinker.py
 
 MEMORY MANAGEMENT - SLAB ALLOCATOR
 M:	Vlastimil Babka <vbabka@kernel.org>
@@ -17908,72 +18048,41 @@ F:	rust/kernel/mm.rs
 F:	rust/kernel/mm/
 F:	rust/kernel/page.rs
 
-MEMORY MANAGEMENT - MEMORY MAPPING
+MEMORY MANAGEMENT - VMALLOC
 M:	Andrew Morton <akpm@linux-foundation.org>
-M:	Liam R. Howlett <liam@infradead.org>
-M:	Lorenzo Stoakes <ljs@kernel.org>
-R:	Vlastimil Babka <vbabka@kernel.org>
-R:	Jann Horn <jannh@google.com>
-R:	Pedro Falcato <pfalcato@suse.de>
+M:	Uladzislau Rezki <urezki@gmail.com>
 L:	linux-mm@kvack.org
 S:	Maintained
 W:	http://www.linux-mm.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
-F:	Documentation/core-api/protection-keys.rst
-F:	Documentation/filesystems/mmap_prepare.rst
-F:	Documentation/userspace-api/mseal.rst
-F:	fs/proc/task_mmu.c
-F:	fs/proc/task_nommu.c
-F:	include/linux/mman.h
-F:	include/linux/pkeys.h
-F:	include/trace/events/mmap.h
-F:	include/uapi/linux/mman.h
-F:	mm/char-mem.c
-F:	mm/mincore.c
-F:	mm/mlock.c
-F:	mm/mmap.c
-F:	mm/mprotect.c
-F:	mm/mremap.c
-F:	mm/mseal.c
-F:	mm/msync.c
-F:	mm/nommu.c
-F:	mm/vma.c
-F:	mm/vma.h
-F:	mm/vma_exec.c
-F:	mm/vma_init.c
-F:	mm/vma_internal.h
-F:	tools/testing/selftests/mm/merge.c
-F:	tools/testing/vma/
+F:	include/linux/vmalloc.h
+F:	include/trace/events/vmalloc.h
+F:	lib/test_vmalloc.c
+F:	mm/vmalloc.c
+F:	mm/vmalloc.h
+F:	scripts/gdb/linux/vmalloc.py
 
-MEMORY MANAGEMENT - MEMORY MAPPING - LOCKING
-M:	Andrew Morton <akpm@linux-foundation.org>
-M:	Suren Baghdasaryan <surenb@google.com>
-M:	Liam R. Howlett <liam@infradead.org>
-M:	Lorenzo Stoakes <ljs@kernel.org>
-R:	Vlastimil Babka <vbabka@kernel.org>
-R:	Shakeel Butt <shakeel.butt@linux.dev>
+MEMORY MANAGEMENT - ZSMALLOC COMPRESSED SLAB MEMORY ALLOCATOR
+M:	Minchan Kim <minchan@kernel.org>
+M:	Sergey Senozhatsky <senozhatsky@chromium.org>
 L:	linux-mm@kvack.org
 S:	Maintained
-W:	http://www.linux-mm.org
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
-F:	Documentation/mm/process_addrs.rst
-F:	include/linux/mmap_lock.h
-F:	include/trace/events/mmap_lock.h
-F:	mm/mmap_lock.c
+F:	Documentation/mm/zsmalloc.rst
+F:	include/linux/zsmalloc.h
+F:	mm/zpdesc.h
+F:	mm/zsmalloc.c
 
-MEMORY MANAGEMENT - MEMORY MAPPING - MADVISE (MEMORY ADVICE)
-M:	Andrew Morton <akpm@linux-foundation.org>
-M:	Liam R. Howlett <liam@infradead.org>
-M:	Lorenzo Stoakes <ljs@kernel.org>
-M:	David Hildenbrand <david@kernel.org>
-R:	Vlastimil Babka <vbabka@kernel.org>
-R:	Jann Horn <jannh@google.com>
+MEMORY MANAGEMENT - ZSWAP COMPRESSED SWAP CACHING
+M:	Johannes Weiner <hannes@cmpxchg.org>
+M:	Yosry Ahmed <yosry@kernel.org>
+M:	Nhat Pham <nphamcs@gmail.com>
+R:	Chengming Zhou <chengming.zhou@linux.dev>
 L:	linux-mm@kvack.org
 S:	Maintained
-W:	http://www.linux-mm.org
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
-F:	include/uapi/asm-generic/mman-common.h
-F:	mm/madvise.c
+F:	Documentation/admin-guide/mm/zswap.rst
+F:	include/linux/zswap.h
+F:	mm/zswap.c
+F:	tools/testing/selftests/cgroup/test_zswap.c
 
 MEMORY TECHNOLOGY DEVICES (MTD)
 M:	Miquel Raynal <miquel.raynal@bootlin.com>
@@ -18756,21 +18865,6 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	drivers/phy/marvell/phy-mmp3-usb.c
 F:	drivers/phy/marvell/phy-pxa-usb.c
-
-MEMORY MANAGEMENT - MMU GATHER AND TLB INVALIDATION
-M:	Will Deacon <will@kernel.org>
-M:	"Aneesh Kumar K.V" <aneesh.kumar@kernel.org>
-M:	Andrew Morton <akpm@linux-foundation.org>
-M:	Nick Piggin <npiggin@gmail.com>
-M:	Peter Zijlstra <peterz@infradead.org>
-L:	linux-arch@vger.kernel.org
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/core-api/cachetlb.rst
-F:	arch/*/include/asm/tlb.h
-F:	include/asm-generic/tlb.h
-F:	include/trace/events/tlb.h
-F:	mm/mmu_gather.c
 
 MN88472 MEDIA DRIVER
 L:	linux-media@vger.kernel.org
@@ -21142,25 +21236,6 @@ F:	Documentation/core-api/padata.rst
 F:	include/linux/padata.h
 F:	kernel/padata.c
 
-MEMORY MANAGEMENT - PAGE CACHE
-M:	Matthew Wilcox (Oracle) <willy@infradead.org>
-M:	Jan Kara <jack@suse.cz>
-L:	linux-fsdevel@vger.kernel.org
-L:	linux-mm@kvack.org
-S:	Supported
-T:	git git://git.infradead.org/users/willy/pagecache.git
-F:	Documentation/filesystems/locking.rst
-F:	Documentation/filesystems/vfs.rst
-F:	include/linux/pagemap.h
-F:	include/linux/writeback.h
-F:	include/trace/events/filemap.h
-F:	include/trace/events/readahead.h
-F:	include/trace/events/writeback.h
-F:	mm/filemap.c
-F:	mm/page-writeback.c
-F:	mm/readahead.c
-F:	mm/truncate.c
-
 PAGE POOL
 M:	Jesper Dangaard Brouer <hawk@kernel.org>
 M:	Ilias Apalodimas <ilias.apalodimas@linaro.org>
@@ -21170,15 +21245,6 @@ F:	Documentation/networking/page_pool.rst
 F:	include/net/page_pool/
 F:	include/trace/events/page_pool.h
 F:	net/core/page_pool.c
-
-MEMORY MANAGEMENT - PAGE TABLE CHECK
-M:	Pasha Tatashin <pasha.tatashin@soleen.com>
-M:	Andrew Morton <akpm@linux-foundation.org>
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/mm/page_table_check.rst
-F:	include/linux/page_table_check.h
-F:	mm/page_table_check.c
 
 PAGE STATE DEBUG SCRIPT
 M:	Ye Liu <liuye@kylinos.cn>
@@ -21857,20 +21923,6 @@ L:	netdev@vger.kernel.org
 S:	Maintained
 F:	Documentation/networking/device_drivers/ethernet/pensando/ionic.rst
 F:	drivers/net/ethernet/pensando/
-
-MEMORY MANAGEMENT - PER-CPU MEMORY ALLOCATOR
-M:	Dennis Zhou <dennis@kernel.org>
-M:	Tejun Heo <tj@kernel.org>
-M:	Christoph Lameter <cl@gentwo.org>
-L:	linux-mm@kvack.org
-S:	Maintained
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/dennis/percpu.git
-F:	arch/*/include/asm/percpu.h
-F:	include/linux/percpu*.h
-F:	include/trace/events/percpu.h
-F:	lib/percpu*.c
-F:	mm/percpu*.c
-F:	mm/percpu-internal.h
 
 PER-TASK DELAY ACCOUNTING
 M:	Balbir Singh <bsingharora@gmail.com>
@@ -25567,22 +25619,6 @@ S:	Odd fixes
 T:	git git://linuxtv.org/media.git
 F:	drivers/media/i2c/rj54n1cb0c.c
 F:	include/media/i2c/rj54n1cb0c.h
-
-MEMORY MANAGEMENT - SHRINKER
-M:	Andrew Morton <akpm@linux-foundation.org>
-M:	Dave Chinner <david@fromorbit.com>
-R:	Qi Zheng <qi.zheng@linux.dev>
-R:	Roman Gushchin <roman.gushchin@linux.dev>
-R:	Muchun Song <muchun.song@linux.dev>
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/admin-guide/mm/shrinker_debugfs.rst
-F:	include/linux/list_lru.h
-F:	include/linux/shrinker.h
-F:	mm/list_lru.c
-F:	mm/shrinker.c
-F:	mm/shrinker_debug.c
-F:	tools/cgroup/memcg_shrinker.py
 
 SH_VOU V4L2 OUTPUT DRIVER
 L:	linux-media@vger.kernel.org
@@ -29830,20 +29866,6 @@ F:	net/vmw_vsock/
 F:	tools/testing/selftests/vsock/
 F:	tools/testing/vsock/
 
-MEMORY MANAGEMENT - VMALLOC
-M:	Andrew Morton <akpm@linux-foundation.org>
-M:	Uladzislau Rezki <urezki@gmail.com>
-L:	linux-mm@kvack.org
-S:	Maintained
-W:	http://www.linux-mm.org
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
-F:	include/linux/vmalloc.h
-F:	include/trace/events/vmalloc.h
-F:	lib/test_vmalloc.c
-F:	mm/vmalloc.c
-F:	mm/vmalloc.h
-F:	scripts/gdb/linux/vmalloc.py
-
 VME SUBSYSTEM
 L:	linux-kernel@vger.kernel.org
 S:	Orphan
@@ -30863,16 +30885,6 @@ M:	"Maciej W. Rozycki" <macro@orcam.me.uk>
 S:	Maintained
 F:	drivers/tty/serial/zs.*
 
-MEMORY MANAGEMENT - ZSMALLOC COMPRESSED SLAB MEMORY ALLOCATOR
-M:	Minchan Kim <minchan@kernel.org>
-M:	Sergey Senozhatsky <senozhatsky@chromium.org>
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/mm/zsmalloc.rst
-F:	include/linux/zsmalloc.h
-F:	mm/zpdesc.h
-F:	mm/zsmalloc.c
-
 ZSTD
 M:	Nick Terrell <terrelln@fb.com>
 M:	David Sterba <dsterba@suse.com>
@@ -30885,18 +30897,6 @@ F:	lib/decompress_unzstd.c
 F:	lib/zstd/
 N:	zstd
 K:	zstd
-
-MEMORY MANAGEMENT - ZSWAP COMPRESSED SWAP CACHING
-M:	Johannes Weiner <hannes@cmpxchg.org>
-M:	Yosry Ahmed <yosry@kernel.org>
-M:	Nhat Pham <nphamcs@gmail.com>
-R:	Chengming Zhou <chengming.zhou@linux.dev>
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	Documentation/admin-guide/mm/zswap.rst
-F:	include/linux/zswap.h
-F:	mm/zswap.c
-F:	tools/testing/selftests/cgroup/test_zswap.c
 
 SENARYTECH AUDIO CODEC DRIVER
 M:	bo liu <bo.liu@senarytech.com>
