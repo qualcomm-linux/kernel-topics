@@ -6816,7 +6816,7 @@ T:	git https://gitlab.freedesktop.org/drm/misc/kernel.git
 F:	include/linux/cgroup_dmem.h
 F:	kernel/cgroup/dmem.c
 
-CONTROL GROUP - MEMORY RESOURCE CONTROLLER (MEMCG)
+MEMORY MANAGEMENT - MEMORY RESOURCE CONTROLLER (MEMCG)
 M:	Johannes Weiner <hannes@cmpxchg.org>
 M:	Michal Hocko <mhocko@kernel.org>
 M:	Roman Gushchin <roman.gushchin@linux.dev>
@@ -7322,7 +7322,7 @@ S:	Maintained
 W:	https://docs.dasharo.com/
 F:	drivers/platform/x86/dasharo-acpi.c
 
-DAMON
+MEMORY MANAGEMENT - DAMON
 M:	SJ Park <sj@kernel.org>
 L:	damon@lists.linux.dev
 L:	linux-mm@kvack.org
@@ -12164,7 +12164,7 @@ S:	Maintained
 F:	Documentation/ABI/testing/debugfs-hisi-zip
 F:	drivers/crypto/hisilicon/zip/
 
-HMM - Heterogeneous Memory Management
+MEMORY MANAGEMENT - HMM (Heterogeneous Memory Management)
 M:	Jason Gunthorpe <jgg@nvidia.com>
 M:	Leon Romanovsky <leonro@nvidia.com>
 L:	linux-mm@kvack.org
@@ -12328,7 +12328,7 @@ F:	drivers/power/supply/huawei-gaokun-battery.c
 F:	drivers/usb/typec/ucsi/ucsi_huawei_gaokun.c
 F:	include/linux/platform_data/huawei-gaokun-ec.h
 
-HUGETLB SUBSYSTEM
+MEMORY MANAGEMENT - HUGETLB
 M:	Muchun Song <muchun.song@linux.dev>
 M:	Oscar Salvador <osalvador@suse.de>
 R:	David Hildenbrand <david@kernel.org>
@@ -12362,7 +12362,7 @@ W:	https://linuxtv.org
 T:	git git://linuxtv.org/media.git
 F:	drivers/media/platform/st/sti/hva
 
-HWPOISON MEMORY FAILURE HANDLING
+MEMORY MANAGEMENT - HWPOISON MEMORY FAILURE HANDLING
 M:	Miaohe Lin <linmiaohe@huawei.com>
 R:	Naoya Horiguchi <nao.horiguchi@gmail.com>
 L:	linux-mm@kvack.org
@@ -14310,7 +14310,7 @@ S:	Maintained
 F:	Documentation/hwmon/kb9002.rst
 F:	drivers/hwmon/kb9002.c
 
-KASAN
+MEMORY MANAGEMENT - KASAN
 M:	Andrey Ryabinin <ryabinin.a.a@gmail.com>
 R:	Alexander Potapenko <glider@google.com>
 R:	Andrey Konovalov <andreyknvl@gmail.com>
@@ -17370,7 +17370,7 @@ F:	arch/*/include/asm/sync_core.h
 F:	include/uapi/linux/membarrier.h
 F:	kernel/sched/membarrier.c
 
-MEMBLOCK AND MEMORY MANAGEMENT INITIALIZATION
+MEMORY MANAGEMENT - MEMBLOCK AND INITIALIZATION
 M:	Mike Rapoport <rppt@kernel.org>
 L:	linux-mm@kvack.org
 S:	Maintained
@@ -17908,7 +17908,7 @@ F:	rust/kernel/mm.rs
 F:	rust/kernel/mm/
 F:	rust/kernel/page.rs
 
-MEMORY MAPPING
+MEMORY MANAGEMENT - MEMORY MAPPING
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Liam R. Howlett <liam@infradead.org>
 M:	Lorenzo Stoakes <ljs@kernel.org>
@@ -17945,7 +17945,7 @@ F:	mm/vma_internal.h
 F:	tools/testing/selftests/mm/merge.c
 F:	tools/testing/vma/
 
-MEMORY MAPPING - LOCKING
+MEMORY MANAGEMENT - MEMORY MAPPING - LOCKING
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Suren Baghdasaryan <surenb@google.com>
 M:	Liam R. Howlett <liam@infradead.org>
@@ -17961,7 +17961,7 @@ F:	include/linux/mmap_lock.h
 F:	include/trace/events/mmap_lock.h
 F:	mm/mmap_lock.c
 
-MEMORY MAPPING - MADVISE (MEMORY ADVICE)
+MEMORY MANAGEMENT - MEMORY MAPPING - MADVISE (MEMORY ADVICE)
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Liam R. Howlett <liam@infradead.org>
 M:	Lorenzo Stoakes <ljs@kernel.org>
@@ -18757,7 +18757,7 @@ S:	Maintained
 F:	drivers/phy/marvell/phy-mmp3-usb.c
 F:	drivers/phy/marvell/phy-pxa-usb.c
 
-MMU GATHER AND TLB INVALIDATION
+MEMORY MANAGEMENT - MMU GATHER AND TLB INVALIDATION
 M:	Will Deacon <will@kernel.org>
 M:	"Aneesh Kumar K.V" <aneesh.kumar@kernel.org>
 M:	Andrew Morton <akpm@linux-foundation.org>
@@ -21142,7 +21142,7 @@ F:	Documentation/core-api/padata.rst
 F:	include/linux/padata.h
 F:	kernel/padata.c
 
-PAGE CACHE
+MEMORY MANAGEMENT - PAGE CACHE
 M:	Matthew Wilcox (Oracle) <willy@infradead.org>
 M:	Jan Kara <jack@suse.cz>
 L:	linux-fsdevel@vger.kernel.org
@@ -21171,7 +21171,7 @@ F:	include/net/page_pool/
 F:	include/trace/events/page_pool.h
 F:	net/core/page_pool.c
 
-PAGE TABLE CHECK
+MEMORY MANAGEMENT - PAGE TABLE CHECK
 M:	Pasha Tatashin <pasha.tatashin@soleen.com>
 M:	Andrew Morton <akpm@linux-foundation.org>
 L:	linux-mm@kvack.org
@@ -21858,7 +21858,7 @@ S:	Maintained
 F:	Documentation/networking/device_drivers/ethernet/pensando/ionic.rst
 F:	drivers/net/ethernet/pensando/
 
-PER-CPU MEMORY ALLOCATOR
+MEMORY MANAGEMENT - PER-CPU MEMORY ALLOCATOR
 M:	Dennis Zhou <dennis@kernel.org>
 M:	Tejun Heo <tj@kernel.org>
 M:	Christoph Lameter <cl@gentwo.org>
@@ -25568,7 +25568,7 @@ T:	git git://linuxtv.org/media.git
 F:	drivers/media/i2c/rj54n1cb0c.c
 F:	include/media/i2c/rj54n1cb0c.h
 
-SHRINKER
+MEMORY MANAGEMENT - SHRINKER
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Dave Chinner <david@fromorbit.com>
 R:	Qi Zheng <qi.zheng@linux.dev>
@@ -29830,7 +29830,7 @@ F:	net/vmw_vsock/
 F:	tools/testing/selftests/vsock/
 F:	tools/testing/vsock/
 
-VMALLOC
+MEMORY MANAGEMENT - VMALLOC
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Uladzislau Rezki <urezki@gmail.com>
 L:	linux-mm@kvack.org
@@ -30863,7 +30863,7 @@ M:	"Maciej W. Rozycki" <macro@orcam.me.uk>
 S:	Maintained
 F:	drivers/tty/serial/zs.*
 
-ZSMALLOC COMPRESSED SLAB MEMORY ALLOCATOR
+MEMORY MANAGEMENT - ZSMALLOC COMPRESSED SLAB MEMORY ALLOCATOR
 M:	Minchan Kim <minchan@kernel.org>
 M:	Sergey Senozhatsky <senozhatsky@chromium.org>
 L:	linux-mm@kvack.org
@@ -30886,7 +30886,7 @@ F:	lib/zstd/
 N:	zstd
 K:	zstd
 
-ZSWAP COMPRESSED SWAP CACHING
+MEMORY MANAGEMENT - ZSWAP COMPRESSED SWAP CACHING
 M:	Johannes Weiner <hannes@cmpxchg.org>
 M:	Yosry Ahmed <yosry@kernel.org>
 M:	Nhat Pham <nphamcs@gmail.com>
