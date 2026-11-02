@@ -985,6 +985,8 @@ struct intel_link_m_n {
 	u32 data_n;
 	u32 link_m;
 	u32 link_n;
+	/* Wa_14021768792 for linkm/n ratio > 10 */
+	bool bypass_m_n_ratio_limit;
 };
 
 struct intel_csc_matrix {
@@ -1408,8 +1410,12 @@ struct intel_crtc_state {
 
 	/* For DSB based pipe updates */
 	struct intel_dsb *dsb_color, *dsb_commit;
-	bool use_dsb;
-	bool use_flipq;
+
+	enum intel_commit_type {
+		INTEL_COMMIT_MMIO,
+		INTEL_COMMIT_DSB,
+		INTEL_COMMIT_FLIPQ,
+	} commit_type;
 
 	u32 psr2_man_track_ctl;
 
@@ -1798,6 +1804,7 @@ struct intel_psr {
 	bool enabled;
 	int pause_counter;
 	enum pipe pipe;
+	u8 pipe_mask;
 	enum transcoder transcoder;
 	bool active;
 	struct work_struct work;

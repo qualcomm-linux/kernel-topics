@@ -334,25 +334,24 @@ static bool scaler_has_casf(struct intel_display *display, int scaler_id)
 
 static int intel_allocate_scaler(struct intel_crtc_scaler_state *scaler_state,
 				 struct intel_crtc *crtc,
-				 struct intel_plane_state *plane_state,
 				 bool casf_scaler)
 {
 	struct intel_display *display = to_intel_display(crtc);
-	int i;
+	int scaler_id;
 
-	for (i = 0; i < crtc->num_scalers; i++) {
-		if (scaler_state->scalers[i].in_use)
+	for (scaler_id = 0; scaler_id < crtc->num_scalers; scaler_id++) {
+		if (scaler_state->scalers[scaler_id].in_use)
 			continue;
 
-		if (casf_scaler && !scaler_has_casf(display, i))
+		if (casf_scaler && !scaler_has_casf(display, scaler_id))
 			continue;
 
-		scaler_state->scalers[i].in_use = true;
+		scaler_state->scalers[scaler_id].in_use = true;
 
-		return i;
+		return scaler_id;
 	}
 
-	return -1;
+	return -EINVAL;
 }
 
 static void
@@ -406,7 +405,7 @@ static int intel_atomic_setup_scaler(struct intel_crtc_state *crtc_state,
 	int vscale = 0;
 
 	if (*scaler_id < 0)
-		*scaler_id = intel_allocate_scaler(scaler_state, crtc, plane_state, casf_scaler);
+		*scaler_id = intel_allocate_scaler(scaler_state, crtc, casf_scaler);
 
 	if (drm_WARN(display->drm, *scaler_id < 0,
 		     "Cannot find scaler for %s:%d\n", name, idx))
@@ -849,7 +848,7 @@ static int skl_pipe_scaler_get_hw_state(struct intel_crtc_state *crtc_state)
 			return scaler_id;
 	}
 
-	return -1;
+	return -EINVAL;
 }
 
 void

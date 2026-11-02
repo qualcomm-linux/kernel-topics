@@ -36,10 +36,12 @@ intel_dump_m_n_config(struct drm_printer *p,
 		      const char *id, unsigned int lane_count,
 		      const struct intel_link_m_n *m_n)
 {
-	drm_printf(p, "%s: lanes: %i; data_m: %u, data_n: %u, link_m: %u, link_n: %u, tu: %u\n",
+	drm_printf(p,
+		   "%s: lanes: %i; data_m: %u, data_n: %u, link_m: %u, link_n: %u, tu: %u, bypass_m_n_ratio_limit: %s\n",
 		   id, lane_count,
 		   m_n->data_m, m_n->data_n,
-		   m_n->link_m, m_n->link_n, m_n->tu);
+		   m_n->link_m, m_n->link_n, m_n->tu,
+		   str_yes_no(m_n->bypass_m_n_ratio_limit));
 }
 
 static void
