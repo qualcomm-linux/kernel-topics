@@ -31,6 +31,15 @@
 
 #define VERSION "0.1"
 
+/* Runtime diagnostic logging bits loaded from LOG_MASK in the debug INI. */
+#define BTINTEL_PCIE_DUMP_TX		BIT(0)
+#define BTINTEL_PCIE_DUMP_RX		BIT(1)
+#define BTINTEL_PCIE_LOG_ALIVE_INTR	BIT(2)
+#define BTINTEL_PCIE_LOG_SX		BIT(3)
+#define BTINTEL_PCIE_LOG_MAC_ACCESS	BIT(4)
+#define BTINTEL_PCIE_LOG_TARGET_ACCESS	BIT(5)
+#define BTINTEL_PCIE_LOG_MBOX		BIT(6)
+
 #define BTINTEL_PCI_DEVICE(dev, subdev)	\
 	.vendor = PCI_VENDOR_ID_INTEL,	\
 	.device = (dev),		\
@@ -196,6 +205,66 @@ static inline char *btintel_pcie_alivectxt_state2str(u32 alive_intr_ctxt)
 	}
 }
 
+/* Returns hdev name once registered, else the PCI device name so that
+ * logs emitted before hci_register_dev() do not show "null".
+ */
+static const char *btintel_pcie_dev_name(struct btintel_pcie_data *data)
+{
+	return data->hdev ? data->hdev->name : dev_name(&data->pdev->dev);
+}
+
+/* Hex dump with "Bluetooth: <dev>: <tag> " prefix */
+static void btintel_pcie_hex_dump(struct btintel_pcie_data *data,
+				  const char *tag, const void *buf, size_t len)
+{
+	char prefix[64];
+
+	snprintf(prefix, sizeof(prefix), "Bluetooth: %s: %s ",
+		 btintel_pcie_dev_name(data), tag);
+	print_hex_dump(KERN_INFO, prefix, DUMP_PREFIX_OFFSET, 16, 1, buf, len,
+		       false);
+}
+
+static const char * const btintel_pcie_pkt_type_table[] = {
+	[HCI_COMMAND_PKT] = "CMD",
+	[HCI_ACLDATA_PKT] = "ACL",
+	[HCI_SCODATA_PKT] = "SCO",
+	[HCI_EVENT_PKT] = "EVT",
+	[HCI_ISODATA_PKT] = "ISO",
+};
+
+static const char *btintel_pcie_pkt_type_str(u8 pkt_type)
+{
+	if (pkt_type < ARRAY_SIZE(btintel_pcie_pkt_type_table) &&
+	    btintel_pcie_pkt_type_table[pkt_type])
+		return btintel_pcie_pkt_type_table[pkt_type];
+	return "UNK";
+}
+
+static const char *btintel_pcie_pm_event_str(u32 event)
+{
+	switch (event) {
+	case PM_EVENT_ON:
+		return "ON";
+	case PM_EVENT_FREEZE:
+		return "FREEZE(S4/hibernation prep)";
+	case PM_EVENT_SUSPEND:
+		return "SUSPEND(S3/S0ix)";
+	case PM_EVENT_HIBERNATE:
+		return "HIBERNATE(S4)";
+	case PM_EVENT_THAW:
+		return "THAW";
+	case PM_EVENT_RESTORE:
+		return "RESTORE";
+	case PM_EVENT_RESUME:
+		return "RESUME";
+	case PM_EVENT_RECOVER:
+		return "RECOVER";
+	default:
+		return "UNKNOWN";
+	}
+}
+
 /* Returns true when firmware traces are routed to the WiFi DBGC. In that
  * mode the host must not allocate DBGC buffers and must not publish their
  * addresses in the context info.
@@ -206,13 +275,13 @@ static inline bool btintel_pcie_dbg_to_wifi(struct btintel_pcie_data *data)
 }
 
 /* Name of the optional INI file used to override the default dbg_path
- * (data->dbg_path_cache) and yoyo ini settings.
+ * (data->dbg_path_cache), yoyo ini settings and runtime log_mask.
  */
 #define BTINTEL_PCIE_DBG_INI_FILE "ibt_bt_dbg_cfg.ini"
 
-/* Loads optional "DBG_PATH=<value>" and ENABLE_INI=<value>
+/* Loads optional "DBG_PATH=<value>", "ENABLE_INI=<value>" and "LOG_MASK=<value>"
  * overrides from BTINTEL_PCIE_DBG_INI_FILE
- * and applies them to data->dbg_path_cache and data->enable_ini.
+ * and applies them to data->dbg_path_cache, data->enable_ini and data->log_mask.
  *
  * DBG_PATH accepts BTINTEL_PCIE_WIFI_DBGC (0x06, default) and
  * BTINTEL_PCIE_DRAM (0x01, legacy); an invalid or missing entry leaves
@@ -220,6 +289,10 @@ static inline bool btintel_pcie_dbg_to_wifi(struct btintel_pcie_data *data)
  *
  * ENABLE_INI accepts 1 (enabled) or 0 (disabled); an invalid or missing
  * entry leaves data->enable_ini unchanged.
+ *
+ * LOG_MASK accepts any u32 bitmask (see BTINTEL_PCIE_DUMP_TX and friends).
+ * The default enables alive interrupt and Sx logging; an invalid or missing
+ * entry leaves data->log_mask unchanged.
  */
 static void btintel_pcie_load_dbg_path_from_ini(struct btintel_pcie_data *data)
 {
@@ -227,12 +300,13 @@ static void btintel_pcie_load_dbg_path_from_ini(struct btintel_pcie_data *data)
 	const char *ini_file = BTINTEL_PCIE_DBG_INI_FILE;
 	char *buf, *cursor, *line;
 	bool dbg_path_applied = false;
+	bool log_mask_applied = false;
 	int err;
 
 	err = request_firmware_direct(&fw, ini_file, &data->pdev->dev);
 	if (err < 0) {
-		BT_DBG("%s not found (%d), using dbg_path=0x%02x",
-		       ini_file, err, data->dbg_path_cache);
+		BT_DBG("%s not found (%d), using dbg_path=0x%02x log_mask=0x%08x",
+		       ini_file, err, data->dbg_path_cache, data->log_mask);
 		if (data->dbg_path_cache != BTINTEL_PCIE_DRAM)
 			data->enable_ini = false;
 		return;
@@ -261,9 +335,7 @@ static void btintel_pcie_load_dbg_path_from_ini(struct btintel_pcie_data *data)
 		line = strim(line);
 		val = strim(eq + 1);
 
-		/* Accept "DBG_PATH"/"dbg_path"
-		 * case-insensitively as the key.
-		 */
+		/* Keys are case-insensitive. */
 		if (!strcasecmp(line, "DBG_PATH")) {
 			BT_INFO("Read DBG_PATH from %s: '%s'", ini_file, val);
 
@@ -278,6 +350,18 @@ static void btintel_pcie_load_dbg_path_from_ini(struct btintel_pcie_data *data)
 			} else {
 				BT_WARN("Invalid DBG_PATH='%s' in %s, using dbg_path=0x%02x",
 					val, ini_file, data->dbg_path_cache);
+			}
+		} else if (!strcasecmp(line, "LOG_MASK")) {
+			BT_INFO("Read LOG_MASK from %s: '%s'", ini_file, val);
+
+			if (kstrtouint(val, 0, &parsed) == 0) {
+				data->log_mask = parsed;
+				log_mask_applied = true;
+				BT_INFO("WRT log_mask accepted: 0x%08x",
+					data->log_mask);
+			} else {
+				BT_WARN("Invalid LOG_MASK='%s' in %s, using log_mask=0x%08x",
+					val, ini_file, data->log_mask);
 			}
 		} else if (!strcasecmp(line, "ENABLE_INI")) {
 			BT_INFO("Read ENABLE_INI from %s: '%s'", ini_file, val);
@@ -303,6 +387,11 @@ static void btintel_pcie_load_dbg_path_from_ini(struct btintel_pcie_data *data)
 		BT_WARN("No valid DBG_PATH in %s, dbg_path=0x%02x", ini_file, data->dbg_path_cache);
 
 	BT_DBG("ENABLE_INI effective state: %u", data->enable_ini);
+
+	if (log_mask_applied)
+		BT_DBG("Loaded log_mask=0x%08x from %s", data->log_mask, ini_file);
+	else
+		BT_DBG("No valid LOG_MASK in %s, log_mask=0x%08x", ini_file, data->log_mask);
 
 	kfree(buf);
 }
@@ -724,9 +813,12 @@ static int btintel_pcie_send_sync(struct btintel_pcie_data *data,
 		data->alive_intr_ctxt =
 			(opcode == BTINTEL_HCI_OP_RESET ? BTINTEL_PCIE_INTEL_HCI_RESET1 :
 				BTINTEL_PCIE_HCI_RESET);
-		bt_dev_dbg(data->hdev, "sending cmd: 0x%4.4x alive context changed: %s  ->  %s",
-			   opcode, btintel_pcie_alivectxt_state2str(old_ctxt),
-			   btintel_pcie_alivectxt_state2str(data->alive_intr_ctxt));
+		if (data->log_mask & BTINTEL_PCIE_LOG_ALIVE_INTR) {
+			bt_dev_info(data->hdev, "sending cmd: 0x%4.4x alive context changed: %s  ->  %s",
+				    opcode, btintel_pcie_alivectxt_state2str(old_ctxt),
+				    btintel_pcie_alivectxt_state2str(data->alive_intr_ctxt));
+			bt_dev_info(data->hdev, "Driver waits on alive interrupt");
+		}
 	}
 
 	memcpy(skb_push(skb, BTINTEL_PCIE_HCI_TYPE_LEN), &pkt_type,
@@ -925,13 +1017,19 @@ static int btintel_pcie_get_mac_access(struct btintel_pcie_data *data)
 
 	do {
 		reg = btintel_pcie_rd_reg32(data, BTINTEL_PCIE_CSR_FUNC_CTRL_REG);
-		if (reg & BTINTEL_PCIE_CSR_FUNC_CTRL_MAC_ACCESS_STS)
+		if (reg & BTINTEL_PCIE_CSR_FUNC_CTRL_MAC_ACCESS_STS) {
+			if (data->log_mask & BTINTEL_PCIE_LOG_MAC_ACCESS)
+				bt_dev_info(data->hdev,
+					    "MAC access granted: func_ctrl: 0x%8.8x",
+					    reg);
 			return 0;
+		}
 		/* Need delay here for Target Access harwdware to settle down*/
 		usleep_range(1000, 1200);
 
 	} while (--retry > 0);
 
+	bt_dev_err(data->hdev, "MAC access timeout: func_ctrl: 0x%8.8x", reg);
 	return -ETIME;
 }
 
@@ -944,6 +1042,10 @@ static void btintel_pcie_release_mac_access(struct btintel_pcie_data *data)
 	if (reg & BTINTEL_PCIE_CSR_FUNC_CTRL_MAC_ACCESS_REQ) {
 		reg &= ~BTINTEL_PCIE_CSR_FUNC_CTRL_MAC_ACCESS_REQ;
 		btintel_pcie_wr_reg32(data, BTINTEL_PCIE_CSR_FUNC_CTRL_REG, reg);
+
+		if (data->log_mask & BTINTEL_PCIE_LOG_MAC_ACCESS)
+			bt_dev_info(data->hdev,
+				    "MAC access released: func_ctrl: 0x%8.8x", reg);
 	}
 }
 
@@ -1633,6 +1735,10 @@ static int btintel_pcie_enable_bt(struct btintel_pcie_data *data)
 	btintel_pcie_wr_reg32(data, BTINTEL_PCIE_CSR_FUNC_CTRL_REG, reg);
 
 	/* MAC is ready. Enable BT FUNC */
+	if (data->log_mask & BTINTEL_PCIE_LOG_ALIVE_INTR)
+		BT_INFO("%s: Mac Init: Wait on Alive Interrupt",
+			btintel_pcie_dev_name(data));
+
 	btintel_pcie_set_reg_bits(data, BTINTEL_PCIE_CSR_FUNC_CTRL_REG,
 				  BTINTEL_PCIE_CSR_FUNC_CTRL_FUNC_INIT);
 
@@ -1683,7 +1789,9 @@ static inline bool btintel_pcie_in_device_halt(struct btintel_pcie_data *data)
 static void btintel_pcie_wr_sleep_cntrl(struct btintel_pcie_data *data,
 					u32 dxstate)
 {
-	bt_dev_dbg(data->hdev, "writing sleep_ctl_reg: 0x%8.8x", dxstate);
+	if (data->log_mask & BTINTEL_PCIE_LOG_SX)
+		BT_INFO("%s: writing sleep_ctl_reg: 0x%8.8x",
+			btintel_pcie_dev_name(data), dxstate);
 	btintel_pcie_wr_reg32(data, BTINTEL_PCIE_CSR_IPC_SLEEP_CTL_REG, dxstate);
 }
 
@@ -1699,6 +1807,11 @@ static int btintel_pcie_read_device_mem(struct btintel_pcie_data *data,
 		bt_dev_err(data->hdev, "Failed to get mac access %d", err);
 		return err;
 	}
+
+	if (data->log_mask & BTINTEL_PCIE_LOG_TARGET_ACCESS)
+		bt_dev_info(data->hdev,
+			    "Target access read: dev_addr=0x%08x len=%d",
+			    dev_addr, len);
 
 	for (; len > 0; len -= 4, dev_addr += 4, val++)
 		*val = btintel_pcie_rd_dev_mem(data, dev_addr);
@@ -1803,10 +1916,11 @@ static int btintel_parse_mbox_tlv(struct btintel_pcie_data *data)
 	}
 	clear_bit(BTINTEL_PCIE_MBOX_PARSE_READY, &data->flags);
 
-	bt_dev_info(data->hdev,
-		    "mbox TLV parse started at %lld ns (%lld us after mbox interrupt)",
-		    ktime_to_ns(ktime_get()),
-		    ktime_to_us(ktime_sub(ktime_get(), data->mbox_intr_ts)));
+	if (data->log_mask & BTINTEL_PCIE_LOG_MBOX)
+		bt_dev_info(data->hdev,
+			    "mbox TLV parse started at %lld ns (%lld us after mbox interrupt)",
+			    ktime_to_ns(ktime_get()),
+			    ktime_to_us(ktime_sub(ktime_get(), data->mbox_intr_ts)));
 
 	memset(&data->dump_info, 0, sizeof(data->dump_info));
 
@@ -1844,8 +1958,8 @@ static int btintel_parse_mbox_tlv(struct btintel_pcie_data *data)
 	if (err)
 		goto exit_on_error;
 
-	print_hex_dump(KERN_INFO, "Bluetooth: mbox_tlv: ", DUMP_PREFIX_OFFSET, 16, 1,
-		       buffer, buffer_len, false);
+	if (data->log_mask & BTINTEL_PCIE_LOG_MBOX)
+		btintel_pcie_hex_dump(data, "mbox_tlv:", buffer, buffer_len);
 
 	ptr = buffer;
 	remaining = buffer_len;
@@ -2010,34 +2124,36 @@ static int btintel_parse_mbox_tlv(struct btintel_pcie_data *data)
 		remaining -= tlv_total;
 	}
 
-	bt_dev_info(data->hdev,
-		   "exception_dump: addr:0x%08x len:0x%08x",
-		   data->dump_info.exception_dump_addr,
-		   data->dump_info.exception_dump_len);
-	bt_dev_info(data->hdev,
-		   "dccm: start:0x%8.8x size:%u",
-		   data->dump_info.dccm_addr_start,
-		   data->dump_info.dccm_size);
-	bt_dev_info(data->hdev,
-		   "sds_fixed_rom: start:0x%8.8x size:%u",
-		   data->dump_info.sds_fixed_rom_addr_start,
-		   data->dump_info.sds_fixed_rom_size);
-	bt_dev_info(data->hdev,
-		   "sds: start:0x%8.8x size:%u",
-		   data->dump_info.sds_start_addr_start,
-		   data->dump_info.sds_start_size);
-	bt_dev_info(data->hdev,
-		   "sds_iosf: start:0x%8.8x size:%u",
-		   data->dump_info.sds_iosf_data_addr_start,
-		   data->dump_info.sds_iosf_data_size);
-	bt_dev_info(data->hdev,
-		   "ecl: start:0x%8.8x size:%u",
-		   data->dump_info.ecl_addr_start,
-		   data->dump_info.ecl_size);
-	bt_dev_info(data->hdev,
-		   "smem: start:0x%8.8x size:%u",
-		   data->dump_info.smem_addr_start,
-		   data->dump_info.smem_size);
+	if (data->log_mask & BTINTEL_PCIE_LOG_MBOX) {
+		bt_dev_info(data->hdev,
+			    "exception_dump: addr:0x%08x len:0x%08x",
+			    data->dump_info.exception_dump_addr,
+			    data->dump_info.exception_dump_len);
+		bt_dev_info(data->hdev,
+			    "dccm: start:0x%8.8x size:%u",
+			    data->dump_info.dccm_addr_start,
+			    data->dump_info.dccm_size);
+		bt_dev_info(data->hdev,
+			    "sds_fixed_rom: start:0x%8.8x size:%u",
+			    data->dump_info.sds_fixed_rom_addr_start,
+			    data->dump_info.sds_fixed_rom_size);
+		bt_dev_info(data->hdev,
+			    "sds: start:0x%8.8x size:%u",
+			    data->dump_info.sds_start_addr_start,
+			    data->dump_info.sds_start_size);
+		bt_dev_info(data->hdev,
+			    "sds_iosf: start:0x%8.8x size:%u",
+			    data->dump_info.sds_iosf_data_addr_start,
+			    data->dump_info.sds_iosf_data_size);
+		bt_dev_info(data->hdev,
+			    "ecl: start:0x%8.8x size:%u",
+			    data->dump_info.ecl_addr_start,
+			    data->dump_info.ecl_size);
+		bt_dev_info(data->hdev,
+			    "smem: start:0x%8.8x size:%u",
+			    data->dump_info.smem_addr_start,
+			    data->dump_info.smem_size);
+	}
 
 	vfree(buffer);
 	return 0;
@@ -2058,8 +2174,9 @@ static void btintel_pcie_msix_gp1_handler(struct btintel_pcie_data *data)
 		data->mbox.mbox1 = btintel_pcie_rd_reg32(data, BTINTEL_PCIE_CSR_MBOX_1_REG);
 		if (data->mbox.mbox1 ==
 		    BTINTEL_PCIE_BUILD_SPECIFIC_RESOURCES_MAPPING) {
-			bt_dev_info(data->hdev,
-				    "mailbox for target access");
+			if (data->log_mask & BTINTEL_PCIE_LOG_MBOX)
+				bt_dev_info(data->hdev,
+					    "mailbox for target access");
 			target_access = true;
 		}
 	}
@@ -2079,11 +2196,12 @@ static void btintel_pcie_msix_gp1_handler(struct btintel_pcie_data *data)
 	if (data->mbox.mbox_status & BTINTEL_PCIE_CSR_MBOX_STATUS_MBOX4)
 		data->mbox.mbox4 = btintel_pcie_rd_reg32(data, BTINTEL_PCIE_CSR_MBOX_4_REG);
 
-	bt_dev_dbg(data->hdev,
-		   "GP1: sts:0x%08x mb1:0x%08x mb2:0x%08x mb3:0x%08x mb4:0x%08x",
-		   data->mbox.mbox_status, data->mbox.mbox1,
-		   data->mbox.mbox2, data->mbox.mbox3,
-		   data->mbox.mbox4);
+	if (data->log_mask & BTINTEL_PCIE_LOG_MBOX)
+		bt_dev_info(data->hdev,
+			    "GP1: sts:0x%08x mb1:0x%08x mb2:0x%08x mb3:0x%08x mb4:0x%08x",
+			    data->mbox.mbox_status, data->mbox.mbox1,
+			    data->mbox.mbox2, data->mbox.mbox3,
+			    data->mbox.mbox4);
 
 	if (target_access &&
 	    !test_and_set_bit(BTINTEL_PCIE_MAIL_BOX_INTR,
@@ -2093,9 +2211,10 @@ static void btintel_pcie_msix_gp1_handler(struct btintel_pcie_data *data)
 		set_bit(BTINTEL_PCIE_MBOX_PARSE_PENDING, &data->flags);
 		data->mbox_intr_ts = ktime_get();
 
-		bt_dev_info(data->hdev,
-			    "mbox interrupt received at %lld ns; queuing mbox_work",
-			    ktime_to_ns(data->mbox_intr_ts));
+		if (data->log_mask & BTINTEL_PCIE_LOG_MBOX)
+			bt_dev_info(data->hdev,
+				    "mbox interrupt received at %lld ns; queuing mbox_work",
+				    ktime_to_ns(data->mbox_intr_ts));
 
 		WRITE_ONCE(data->debug_table_addr, addr);
 		WRITE_ONCE(data->debug_table_size, size);
@@ -2125,12 +2244,14 @@ static void btintel_pcie_msix_gp0_handler(struct btintel_pcie_data *data)
 	 * with cached value and update it before it wake up the queue.
 	 */
 	reg = btintel_pcie_rd_reg32(data, BTINTEL_PCIE_CSR_BOOT_STAGE_REG);
+	if (data->log_mask & BTINTEL_PCIE_LOG_ALIVE_INTR)
+		BT_INFO("%s: Alive context: %s old_boot_stage: 0x%8.8x new_boot_stage: 0x%8.8x",
+			btintel_pcie_dev_name(data),
+			btintel_pcie_alivectxt_state2str(data->alive_intr_ctxt),
+			data->boot_stage_cache, reg);
 	if (reg != data->boot_stage_cache)
 		data->boot_stage_cache = reg;
 
-	bt_dev_dbg(data->hdev, "Alive context: %s old_boot_stage: 0x%8.8x new_boot_stage: 0x%8.8x",
-		   btintel_pcie_alivectxt_state2str(data->alive_intr_ctxt),
-		   data->boot_stage_cache, reg);
 	reg = btintel_pcie_rd_reg32(data, BTINTEL_PCIE_CSR_IMG_RESPONSE_REG);
 	if (reg != data->img_resp_cache)
 		data->img_resp_cache = reg;
@@ -2231,10 +2352,12 @@ static void btintel_pcie_msix_gp0_handler(struct btintel_pcie_data *data)
 		wake_up(&data->gp0_wait_q);
 	}
 
-	if (old_ctxt != data->alive_intr_ctxt)
-		bt_dev_dbg(data->hdev, "alive context changed: %s  ->  %s",
-			   btintel_pcie_alivectxt_state2str(old_ctxt),
-			   btintel_pcie_alivectxt_state2str(data->alive_intr_ctxt));
+	if (old_ctxt != data->alive_intr_ctxt &&
+	    (data->log_mask & BTINTEL_PCIE_LOG_ALIVE_INTR))
+		BT_INFO("%s: alive context changed: %s  ->  %s",
+			btintel_pcie_dev_name(data),
+			btintel_pcie_alivectxt_state2str(old_ctxt),
+			btintel_pcie_alivectxt_state2str(data->alive_intr_ctxt));
 }
 
 /* This function handles the MSX-X interrupt for rx queue 0 which is for TX
@@ -2432,6 +2555,23 @@ static int btintel_pcie_recv_frame(struct btintel_pcie_data *data,
 	hci_skb_pkt_type(skb) = pkt_type;
 	hdev->stat.byte_rx += plen;
 	skb_trim(skb, plen);
+
+	if (data->log_mask & BTINTEL_PCIE_DUMP_RX) {
+		if (pkt_type == HCI_EVENT_PKT)
+			bt_dev_info(hdev, "RX %s evt=0x%02x len=%u",
+				    btintel_pcie_pkt_type_str(pkt_type),
+				    ((struct hci_event_hdr *)skb->data)->evt,
+				    plen);
+		else if (pkt_type == HCI_ACLDATA_PKT)
+			bt_dev_info(hdev, "RX %s handle=0x%04x len=%u",
+				    btintel_pcie_pkt_type_str(pkt_type),
+				    le16_to_cpu(hci_acl_hdr(skb)->handle) & 0x0fff,
+				    plen);
+		else
+			bt_dev_info(hdev, "RX %s len=%u",
+				    btintel_pcie_pkt_type_str(pkt_type), plen);
+		btintel_pcie_hex_dump(data, "[RX]", skb->data, skb->len);
+	}
 
 	if (pcie_pkt_type == BTINTEL_PCIE_HCI_EVT_PKT)
 		ret = btintel_pcie_recv_event(hdev, skb);
@@ -3644,6 +3784,24 @@ static int btintel_pcie_send_frame(struct hci_dev *hdev,
 		return -EILSEQ;
 	}
 
+	if (data->log_mask & BTINTEL_PCIE_DUMP_TX) {
+		if (hci_skb_pkt_type(skb) == HCI_COMMAND_PKT)
+			bt_dev_info(hdev, "TX %s opcode=0x%04x len=%u",
+				    btintel_pcie_pkt_type_str(hci_skb_pkt_type(skb)),
+				    opcode, skb->len);
+		else if (hci_skb_pkt_type(skb) == HCI_ACLDATA_PKT &&
+			 skb->len >= HCI_ACL_HDR_SIZE)
+			bt_dev_info(hdev, "TX %s handle=0x%04x len=%u",
+				    btintel_pcie_pkt_type_str(hci_skb_pkt_type(skb)),
+				    le16_to_cpu(hci_acl_hdr(skb)->handle) & 0x0fff,
+				    skb->len);
+		else
+			bt_dev_info(hdev, "TX %s len=%u",
+				    btintel_pcie_pkt_type_str(hci_skb_pkt_type(skb)),
+				    skb->len);
+		btintel_pcie_hex_dump(data, "[TX]", skb->data, skb->len);
+	}
+
 	ret = btintel_pcie_send_sync(data, skb, type, opcode);
 	if (ret) {
 		hdev->stat.err_tx++;
@@ -3786,13 +3944,16 @@ exit_error:
 	return err;
 }
 
-static int btintel_pcie_setup_internal(struct hci_dev *hdev)
+static int btintel_pcie_setup_internal(struct hci_dev *hdev,
+				       bool *fips_crc_failed)
 {
 	struct btintel_pcie_data *data = hci_get_drvdata(hdev);
 	const u8 param[1] = { 0xFF };
 	struct intel_version_tlv ver_tlv;
 	struct sk_buff *skb;
 	int err;
+
+	*fips_crc_failed = false;
 
 	BT_DBG("%s", hdev->name);
 
@@ -3855,6 +4016,12 @@ static int btintel_pcie_setup_internal(struct hci_dev *hdev)
 		/* Display version information of TLV type */
 		btintel_version_info_tlv(hdev, &ver_tlv);
 
+		err = btintel_check_fips_status(hdev, &ver_tlv);
+		if (err) {
+			*fips_crc_failed = (err == -ENOEXEC);
+			goto exit_error;
+		}
+
 		/* Apply the device specific HCI quirks for TLV based devices
 		 *
 		 * All TLV based devices support WBS
@@ -3900,8 +4067,13 @@ static int btintel_pcie_setup(struct hci_dev *hdev)
 {
 	int err, fw_dl_retry = 0;
 	struct btintel_pcie_data *data = hci_get_drvdata(hdev);
+	bool fips_crc_failed;
 
-	while ((err = btintel_pcie_setup_internal(hdev)) && fw_dl_retry++ < 1) {
+	while ((err = btintel_pcie_setup_internal(hdev, &fips_crc_failed)) &&
+	       fw_dl_retry++ < 1) {
+		if (fips_crc_failed)
+			break;
+
 		bt_dev_err(hdev, "Firmware download retry count: %d",
 			   fw_dl_retry);
 		btintel_pcie_dump_debug_registers(hdev);
@@ -4001,6 +4173,7 @@ static void btintel_pcie_inc_recovery_count(struct pci_dev *pdev,
 	}
 }
 
+#ifdef CONFIG_ACPI
 static int btintel_pcie_acpi_reset_method(struct btintel_pcie_data *data)
 {
 	union acpi_object *obj, argv4;
@@ -4054,6 +4227,13 @@ static int btintel_pcie_acpi_reset_method(struct btintel_pcie_data *data)
 	pci_dev_unlock(data->pdev);
 	return ret;
 }
+#else
+static int btintel_pcie_acpi_reset_method(struct btintel_pcie_data *data)
+{
+	bt_dev_err(data->hdev, "No support for ACPI, cold boot");
+	return -EOPNOTSUPP;
+}
+#endif
 
 static void btintel_pcie_perform_pldr(struct btintel_pcie_data *data)
 {
@@ -4508,6 +4688,7 @@ static int btintel_pcie_probe(struct pci_dev *pdev,
 	data->boot_stage_cache = 0x00;
 	data->img_resp_cache = 0x00;
 	data->dbg_path_cache = BTINTEL_PCIE_WIFI_DBGC;
+	data->log_mask = BTINTEL_PCIE_LOG_ALIVE_INTR | BTINTEL_PCIE_LOG_SX;
 	data->pcie_alloc_init = false;
 	data->enable_ini = false;
 	btintel_pcie_yoyo_init(&data->yoyo);
@@ -4765,6 +4946,12 @@ static int btintel_pcie_suspend_late(struct device *dev, pm_message_t mesg)
 	else
 		dxstate = BTINTEL_PCIE_STATE_D3_COLD;
 
+	if (data->log_mask & BTINTEL_PCIE_LOG_SX)
+		bt_dev_info(data->hdev,
+			    "Sx suspend: event=%s(0x%x) dxstate=%u",
+			    btintel_pcie_pm_event_str(mesg.event),
+			    mesg.event, dxstate);
+
 	start = ktime_get();
 
 	/* Refer: 6.4.11.7 -> Platform power management */
@@ -4782,6 +4969,12 @@ static int btintel_pcie_suspend_late(struct device *dev, pm_message_t mesg)
 	bt_dev_dbg(data->hdev,
 		   "device entered into d3 state from d0 in %lld us",
 		   ktime_to_us(ktime_get() - start));
+
+	if (data->log_mask & BTINTEL_PCIE_LOG_SX)
+		bt_dev_info(data->hdev,
+			    "Sx suspend complete: d3 entry took %lld us",
+			    ktime_to_us(ktime_get() - start));
+
 	return err;
 }
 
@@ -4808,6 +5001,11 @@ static int btintel_pcie_resume_event(struct device *dev, pm_message_t mesg)
 	int err;
 
 	data = pci_get_drvdata(pdev);
+
+	if (data->log_mask & BTINTEL_PCIE_LOG_SX)
+		bt_dev_info(data->hdev, "Sx resume: event=%s(0x%x)",
+			    btintel_pcie_pm_event_str(mesg.event),
+			    mesg.event);
 
 	start = ktime_get();
 
