@@ -462,6 +462,14 @@ static bool rq_is_open(struct rq *rq, u64 enq_flags)
 	 */
 
 	/*
+	 * A local insertion can raise next_class to ext while the donor is
+	 * still idle. Keep the rq open so that the local DSQ head is not
+	 * unnecessarily reenqueued before the CPU can pick it.
+	 */
+	if (rq->donor == rq->idle)
+		return true;
+
+	/*
 	 * If we're in the dispatch path holding rq lock, $donor may or may not
 	 * be ready depending on whether the on-going dispatch decides to extend
 	 * $donor's slice. We say yes here and resolve it at the end of dispatch.
@@ -3399,6 +3407,12 @@ static enum scx_dsp_verdict dispatch_one(struct rq *rq, struct task_struct *prev
 		rq->scx.cpu_released = false;
 	}
 
+	/* the ecaps sync may have dropped the rq lock */
+	if (scx_dsp_prev_stale(rq, prev)) {
+		verdict = SCX_DSP_RETRY;
+		goto has_tasks;
+	}
+
 	if (prev->sched_class == &ext_sched_class) {
 		update_curr_scx(rq);
 
@@ -3441,6 +3455,10 @@ static enum scx_dsp_verdict dispatch_one(struct rq *rq, struct task_struct *prev
 	}
 
 	verdict = scx_dispatch_sched(root_sch, rq, prev, false);
+
+	/* scx_dispatch_sched() may have dropped the rq lock */
+	if (scx_dsp_prev_stale(rq, prev))
+		verdict = SCX_DSP_RETRY;
 	if (verdict != SCX_DSP_NONE)
 		goto has_tasks;
 
@@ -3852,15 +3870,6 @@ static void kick_sync_wait_bal_cb(struct rq *rq)
 	unsigned long *ksyncs;
 	bool waited;
 	s32 cpu;
-
-	/*
-	 * This callback is queued once the pick is final and flushed within
-	 * @rq's own scheduling pass. If a lock taker on a foreign CPU ever
-	 * flushes it, the snapshots are unrelated to that CPU. Don't get in the
-	 * way and leave the wait pending for @rq's next pick.
-	 */
-	if (unlikely(cpu_of(rq) != smp_processor_id()))
-		return;
 
 	/*
 	 * Clear only when the wait actually runs. The callback can be dropped
@@ -11107,7 +11116,7 @@ __bpf_kfunc struct task_struct *scx_bpf_dsq_peek(u64 dsq_id,
 /**
  * scx_bpf_dsq_reenq - Re-enqueue tasks on a DSQ
  * @dsq_id: DSQ to re-enqueue
- * @reenq_flags: %SCX_RENQ_*
+ * @reenq_flags: %SCX_REENQ_*
  * @aux: implicit BPF argument to access bpf_prog_aux hidden from BPF progs
  *
  * Iterate over all of the tasks currently enqueued on the DSQ identified by
@@ -11117,8 +11126,9 @@ __bpf_kfunc struct task_struct *scx_bpf_dsq_peek(u64 dsq_id,
  * - Local DSQs (%SCX_DSQ_LOCAL or %SCX_DSQ_LOCAL_ON | $cpu)
  * - User DSQs
  *
- * Re-enqueues are performed asynchronously. Can be called from anywhere. A
- * re-enqueue of an inactive cpu's local DSQ is ignored.
+ * Re-enqueues are performed asynchronously. Can be called from any context
+ * except NMI. A call from NMI aborts the scheduler. A re-enqueue of an inactive
+ * cpu's local DSQ is ignored.
  *
  * %SCX_DSQ_LOCAL resolves to the local DSQ of the rq the current scheduler
  * operation is locked to - e.g. the rq being dispatched for in ops.dispatch() -
@@ -11215,9 +11225,10 @@ __bpf_kfunc bool scx_bpf_dsq_reenq_task(struct bpf_iter_scx_dsq *it__iter,
  * scx_bpf_reenqueue_local___v2 - Re-enqueue tasks on a local DSQ
  * @aux: implicit BPF argument to access bpf_prog_aux hidden from BPF progs
  *
- * Iterate over all of the tasks currently enqueued on the local DSQ of the
- * caller's CPU, and re-enqueue them in the BPF scheduler. Can be called from
- * anywhere.
+ * Iterate over all of the tasks currently enqueued on the local DSQ of the rq
+ * the current scheduler operation is locked to, or the calling CPU's when no rq
+ * is locked, and re-enqueue them in the BPF scheduler. Can be called from any
+ * context except NMI. A call from NMI aborts the scheduler.
  *
  * This is now a special case of scx_bpf_dsq_reenq() and may be removed in the
  * future.

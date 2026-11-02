@@ -2340,8 +2340,21 @@ void scx_sub_enable_workfn(struct kthread_work *work)
 		.cgroup_path = sch->cgrp_path,
 	};
 
+	/*
+	 * The cgroup stays online across ops.sub_attach(), so the parent never
+	 * sees an attach for a cgroup that rmdir already removed.
+	 */
+	cgroup_lock();
+	if (!(cgrp->self.flags & CSS_ONLINE)) {
+		cgroup_unlock();
+		scx_error(sch, "cgroup is not online");
+		ret = -ENODEV;
+		goto err_disable;
+	}
 	ret = SCX_CALL_OP_RET(parent, sub_attach, NULL,
 			      &sub_attach_args);
+	cgroup_unlock();
+
 	if (ret) {
 		ret = scx_ops_sanitize_err(sch, "sub_attach", ret);
 		scx_error(sch, "parent rejected (%d)", ret);
