@@ -923,14 +923,6 @@ struct bpf_func_ptr {
 /* the subprog that a bpf_func_ptr pointed to was removed as dead code */
 #define BPF_FUNC_PTR_DELETED ((u32)-1)
 
-struct bpf_subprog_arg_info {
-	enum bpf_arg_type arg_type;
-	union {
-		u32 mem_size;
-		u32 btf_id;
-	};
-};
-
 enum priv_stack_mode {
 	PRIV_STACK_UNKNOWN,
 	NO_PRIV_STACK,
@@ -1900,6 +1892,7 @@ bpf_global_subprog_stack_access_bytes(struct bpf_verifier_env *env,
 int bpf_compute_subprog_arg_access(struct bpf_verifier_env *env);
 bool bpf_same_memory_origin(const struct bpf_reg_state *reg_a,
 			    const struct bpf_reg_state *reg_b);
+void bpf_trim_pkt_range(struct bpf_reg_state *reg, s64 smax);
 int bpf_set_reg_range(struct bpf_verifier_env *env, struct bpf_reg_state *reg,
 		      struct cnum64 r64, struct cnum32 r32, u16 base, u16 step);
 bool bpf_reg_union_compatible(const struct bpf_reg_state *a, const struct bpf_reg_state *b);
