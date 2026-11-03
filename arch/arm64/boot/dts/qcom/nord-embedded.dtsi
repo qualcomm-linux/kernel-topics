@@ -36,12 +36,6 @@
 	};
 };
 
-&reserved_memory {
-	iris_resv: reservation-iris {
-		iommu-addresses = <&iris_non_pixel 0x0 0x25800000>;
-	};
-};
-
 &bwmon_cluster0 {
 	compatible = "qcom,nord-cpu-bwmon",
 		     "qcom,sdm845-bwmon";
@@ -2893,10 +2887,10 @@
 		compatible = "qcom,nord-iris", "qcom,glymur-iris";
 		reg = <0x0 0x0aa00000 0x0 0xf0000>;
 
-		clocks = <&nwgcc NW_GCC_VIDEO_AXI0C_CLK>,
+		clocks = <&nwgcc NW_GCC_VIDEO_AXI0_CLK>,
 			 <&videocc VIDEO_CC_MVS0C_CLK>,
 			 <&videocc VIDEO_CC_MVS0_CLK>,
-			 <&nwgcc NW_GCC_VIDEO_AXI0_CLK>,
+			 <&nwgcc NW_GCC_VIDEO_AXI0C_CLK>,
 			 <&videocc VIDEO_CC_MVS0C_FREERUN_CLK>,
 			 <&videocc VIDEO_CC_MVS0_FREERUN_CLK>,
 			 <&nwgcc NW_GCC_VIDEO_AXI1_CLK>,
@@ -2957,11 +2951,11 @@
 
 		status = "disabled";
 
-		iris_non_pixel: non-pixel {
+		non-pixel {
 			iommus = <&apps_smmu_1 0x0940 0x20>,
 				 <&apps_smmu_1 0x0944 0x0>,
 				 <&apps_smmu_1 0x0960 0x20>;
-			memory-region = <&iris_resv>;
+			iommu-ranges = <0x25800000 0xda600000>;
 		};
 
 		pixel {
