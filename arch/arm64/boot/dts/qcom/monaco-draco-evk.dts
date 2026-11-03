@@ -60,6 +60,56 @@
 		reg = <0x23>;
 		#gpio-cells = <2>;
 		gpio-controller;
+
+		io-exp-hog1 {
+			gpio-hog;
+			gpios = <1 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "pwr_en1";
+		};
+
+		io-exp-hog0 {
+			gpio-hog;
+			gpios = <0 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "pwr_en0";
+		};
+
+		io-exp-hog6 {
+			gpio-hog;
+			gpios = <6 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "pwr_en6";
+		};
+
+
+		io-exp-hog8 {
+			gpio-hog;
+			gpios = <8 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "pwr_en8";
+		};
+
+		io-exp-hog4 {
+			gpio-hog;
+			gpios = <4 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "pwr_en4";
+		};
+
+		io-exp-hog9 {
+			gpio-hog;
+			gpios = <9 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "keye_pwr_en1";
+		};
+
+		io-exp-hog10 {
+			gpio-hog;
+			gpios = <10 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "keye_pwr_en2";
+		};
 	};
 
 };
