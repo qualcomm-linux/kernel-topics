@@ -365,6 +365,17 @@ bool alarm_start_timer(struct alarm *alarm, ktime_t expires, bool relative)
 EXPORT_SYMBOL_GPL(alarm_start_timer);
 
 /**
+ * alarm_start_relative - Sets a relative alarm to fire
+ * @alarm: ptr to alarm to set
+ * @start: time relative to now to run the alarm
+ */
+void alarm_start_relative(struct alarm *alarm, ktime_t start)
+{
+	alarm_start_timer(alarm, start, true);
+}
+EXPORT_SYMBOL_GPL(alarm_start_relative);
+
+/**
  * alarm_try_to_cancel - Tries to cancel an alarm timer
  * @alarm: ptr to alarm to be canceled
  *

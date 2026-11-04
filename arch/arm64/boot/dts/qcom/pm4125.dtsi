@@ -7,6 +7,7 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/spmi/spmi.h>
+#include "QG_Hawi0000903_QRD_4353mAh.dtsi"
 
 / {
 	thermal-zones {
@@ -169,6 +170,14 @@
 				qcom,pre-scaling = <1 1>;
 			};
 
+			channel@4a {
+				reg = <ADC5_BAT_THERM_100K_PU>;
+				label = "bat_therm";
+				qcom,ratiometric;
+				qcom,hw-settle-time = <200>;
+				qcom,pre-scaling = <1 1>;
+			};
+
 			channel@4b {
 				reg = <ADC5_BAT_ID_100K_PU>;
 				label = "bat_id";
@@ -187,6 +196,59 @@
 				reg = <ADC5_VBAT_SNS>;
 				label = "vbat_sns";
 				qcom,pre-scaling = <1 3>;
+			};
+		};
+
+		pm4125_sdam: nvram@b600 {
+			compatible = "qcom,spmi-sdam";
+			reg = <0xb600>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0xb600 0x100>;
+
+			qg_status_cell: qg-status@80 {
+				reg = <0x80 0x4>;
+			};
+
+			soc_data_cell: soc-data@47 {
+				reg = <0x47 0x4>;
+			};
+		};
+
+		pm4125_qg: qpnp,qg {
+			compatible = "qcom,pm4125-qg";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			qcom,vbatt-cutoff-mv = <3400>;
+			qcom,vbatt-low-mv = <3500>;
+			qcom,vbatt-low-cold-mv = <3800>;
+			qcom,vbatt-empty-mv = <3200>;
+			qcom,vbatt-empty-cold-mv = <3000>;
+			qcom,s3-entry-fifo-length = <2>;
+			qcom,battery-data = <&Hawi0000903_QRD_4353mAh>;
+
+			io-channels = <&pm4125_adc ADC5_BAT_THERM_100K_PU>,
+				      <&pm4125_adc ADC5_BAT_ID_100K_PU>;
+			io-channel-names = "batt-therm", "batt-id";
+
+			nvmem = <&pm4125_sdam>;
+			nvmem-names = "qg_sdam";
+			nvmem-cells = <&qg_status_cell>, <&soc_data_cell>;
+			nvmem-cell-names = "qg_status", "soc_data";
+
+			interrupts = <0x0 0x48 0x0 IRQ_TYPE_EDGE_BOTH>,
+				     <0x0 0x48 0x2 IRQ_TYPE_EDGE_RISING>,
+				     <0x0 0x48 0x3 IRQ_TYPE_EDGE_RISING>,
+				     <0x0 0x48 0x5 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "qg-batt-missing",
+					  "qg-vbat-empty",
+					  "qg-fifo-done",
+					  "qg-good-ocv";
+
+			qcom,qgauge@4800 {
+				status = "okay";
+				reg = <0x4800>;
 			};
 		};
 
