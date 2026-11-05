@@ -1081,6 +1081,8 @@
 };
 
 &i2c3 {
+	clock-frequency = <100000>;
+
 	status = "okay";
 
 	wcd_usbss: typec-mux@e {
@@ -1128,6 +1130,14 @@
 	status = "okay";
 };
 
+&mdss_dp0 {
+	status = "okay";
+};
+
+&mdss_dp0_out {
+	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
+};
+
 &mdss_dsi0 {
 	vdda-supply = <&vreg_l1d_1p2>;
 	status = "okay";
@@ -1167,14 +1177,6 @@
 	vdds-supply = <&vreg_l3d_0p8>;
 
 	status = "okay";
-};
-
-&mdss_dp0 {
-	status = "okay";
-};
-
-&mdss_dp0_out {
-	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
 };
 
 &pcie0 {
