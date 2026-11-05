@@ -94,7 +94,7 @@ static int cros_usbpd_charger_ec_command(struct charger_data *charger,
 	struct cros_ec_command *msg;
 	int ret;
 
-	msg = kzalloc(struct_size(msg, data, max(outsize, insize)), GFP_KERNEL);
+	msg = kzalloc_flex(*msg, data, max(outsize, insize));
 	if (!msg)
 		return -ENOMEM;
 
@@ -707,8 +707,8 @@ static SIMPLE_DEV_PM_OPS(cros_usbpd_charger_pm_ops, NULL,
 			 cros_usbpd_charger_resume);
 
 static const struct platform_device_id cros_usbpd_charger_id[] = {
-	{ DRV_NAME, 0 },
-	{}
+	{ .name = DRV_NAME },
+	{ }
 };
 MODULE_DEVICE_TABLE(platform, cros_usbpd_charger_id);
 

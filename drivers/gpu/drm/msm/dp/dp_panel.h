@@ -41,9 +41,6 @@ struct msm_dp_panel {
 	bool vsc_sdp_supported;
 	u32 hw_revision;
 
-	u32 max_dp_lanes;
-	u32 max_dp_link_rate;
-
 	u32 max_bw_code;
 };
 
@@ -52,6 +49,8 @@ int msm_dp_panel_deinit(struct msm_dp_panel *msm_dp_panel);
 int msm_dp_panel_timing_cfg(struct msm_dp_panel *msm_dp_panel, bool wide_bus_en);
 int msm_dp_panel_read_sink_caps(struct msm_dp_panel *msm_dp_panel,
 		struct drm_connector *connector);
+void msm_dp_panel_unplugged(struct msm_dp_panel *msm_dp_panel,
+			    struct drm_connector *connector);
 u32 msm_dp_panel_get_mode_bpp(struct msm_dp_panel *msm_dp_panel, u32 mode_max_bpp,
 			u32 mode_pclk_khz);
 int msm_dp_panel_get_modes(struct msm_dp_panel *msm_dp_panel,
@@ -66,9 +65,9 @@ void msm_dp_panel_disable_vsc_sdp(struct msm_dp_panel *msm_dp_panel);
 
 /**
  * is_link_rate_valid() - validates the link rate
- * @lane_rate: link rate requested by the sink
+ * @bw_code: link rate requested by the sink
  *
- * Returns true if the requested link rate is supported.
+ * Returns: true if the requested link rate is supported.
  */
 static inline bool is_link_rate_valid(u32 bw_code)
 {
@@ -79,10 +78,10 @@ static inline bool is_link_rate_valid(u32 bw_code)
 }
 
 /**
- * msm_dp_link_is_lane_count_valid() - validates the lane count
+ * is_lane_count_valid() - validates the lane count
  * @lane_count: lane count requested by the sink
  *
- * Returns true if the requested lane count is supported.
+ * Returns: true if the requested lane count is supported.
  */
 static inline bool is_lane_count_valid(u32 lane_count)
 {

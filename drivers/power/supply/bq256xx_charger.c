@@ -8,7 +8,6 @@
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/gpio/consumer.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/types.h>
@@ -1741,6 +1740,12 @@ static int bq256xx_probe(struct i2c_client *client)
 		usb_register_notifier(bq->usb3_phy, &bq->usb_nb);
 	}
 
+	ret = bq256xx_power_supply_init(bq, &psy_cfg, dev);
+	if (ret) {
+		dev_err(dev, "Failed to register power supply\n");
+		return ret;
+	}
+
 	if (client->irq) {
 		ret = devm_request_threaded_irq(dev, client->irq, NULL,
 						bq256xx_irq_handler_thread,
@@ -1753,12 +1758,6 @@ static int bq256xx_probe(struct i2c_client *client)
 		}
 	}
 
-	ret = bq256xx_power_supply_init(bq, &psy_cfg, dev);
-	if (ret) {
-		dev_err(dev, "Failed to register power supply\n");
-		return ret;
-	}
-
 	ret = bq256xx_hw_init(bq);
 	if (ret) {
 		dev_err(dev, "Cannot initialize the chip.\n");
@@ -1769,14 +1768,14 @@ static int bq256xx_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id bq256xx_i2c_ids[] = {
-	{ "bq25600", (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25600] },
-	{ "bq25600d", (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25600D] },
-	{ "bq25601", (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25601] },
-	{ "bq25601d", (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25601D] },
-	{ "bq25611d", (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25611D] },
-	{ "bq25618", (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25618] },
-	{ "bq25619", (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25619] },
-	{}
+	{ .name = "bq25600", .driver_data = (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25600] },
+	{ .name = "bq25600d", .driver_data = (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25600D] },
+	{ .name = "bq25601", .driver_data = (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25601] },
+	{ .name = "bq25601d", .driver_data = (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25601D] },
+	{ .name = "bq25611d", .driver_data = (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25611D] },
+	{ .name = "bq25618", .driver_data = (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25618] },
+	{ .name = "bq25619", .driver_data = (kernel_ulong_t)&bq256xx_chip_info_tbl[BQ25619] },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bq256xx_i2c_ids);
 

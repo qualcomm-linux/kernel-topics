@@ -48,7 +48,7 @@ struct phonet_device_list *phonet_device_list(struct net *net)
 static struct phonet_device *__phonet_device_alloc(struct net_device *dev)
 {
 	struct phonet_device_list *pndevs = phonet_device_list(dev_net(dev));
-	struct phonet_device *pnd = kmalloc(sizeof(*pnd), GFP_ATOMIC);
+	struct phonet_device *pnd = kmalloc_obj(*pnd, GFP_ATOMIC);
 	if (pnd == NULL)
 		return NULL;
 	pnd->netdev = dev;
@@ -108,7 +108,7 @@ static void phonet_device_destroy(struct net_device *dev)
 		for_each_set_bit(addr, pnd->addrs, 64)
 			phonet_address_notify(net, RTM_DELADDR, ifindex, addr);
 
-		kfree(pnd);
+		kfree_rcu(pnd, rcu);
 	}
 }
 

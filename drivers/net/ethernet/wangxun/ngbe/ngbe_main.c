@@ -30,20 +30,20 @@ char ngbe_driver_name[] = "ngbe";
  *   Class, Class Mask, private data (not used) }
  */
 static const struct pci_device_id ngbe_pci_tbl[] = {
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL_W), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A2), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A2S), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A4), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A4S), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL2), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL2S), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL4), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL4S), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860LC), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A1), 0},
-	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A1L), 0},
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL_W) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A2) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A2S) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A4) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A4S) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL2) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL2S) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL4) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860AL4S) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860LC) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A1) },
+	{ PCI_VDEVICE(WANGXUN, NGBE_DEV_ID_EM_WX1860A1L) },
 	/* required last entry */
-	{ .device = 0 }
+	{ }
 };
 
 /**
@@ -57,16 +57,16 @@ static void ngbe_init_type_code(struct wx *wx)
 
 	wx->mac.type = wx_mac_em;
 	type_mask = (u16)(wx->subsystem_device_id & NGBE_OEM_MASK);
-	ncsi_mask = wx->subsystem_device_id & NGBE_NCSI_MASK;
-	wol_mask = wx->subsystem_device_id & NGBE_WOL_MASK;
+	ncsi_mask = wx->subsystem_device_id & WX_NCSI_MASK;
+	wol_mask = wx->subsystem_device_id & WX_WOL_MASK;
 
 	val = rd32(wx, WX_CFG_PORT_ST);
 	wx->mac_type = (val & BIT(7)) >> 7 ?
 		       em_mac_type_rgmii :
 		       em_mac_type_mdi;
 
-	wx->wol_hw_supported = (wol_mask == NGBE_WOL_SUP) ? 1 : 0;
-	wx->ncsi_enabled = (ncsi_mask == NGBE_NCSI_MASK ||
+	wx->wol_hw_supported = (wol_mask == WX_WOL_SUP) ? 1 : 0;
+	wx->ncsi_enabled = (ncsi_mask == WX_NCSI_SUP ||
 			   type_mask == NGBE_SUBID_OCP_CARD) ? 1 : 0;
 
 	switch (type_mask) {
@@ -139,6 +139,26 @@ static int ngbe_sw_init(struct wx *wx)
 }
 
 /**
+ * ngbe_service_task - manages and runs subtasks
+ * @work: pointer to work_struct containing our data
+ **/
+static void ngbe_service_task(struct work_struct *work)
+{
+	struct wx *wx = container_of(work, struct wx, service_task);
+
+	wx_update_stats(wx);
+
+	wx_service_event_complete(wx);
+}
+
+static void ngbe_init_service(struct wx *wx)
+{
+	timer_setup(&wx->service_timer, wx_service_timer, 0);
+	INIT_WORK(&wx->service_task, ngbe_service_task);
+	clear_bit(WX_STATE_SERVICE_SCHED, wx->state);
+}
+
+/**
  * ngbe_irq_enable - Enable default interrupt generation settings
  * @wx: board private structure
  * @queues: enable all queues interrupts
@@ -184,7 +204,7 @@ static irqreturn_t ngbe_intr(int __always_unused irq, void *data)
 		/* shared interrupt alert!
 		 * the interrupt that we masked before the EICR read.
 		 */
-		if (netif_running(wx->netdev))
+		if (!test_bit(WX_STATE_DOWN, wx->state))
 			ngbe_irq_enable(wx, true);
 		return IRQ_NONE;        /* Not our interrupt */
 	}
@@ -200,7 +220,7 @@ static irqreturn_t ngbe_intr(int __always_unused irq, void *data)
 	/* would disable interrupts here but it is auto disabled */
 	napi_schedule_irqoff(&q_vector->napi);
 
-	if (netif_running(wx->netdev))
+	if (!test_bit(WX_STATE_DOWN, wx->state))
 		ngbe_irq_enable(wx, false);
 
 	return IRQ_HANDLED;
@@ -215,7 +235,7 @@ static irqreturn_t __ngbe_msix_misc(struct wx *wx, u32 eicr)
 		wx_ptp_check_pps_event(wx);
 
 	/* re-enable the original interrupt state, no lsc, no queues */
-	if (netif_running(wx->netdev))
+	if (!test_bit(WX_STATE_DOWN, wx->state))
 		ngbe_irq_enable(wx, false);
 
 	return IRQ_HANDLED;
@@ -242,7 +262,7 @@ static irqreturn_t ngbe_misc_and_queue(int __always_unused irq, void *data)
 		/* queue */
 		q_vector = wx->q_vector[0];
 		napi_schedule_irqoff(&q_vector->napi);
-		if (netif_running(wx->netdev))
+		if (!test_bit(WX_STATE_DOWN, wx->state))
 			ngbe_irq_enable(wx, true);
 		return IRQ_HANDLED;
 	}
@@ -343,6 +363,9 @@ static void ngbe_disable_device(struct wx *wx)
 	struct net_device *netdev = wx->netdev;
 	u32 i;
 
+	if (test_and_set_bit(WX_STATE_DOWN, wx->state))
+		return;
+
 	if (wx->num_vfs) {
 		/* Clear EITR Select mapping */
 		wr32(wx, WX_PX_ITRSEL, 0);
@@ -368,6 +391,10 @@ static void ngbe_disable_device(struct wx *wx)
 	wx_napi_disable_all(wx);
 	netif_tx_stop_all_queues(netdev);
 	netif_tx_disable(netdev);
+
+	timer_delete_sync(&wx->service_timer);
+	cancel_work_sync(&wx->service_task);
+
 	if (wx->gpio_ctrl)
 		ngbe_sfp_modules_txrx_powerctl(wx, false);
 	wx_irq_disable(wx);
@@ -377,8 +404,6 @@ static void ngbe_disable_device(struct wx *wx)
 
 		wr32(wx, WX_PX_TR_CFG(reg_idx), WX_PX_TR_CFG_SWFLSH);
 	}
-
-	wx_update_stats(wx);
 }
 
 static void ngbe_reset(struct wx *wx)
@@ -404,9 +429,11 @@ void ngbe_up(struct wx *wx)
 
 	/* make sure to complete pre-operations */
 	smp_mb__before_atomic();
+	clear_bit(WX_STATE_DOWN, wx->state);
 	wx_napi_enable_all(wx);
 	/* enable transmits */
 	netif_tx_start_all_queues(wx->netdev);
+	mod_timer(&wx->service_timer, jiffies);
 
 	/* clear any pending interrupts, may auto mask */
 	rd32(wx, WX_PX_IC(0));
@@ -520,9 +547,9 @@ static void ngbe_dev_shutdown(struct pci_dev *pdev, bool *enable_wake)
 	if (wufc) {
 		wx_set_rx_mode(netdev);
 		wx_configure_rx(wx);
-		wr32(wx, NGBE_PSR_WKUP_CTL, wufc);
+		wr32(wx, WX_PSR_WKUP_CTL, wufc);
 	} else {
-		wr32(wx, NGBE_PSR_WKUP_CTL, 0);
+		wr32(wx, WX_PSR_WKUP_CTL, 0);
 	}
 	pci_wake_from_d3(pdev, !!wufc);
 	*enable_wake = !!wufc;
@@ -688,7 +715,6 @@ static int ngbe_probe(struct pci_dev *pdev,
 	netdev->features |= NETIF_F_GRO;
 
 	netdev->priv_flags |= IFF_UNICAST_FLT;
-	netdev->priv_flags |= IFF_SUPP_NOFCS;
 	netdev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
 
 	netdev->min_mtu = ETH_MIN_MTU;
@@ -742,10 +768,10 @@ static int ngbe_probe(struct pci_dev *pdev,
 
 	wx->wol = 0;
 	if (wx->wol_hw_supported)
-		wx->wol = NGBE_PSR_WKUP_CTL_MAG;
+		wx->wol = WX_PSR_WKUP_CTL_MAG;
 
 	netdev->ethtool->wol_enabled = !!(wx->wol);
-	wr32(wx, NGBE_PSR_WKUP_CTL, wx->wol);
+	wr32(wx, WX_PSR_WKUP_CTL, wx->wol);
 	device_set_wakeup_enable(&pdev->dev, wx->wol);
 
 	/* Save off EEPROM version number and Option Rom version which
@@ -770,9 +796,11 @@ static int ngbe_probe(struct pci_dev *pdev,
 	eth_hw_addr_set(netdev, wx->mac.perm_addr);
 	wx_mac_set_default_filter(wx, wx->mac.perm_addr);
 
+	ngbe_init_service(wx);
+
 	err = wx_init_interrupt_scheme(wx);
 	if (err)
-		goto err_free_mac_table;
+		goto err_cancel_service;
 
 	/* phy Interface Configuration */
 	err = ngbe_mdio_init(wx);
@@ -792,6 +820,9 @@ err_register:
 	wx_control_hw(wx, false);
 err_clear_interrupt_scheme:
 	wx_clear_interrupt_scheme(wx);
+err_cancel_service:
+	timer_delete_sync(&wx->service_timer);
+	cancel_work_sync(&wx->service_task);
 err_free_mac_table:
 	kfree(wx->rss_key);
 	kfree(wx->mac_table);
@@ -820,6 +851,10 @@ static void ngbe_remove(struct pci_dev *pdev)
 	netdev = wx->netdev;
 	wx_disable_sriov(wx);
 	unregister_netdev(netdev);
+
+	timer_shutdown_sync(&wx->service_timer);
+	cancel_work_sync(&wx->service_task);
+
 	phylink_destroy(wx->phylink);
 	pci_release_selected_regions(pdev,
 				     pci_select_bars(pdev, IORESOURCE_MEM));

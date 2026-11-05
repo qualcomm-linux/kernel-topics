@@ -51,7 +51,7 @@ static int nvmem_layout_bus_uevent(const struct device *dev,
 	int ret;
 
 	ret = of_device_uevent_modalias(dev, env);
-	if (ret != ENODEV)
+	if (ret != -ENODEV)
 		return ret;
 
 	return 0;
@@ -96,7 +96,7 @@ static int nvmem_layout_create_device(struct nvmem_device *nvmem,
 	struct device *dev;
 	int ret;
 
-	layout = kzalloc(sizeof(*layout), GFP_KERNEL);
+	layout = kzalloc_obj(*layout);
 	if (!layout)
 		return -ENOMEM;
 

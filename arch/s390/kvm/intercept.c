@@ -21,6 +21,7 @@
 #include "gaccess.h"
 #include "trace.h"
 #include "trace-s390.h"
+#include "faultin.h"
 
 u8 kvm_s390_get_ilen(struct kvm_vcpu *vcpu)
 {
@@ -367,8 +368,11 @@ static int handle_mvpg_pei(struct kvm_vcpu *vcpu)
 					      reg2, &srcaddr, GACC_FETCH, 0);
 	if (rc)
 		return kvm_s390_inject_prog_cond(vcpu, rc);
-	rc = kvm_s390_handle_dat_fault(vcpu, srcaddr, 0);
-	if (rc != 0)
+
+	do {
+		rc = kvm_s390_faultin_gfn_simple(vcpu, NULL, gpa_to_gfn(srcaddr), false);
+	} while (rc == -EAGAIN);
+	if (rc)
 		return rc;
 
 	/* Ensure that the source is paged-in, no actual access -> no key checking */
@@ -376,8 +380,11 @@ static int handle_mvpg_pei(struct kvm_vcpu *vcpu)
 					      reg1, &dstaddr, GACC_STORE, 0);
 	if (rc)
 		return kvm_s390_inject_prog_cond(vcpu, rc);
-	rc = kvm_s390_handle_dat_fault(vcpu, dstaddr, FOLL_WRITE);
-	if (rc != 0)
+
+	do {
+		rc = kvm_s390_faultin_gfn_simple(vcpu, NULL, gpa_to_gfn(dstaddr), true);
+	} while (rc == -EAGAIN);
+	if (rc)
 		return rc;
 
 	kvm_s390_retry_instr(vcpu);
@@ -471,6 +478,9 @@ static int handle_operexc(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.sie_block->ipa == 0xb256)
 		return handle_sthyi(vcpu);
 
+	if (vcpu->kvm->arch.user_operexec)
+		return -EOPNOTSUPP;
+
 	if (vcpu->arch.sie_block->ipa == 0 && vcpu->kvm->arch.user_instr0)
 		return -EOPNOTSUPP;
 	rc = read_guest_lc(vcpu, __LC_PGM_NEW_PSW, &newpsw, sizeof(psw_t));
@@ -507,8 +517,9 @@ static int handle_pv_spx(struct kvm_vcpu *vcpu)
 static int handle_pv_sclp(struct kvm_vcpu *vcpu)
 {
 	struct kvm_s390_float_interrupt *fi = &vcpu->kvm->arch.float_int;
+	unsigned long flags;
 
-	spin_lock(&fi->lock);
+	spin_lock_irqsave(&fi->lock, flags);
 	/*
 	 * 2 cases:
 	 * a: an sccb answering interrupt was already pending or in flight.
@@ -524,7 +535,7 @@ static int handle_pv_sclp(struct kvm_vcpu *vcpu)
 	fi->srv_signal.ext_params |= 0x43000;
 	set_bit(IRQ_PEND_EXT_SERVICE, &fi->pending_irqs);
 	clear_bit(IRQ_PEND_EXT_SERVICE, &fi->masked_irqs);
-	spin_unlock(&fi->lock);
+	spin_unlock_irqrestore(&fi->lock, flags);
 	return 0;
 }
 

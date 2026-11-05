@@ -54,7 +54,7 @@ long rbtree_refcounted_node_ref_escapes(void *ctx)
 }
 
 SEC("?tc")
-__failure __msg("Possibly NULL pointer passed to trusted arg0")
+__failure __msg("Possibly NULL pointer passed to trusted R1")
 long refcount_acquire_maybe_null(void *ctx)
 {
 	struct node_acquire *n, *m;
@@ -93,7 +93,7 @@ long rbtree_refcounted_node_ref_escapes_owning_input(void *ctx)
 	return 0;
 }
 
-SEC("?fentry.s/bpf_testmod_test_read")
+SEC("?fentry.s/" SYS_PREFIX "sys_getpgid")
 __failure __msg("function calls are not allowed while holding a lock")
 int BPF_PROG(rbtree_fail_sleepable_lock_across_rcu,
 	     struct file *file, struct kobject *kobj,

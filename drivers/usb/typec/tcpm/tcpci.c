@@ -7,6 +7,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/i2c.h>
@@ -42,6 +43,7 @@ struct tcpci {
 
 	struct tcpc_dev tcpc;
 	struct tcpci_data *data;
+	struct gpio_desc *orientation_gpio;
 };
 
 struct tcpci_chip {
@@ -139,13 +141,10 @@ static int tcpci_set_cc(struct tcpc_dev *tcpc, enum typec_cc_status cc)
 	}
 
 	if (vconn_pres) {
-		if (polarity == TYPEC_POLARITY_CC2) {
-			reg &= ~TCPC_ROLE_CTRL_CC1;
-			reg |= FIELD_PREP(TCPC_ROLE_CTRL_CC1, TCPC_ROLE_CTRL_CC_OPEN);
-		} else {
-			reg &= ~TCPC_ROLE_CTRL_CC2;
-			reg |= FIELD_PREP(TCPC_ROLE_CTRL_CC2, TCPC_ROLE_CTRL_CC_OPEN);
-		}
+		if (polarity == TYPEC_POLARITY_CC2)
+			FIELD_MODIFY(TCPC_ROLE_CTRL_CC1, &reg, TCPC_ROLE_CTRL_CC_OPEN);
+		else
+			FIELD_MODIFY(TCPC_ROLE_CTRL_CC2, &reg, TCPC_ROLE_CTRL_CC_OPEN);
 	}
 
 	ret = regmap_write(tcpci->regmap, TCPC_ROLE_CTRL, reg);
@@ -315,6 +314,10 @@ static int tcpci_set_orientation(struct tcpc_dev *tcpc,
 {
 	struct tcpci *tcpci = tcpc_to_tcpci(tcpc);
 	unsigned int reg;
+
+	if (tcpci->orientation_gpio)
+		return gpiod_set_value_cansleep(tcpci->orientation_gpio,
+						orientation != TYPEC_ORIENTATION_NORMAL);
 
 	switch (orientation) {
 	case TYPEC_ORIENTATION_NONE:
@@ -903,6 +906,7 @@ EXPORT_SYMBOL_GPL(tcpci_unregister_port);
 static int tcpci_probe(struct i2c_client *client)
 {
 	struct tcpci_chip *chip;
+	struct gpio_desc *orient_gpio = NULL;
 	int err;
 	u16 val = 0;
 
@@ -931,11 +935,22 @@ static int tcpci_probe(struct i2c_client *client)
 	if (err < 0)
 		return err;
 
+	if (err == 0) {
+		orient_gpio = devm_gpiod_get_optional(&client->dev, "orientation",
+						      GPIOD_OUT_LOW);
+		if (IS_ERR(orient_gpio))
+			return dev_err_probe(&client->dev, PTR_ERR(orient_gpio),
+					"unable to acquire orientation gpio\n");
+		err = !!orient_gpio;
+	}
+
 	chip->data.set_orientation = err;
 
 	chip->tcpci = tcpci_register_port(&client->dev, &chip->data);
 	if (IS_ERR(chip->tcpci))
 		return PTR_ERR(chip->tcpci);
+
+	chip->tcpci->orientation_gpio = orient_gpio;
 
 	err = devm_request_threaded_irq(&client->dev, client->irq, NULL,
 					_tcpci_irq,
@@ -999,10 +1014,10 @@ static int tcpci_resume(struct device *dev)
 	return ret;
 }
 
-DEFINE_SIMPLE_DEV_PM_OPS(tcpci_pm_ops, tcpci_suspend, tcpci_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(tcpci_pm_ops, tcpci_suspend, tcpci_resume);
 
 static const struct i2c_device_id tcpci_id[] = {
-	{ "tcpci" },
+	{ .name = "tcpci" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tcpci_id);

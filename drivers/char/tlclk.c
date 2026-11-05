@@ -264,6 +264,7 @@ static ssize_t tlclk_read(struct file *filp, char __user *buf, size_t count,
 }
 
 static const struct file_operations tlclk_fops = {
+	.owner = THIS_MODULE,
 	.read = tlclk_read,
 	.open = tlclk_open,
 	.release = tlclk_release,
@@ -776,7 +777,7 @@ static int __init tlclk_init(void)
 
 	telclk_interrupt = (inb(TLCLK_REG7) & 0x0f);
 
-	alarm_events = kzalloc( sizeof(struct tlclk_alarms), GFP_KERNEL);
+	alarm_events = kzalloc_obj(struct tlclk_alarms);
 	if (!alarm_events) {
 		ret = -ENOMEM;
 		goto out1;
@@ -836,6 +837,9 @@ static void __exit tlclk_cleanup(void)
 	faux_device_destroy(tlclk_device);
 	misc_deregister(&tlclk_miscdev);
 	unregister_chrdev(tlclk_major, "telco_clock");
+
+	got_event = 1;
+	wake_up_all(&wq);
 
 	release_region(TLCLK_BASE, 8);
 	timer_delete_sync(&switchover_timer);

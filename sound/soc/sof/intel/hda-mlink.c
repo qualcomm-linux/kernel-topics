@@ -392,7 +392,7 @@ static int hda_ml_alloc_h2link(struct hdac_bus *bus, int index)
 	struct hdac_ext_link *hlink;
 	int ret;
 
-	h2link  = kzalloc(sizeof(*h2link), GFP_KERNEL);
+	h2link = kzalloc_obj(*h2link);
 	if (!h2link)
 		return -ENOMEM;
 
@@ -524,11 +524,8 @@ void hdac_bus_eml_enable_interrupt(struct hdac_bus *bus, bool alt, int elid, boo
 
 	hlink = &h2link->hext_link;
 
-	mutex_lock(&h2link->eml_lock);
-
-	hdaml_link_enable_interrupt(hlink->ml_addr + AZX_REG_ML_LCTL, enable);
-
-	mutex_unlock(&h2link->eml_lock);
+	scoped_guard(mutex, &h2link->eml_lock)
+		hdaml_link_enable_interrupt(hlink->ml_addr + AZX_REG_ML_LCTL, enable);
 }
 EXPORT_SYMBOL_NS(hdac_bus_eml_enable_interrupt, "SND_SOC_SOF_HDA_MLINK");
 
@@ -837,11 +834,8 @@ int hdac_bus_eml_sdw_set_lsdiid(struct hdac_bus *bus, int sublink, int dev_num)
 
 	hlink = &h2link->hext_link;
 
-	mutex_lock(&h2link->eml_lock);
-
-	hdaml_link_set_lsdiid(hlink->ml_addr + AZX_REG_ML_LSDIID_OFFSET(sublink), dev_num);
-
-	mutex_unlock(&h2link->eml_lock);
+	scoped_guard(mutex, &h2link->eml_lock)
+		hdaml_link_set_lsdiid(hlink->ml_addr + AZX_REG_ML_LSDIID_OFFSET(sublink), dev_num);
 
 	return 0;
 } EXPORT_SYMBOL_NS(hdac_bus_eml_sdw_set_lsdiid, "SND_SOC_SOF_HDA_MLINK");
@@ -875,12 +869,8 @@ int hdac_bus_eml_sdw_map_stream_ch(struct hdac_bus *bus, int sublink, int y,
 		lchan = 0;
 	}
 
-	mutex_lock(&h2link->eml_lock);
-
-	hdaml_shim_map_stream_ch(pcmsycm, lchan, hchan,
-				 stream_id, dir);
-
-	mutex_unlock(&h2link->eml_lock);
+	scoped_guard(mutex, &h2link->eml_lock)
+		hdaml_shim_map_stream_ch(pcmsycm, lchan, hchan, stream_id, dir);
 
 	val = readw(pcmsycm);
 
@@ -998,27 +988,19 @@ struct hdac_ext_link *hdac_bus_eml_sdw_get_hlink(struct hdac_bus *bus)
 }
 EXPORT_SYMBOL_NS(hdac_bus_eml_sdw_get_hlink, "SND_SOC_SOF_HDA_MLINK");
 
-int hdac_bus_eml_enable_offload(struct hdac_bus *bus, bool alt, int elid, bool enable)
+void hdac_bus_eml_enable_offload(struct hdac_bus *bus, bool alt, int elid, bool enable)
 {
 	struct hdac_ext2_link *h2link;
 	struct hdac_ext_link *hlink;
 
 	h2link = find_ext2_link(bus, alt, elid);
-	if (!h2link)
-		return -ENODEV;
-
-	if (!h2link->ofls)
-		return 0;
+	if (!h2link || !h2link->ofls)
+		return;
 
 	hlink = &h2link->hext_link;
 
-	mutex_lock(&h2link->eml_lock);
-
-	hdaml_lctl_offload_enable(hlink->ml_addr + AZX_REG_ML_LCTL, enable);
-
-	mutex_unlock(&h2link->eml_lock);
-
-	return 0;
+	scoped_guard(mutex, &h2link->eml_lock)
+		hdaml_lctl_offload_enable(hlink->ml_addr + AZX_REG_ML_LCTL, enable);
 }
 EXPORT_SYMBOL_NS(hdac_bus_eml_enable_offload, "SND_SOC_SOF_HDA_MLINK");
 

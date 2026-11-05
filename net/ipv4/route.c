@@ -315,7 +315,7 @@ static int rt_acct_proc_show(struct seq_file *m, void *v)
 	struct ip_rt_acct *dst, *src;
 	unsigned int i, j;
 
-	dst = kcalloc(256, sizeof(struct ip_rt_acct), GFP_KERNEL);
+	dst = kzalloc_objs(struct ip_rt_acct, 256);
 	if (!dst)
 		return -ENOMEM;
 
@@ -446,8 +446,8 @@ static void ipv4_confirm_neigh(const struct dst_entry *dst, const void *daddr)
 
 	if (rt->rt_gw_family == AF_INET) {
 		pkey = (const __be32 *)&rt->rt_gw4;
-	} else if (rt->rt_gw_family == AF_INET6) {
-		return __ipv6_confirm_neigh_stub(dev, &rt->rt_gw6);
+	} else if (IS_ENABLED(CONFIG_IPV6) && rt->rt_gw_family == AF_INET6) {
+		return __ipv6_confirm_neigh(dev, &rt->rt_gw6);
 	} else if (!daddr ||
 		 (rt->rt_flags &
 		  (RTCF_MULTICAST | RTCF_BROADCAST | RTCF_LOCAL))) {
@@ -607,6 +607,11 @@ static void fnhe_remove_oldest(struct fnhe_hash_bucket *hash)
 			oldest_p = fnhe_p;
 		}
 	}
+
+	/* Clear oldest->fnhe_daddr to prevent this fnhe from being
+	 * rebound with new dsts in rt_bind_exception().
+	 */
+	oldest->fnhe_daddr = 0;
 	fnhe_flush_routes(oldest);
 	*oldest_p = oldest->fnhe_next;
 	kfree_rcu(oldest, rcu);
@@ -654,7 +659,7 @@ static void update_or_create_fnhe(struct fib_nh_common *nhc, __be32 daddr,
 
 	hash = rcu_dereference(nhc->nhc_exceptions);
 	if (!hash) {
-		hash = kcalloc(FNHE_HASH_SIZE, sizeof(*hash), GFP_ATOMIC);
+		hash = kzalloc_objs(*hash, FNHE_HASH_SIZE, GFP_ATOMIC);
 		if (!hash)
 			goto out_unlock;
 		rcu_assign_pointer(nhc->nhc_exceptions, hash);
@@ -697,7 +702,7 @@ static void update_or_create_fnhe(struct fib_nh_common *nhc, __be32 daddr,
 			depth--;
 		}
 
-		fnhe = kzalloc(sizeof(*fnhe), GFP_ATOMIC);
+		fnhe = kzalloc_obj(*fnhe, GFP_ATOMIC);
 		if (!fnhe)
 			goto out_unlock;
 
@@ -1166,7 +1171,6 @@ out:
 	bh_unlock_sock(sk);
 	dst_release(odst);
 }
-EXPORT_SYMBOL_GPL(ipv4_sk_update_pmtu);
 
 void ipv4_redirect(struct sk_buff *skb, struct net *net,
 		   int oif, u8 protocol)
@@ -1198,7 +1202,6 @@ void ipv4_sk_redirect(struct sk_buff *skb, struct sock *sk)
 		ip_rt_put(rt);
 	}
 }
-EXPORT_SYMBOL_GPL(ipv4_sk_redirect);
 
 INDIRECT_CALLABLE_SCOPE struct dst_entry *ipv4_dst_check(struct dst_entry *dst,
 							 u32 cookie)
@@ -1267,7 +1270,7 @@ static int ip_rt_bug(struct net *net, struct sock *sk, struct sk_buff *skb)
 		 __func__, &ip_hdr(skb)->saddr, &ip_hdr(skb)->daddr,
 		 skb->dev ? skb->dev->name : "?");
 	kfree_skb(skb);
-	WARN_ON(1);
+	WARN_ON_ONCE(1);
 	return 0;
 }
 
@@ -1532,9 +1535,9 @@ void rt_add_uncached_list(struct rtable *rt)
 
 void rt_del_uncached_list(struct rtable *rt)
 {
-	if (!list_empty(&rt->dst.rt_uncached)) {
-		struct uncached_list *ul = rt->dst.rt_uncached_list;
+	struct uncached_list *ul = rt->dst.rt_uncached_list;
 
+	if (ul) {
 		spin_lock_bh(&ul->lock);
 		list_del_init(&rt->dst.rt_uncached);
 		spin_unlock_bh(&ul->lock);
@@ -1696,7 +1699,6 @@ struct rtable *rt_dst_clone(struct net_device *dev, struct rtable *rt)
 	}
 	return new_rt;
 }
-EXPORT_SYMBOL(rt_dst_clone);
 
 /* called in rcu_read_lock() section */
 enum skb_drop_reason
@@ -1790,8 +1792,8 @@ static void ip_handle_martian_source(struct net_device *dev,
 		 *	RFC1812 recommendation, if source is martian,
 		 *	the only hint is MAC header.
 		 */
-		pr_warn("martian source %pI4 from %pI4, on dev %s\n",
-			&daddr, &saddr, dev->name);
+		pr_warn("martian source (src=%pI4, dst=%pI4, dev=%s)\n",
+			&saddr, &daddr, dev->name);
 		if (dev->hard_header_len && skb_mac_header_was_set(skb)) {
 			print_hex_dump(KERN_WARNING, "ll header: ",
 				       DUMP_PREFIX_OFFSET, 16, 1,
@@ -2470,8 +2472,8 @@ martian_destination:
 	RT_CACHE_STAT_INC(in_martian_dst);
 #ifdef CONFIG_IP_ROUTE_VERBOSE
 	if (IN_DEV_LOG_MARTIANS(in_dev))
-		net_warn_ratelimited("martian destination %pI4 from %pI4, dev %s\n",
-				     &daddr, &saddr, dev->name);
+		net_warn_ratelimited("martian destination (src=%pI4, dst=%pI4, dev=%s)\n",
+				     &saddr, &daddr, dev->name);
 #endif
 	goto out;
 
@@ -3682,7 +3684,7 @@ static __net_initdata struct pernet_operations rt_genid_ops = {
 
 static int __net_init ipv4_inetpeer_init(struct net *net)
 {
-	struct inet_peer_base *bp = kmalloc(sizeof(*bp), GFP_KERNEL);
+	struct inet_peer_base *bp = kmalloc_obj(*bp);
 
 	if (!bp)
 		return -ENOMEM;

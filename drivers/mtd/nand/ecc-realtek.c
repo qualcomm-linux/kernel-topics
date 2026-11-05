@@ -17,10 +17,12 @@
  * - BCH12 : Generate 20 ECC bytes from 512 data bytes plus 6 free bytes
  *
  * It can run for arbitrary NAND flash chips with different block and OOB sizes. Currently there
- * are only two known devices in the wild that have NAND flash and make use of this ECC engine
- * (Linksys LGS328C & LGS352C). To keep compatibility with vendor firmware, new modes can only
- * be added when new data layouts have been analyzed. For now allow BCH6 on flash with 2048 byte
- * blocks and 64 bytes oob.
+ * are a few known devices in the wild that make use of this ECC engine
+ * (Linksys LGS328C, LGS352C & Netlink HG323DAC). To keep compatibility with vendor firmware,
+ * new modes can only be added when new data layouts have been analyzed. For now allow BCH6 on
+ * flash with 2048 byte blocks and at least 64 bytes oob. Some vendors make use of
+ * 128 bytes OOB NAND chips (e.g. Macronix MX35LF1G24AD) but only use BCH6 and thus the first
+ * 64 bytes of the OOB area. In this case the engine leaves any extra bytes unused.
  *
  * This driver aligns with kernel ECC naming conventions. Neverthless a short notice on the
  * Realtek naming conventions for the different structures in the OOB area.
@@ -39,7 +41,7 @@
  */
 
 #define RTL_ECC_ALLOWED_PAGE_SIZE 	2048
-#define RTL_ECC_ALLOWED_OOB_SIZE	64
+#define RTL_ECC_ALLOWED_MIN_OOB_SIZE	64
 #define RTL_ECC_ALLOWED_STRENGTH	6
 
 #define RTL_ECC_BLOCK_SIZE 		512
@@ -310,10 +312,10 @@ static int rtl_ecc_check_support(struct nand_device *nand)
 	struct mtd_info *mtd = nanddev_to_mtd(nand);
 	struct device *dev = nand->ecc.engine->dev;
 
-	if (mtd->oobsize != RTL_ECC_ALLOWED_OOB_SIZE ||
+	if (mtd->oobsize < RTL_ECC_ALLOWED_MIN_OOB_SIZE ||
 	    mtd->writesize != RTL_ECC_ALLOWED_PAGE_SIZE) {
-		dev_err(dev, "only flash geometry data=%d, oob=%d supported\n",
-			RTL_ECC_ALLOWED_PAGE_SIZE, RTL_ECC_ALLOWED_OOB_SIZE);
+		dev_err(dev, "only flash geometry data=%d, oob>=%d supported\n",
+			RTL_ECC_ALLOWED_PAGE_SIZE, RTL_ECC_ALLOWED_MIN_OOB_SIZE);
 		return -EINVAL;
 	}
 
@@ -380,7 +382,7 @@ static void rtl_ecc_cleanup_ctx(struct nand_device *nand)
 		nand_ecc_cleanup_req_tweaking(&ctx->req_ctx);
 }
 
-static struct nand_ecc_engine_ops rtl_ecc_engine_ops = {
+static const struct nand_ecc_engine_ops rtl_ecc_engine_ops = {
 	.init_ctx = rtl_ecc_init_ctx,
 	.cleanup_ctx = rtl_ecc_cleanup_ctx,
 	.prepare_io_req = rtl_ecc_prepare_io_req,
@@ -418,8 +420,8 @@ static int rtl_ecc_probe(struct platform_device *pdev)
 
 	rtlc->buf = dma_alloc_noncoherent(dev, RTL_ECC_DMA_SIZE, &rtlc->buf_dma,
 					  DMA_BIDIRECTIONAL, GFP_KERNEL);
-	if (IS_ERR(rtlc->buf))
-		return PTR_ERR(rtlc->buf);
+	if (!rtlc->buf)
+		return -ENOMEM;
 
 	rtlc->dev = dev;
 	rtlc->engine.dev = dev;

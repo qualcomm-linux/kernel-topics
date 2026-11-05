@@ -32,6 +32,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/scatterlist.h>
 #include <linux/string.h>
+#include <linux/sysfs.h>
 #include <linux/workqueue.h>
 
 #include "omap-crypto.h"
@@ -1042,7 +1043,7 @@ static ssize_t queue_len_show(struct device *dev, struct device_attribute *attr,
 {
 	struct omap_aes_dev *dd = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%d\n", dd->engine->queue.max_qlen);
+	return sysfs_emit(buf, "%d\n", dd->engine->queue.max_qlen);
 }
 
 static ssize_t queue_len_store(struct device *dev,
@@ -1087,6 +1088,20 @@ static struct attribute *omap_aes_attrs[] = {
 	NULL,
 };
 ATTRIBUTE_GROUPS(omap_aes);
+
+static void omap_aes_unregister_algs(const struct omap_aes_pdata *pdata)
+{
+	struct omap_aes_algs_info *alg_info;
+	int i;
+
+	for (i = pdata->algs_info_size - 1; i >= 0; i--) {
+		alg_info = &pdata->algs_info[i];
+
+		crypto_engine_unregister_skciphers(alg_info->algs_list,
+						   alg_info->registered);
+		alg_info->registered = 0;
+	}
+}
 
 static int omap_aes_probe(struct platform_device *pdev)
 {
@@ -1214,15 +1229,11 @@ static int omap_aes_probe(struct platform_device *pdev)
 
 	return 0;
 err_aead_algs:
-	for (i = dd->pdata->aead_algs_info->registered - 1; i >= 0; i--) {
-		aalg = &dd->pdata->aead_algs_info->algs_list[i];
-		crypto_engine_unregister_aead(aalg);
-	}
+	crypto_engine_unregister_aeads(dd->pdata->aead_algs_info->algs_list,
+				       dd->pdata->aead_algs_info->registered);
+	dd->pdata->aead_algs_info->registered = 0;
 err_algs:
-	for (i = dd->pdata->algs_info_size - 1; i >= 0; i--)
-		for (j = dd->pdata->algs_info[i].registered - 1; j >= 0; j--)
-			crypto_engine_unregister_skcipher(
-					&dd->pdata->algs_info[i].algs_list[j]);
+	omap_aes_unregister_algs(dd->pdata);
 
 err_engine:
 	if (dd->engine)
@@ -1243,25 +1254,16 @@ err_data:
 static void omap_aes_remove(struct platform_device *pdev)
 {
 	struct omap_aes_dev *dd = platform_get_drvdata(pdev);
-	struct aead_engine_alg *aalg;
-	int i, j;
 
 	spin_lock_bh(&list_lock);
 	list_del(&dd->list);
 	spin_unlock_bh(&list_lock);
 
-	for (i = dd->pdata->algs_info_size - 1; i >= 0; i--)
-		for (j = dd->pdata->algs_info[i].registered - 1; j >= 0; j--) {
-			crypto_engine_unregister_skcipher(
-					&dd->pdata->algs_info[i].algs_list[j]);
-			dd->pdata->algs_info[i].registered--;
-		}
+	omap_aes_unregister_algs(dd->pdata);
 
-	for (i = dd->pdata->aead_algs_info->registered - 1; i >= 0; i--) {
-		aalg = &dd->pdata->aead_algs_info->algs_list[i];
-		crypto_engine_unregister_aead(aalg);
-		dd->pdata->aead_algs_info->registered--;
-	}
+	crypto_engine_unregister_aeads(dd->pdata->aead_algs_info->algs_list,
+				       dd->pdata->aead_algs_info->registered);
+	dd->pdata->aead_algs_info->registered = 0;
 
 	crypto_engine_exit(dd->engine);
 

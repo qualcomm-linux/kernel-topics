@@ -486,13 +486,10 @@ static int mxc4005_probe(struct i2c_client *client)
 		if (!data->dready_trig)
 			return -ENOMEM;
 
-		ret = devm_request_threaded_irq(&client->dev, client->irq,
-						iio_trigger_generic_data_rdy_poll,
-						NULL,
-						IRQF_TRIGGER_FALLING |
-						IRQF_ONESHOT,
-						"mxc4005_event",
-						data->dready_trig);
+		ret = devm_request_irq(&client->dev, client->irq,
+				       iio_trigger_generic_data_rdy_poll,
+				       IRQF_TRIGGER_FALLING | IRQF_NO_THREAD,
+				       "mxc4005_event", data->dready_trig);
 		if (ret) {
 			dev_err(&client->dev,
 				"failed to init threaded irq\n");
@@ -583,8 +580,8 @@ static const struct of_device_id mxc4005_of_match[] = {
 MODULE_DEVICE_TABLE(of, mxc4005_of_match);
 
 static const struct i2c_device_id mxc4005_id[] = {
-	{ "mxc4005" },
-	{ "mxc6655" },
+	{ .name = "mxc4005" },
+	{ .name = "mxc6655" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, mxc4005_id);

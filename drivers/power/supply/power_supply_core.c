@@ -292,16 +292,11 @@ static int power_supply_check_supplies(struct power_supply *psy)
 	if (cnt == 1)
 		return 0;
 
-	/* All supplies found, allocate char ** array for filling */
-	psy->supplied_from = devm_kzalloc(&psy->dev, sizeof(*psy->supplied_from),
+	/* All supplies found, allocate char * array for filling */
+	psy->supplied_from = devm_kcalloc(&psy->dev,
+					  cnt - 1, sizeof(*psy->supplied_from),
 					  GFP_KERNEL);
 	if (!psy->supplied_from)
-		return -ENOMEM;
-
-	*psy->supplied_from = devm_kcalloc(&psy->dev,
-					   cnt - 1, sizeof(**psy->supplied_from),
-					   GFP_KERNEL);
-	if (!*psy->supplied_from)
 		return -ENOMEM;
 
 	return power_supply_populate_supplied_from(psy);
@@ -1426,7 +1421,7 @@ int power_supply_register_extension(struct power_supply *psy, const struct power
 		if (power_supply_has_property(psy, ext->properties[i]))
 			return -EEXIST;
 
-	reg = kmalloc(sizeof(*reg), GFP_KERNEL);
+	reg = kmalloc_obj(*reg);
 	if (!reg)
 		return -ENOMEM;
 

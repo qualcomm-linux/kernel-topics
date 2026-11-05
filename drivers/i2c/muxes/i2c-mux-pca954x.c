@@ -118,6 +118,7 @@ struct pca954x {
 	raw_spinlock_t lock;
 	struct regulator *supply;
 
+	struct gpio_desc *reset_gpio;
 	struct reset_control *reset_cont;
 };
 
@@ -249,24 +250,24 @@ static const struct chip_desc chips[] = {
 };
 
 static const struct i2c_device_id pca954x_id[] = {
-	{ "max7356", max_7356 },
-	{ "max7357", max_7357 },
-	{ "max7358", max_7358 },
-	{ "max7367", max_7367 },
-	{ "max7368", max_7368 },
-	{ "max7369", max_7369 },
-	{ "pca9540", pca_9540 },
-	{ "pca9542", pca_9542 },
-	{ "pca9543", pca_9543 },
-	{ "pca9544", pca_9544 },
-	{ "pca9545", pca_9545 },
-	{ "pca9546", pca_9546 },
-	{ "pca9547", pca_9547 },
-	{ "pca9548", pca_9548 },
-	{ "pca9846", pca_9846 },
-	{ "pca9847", pca_9847 },
-	{ "pca9848", pca_9848 },
-	{ "pca9849", pca_9849 },
+	{ .name = "max7356", .driver_data = max_7356 },
+	{ .name = "max7357", .driver_data = max_7357 },
+	{ .name = "max7358", .driver_data = max_7358 },
+	{ .name = "max7367", .driver_data = max_7367 },
+	{ .name = "max7368", .driver_data = max_7368 },
+	{ .name = "max7369", .driver_data = max_7369 },
+	{ .name = "pca9540", .driver_data = pca_9540 },
+	{ .name = "pca9542", .driver_data = pca_9542 },
+	{ .name = "pca9543", .driver_data = pca_9543 },
+	{ .name = "pca9544", .driver_data = pca_9544 },
+	{ .name = "pca9545", .driver_data = pca_9545 },
+	{ .name = "pca9546", .driver_data = pca_9546 },
+	{ .name = "pca9547", .driver_data = pca_9547 },
+	{ .name = "pca9548", .driver_data = pca_9548 },
+	{ .name = "pca9846", .driver_data = pca_9846 },
+	{ .name = "pca9847", .driver_data = pca_9847 },
+	{ .name = "pca9848", .driver_data = pca_9848 },
+	{ .name = "pca9849", .driver_data = pca_9849 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, pca954x_id);
@@ -315,25 +316,6 @@ static u8 pca954x_regval(struct pca954x *data, u8 chan)
 		return 1 << chan;
 }
 
-static void pca954x_reset_assert(struct pca954x *data)
-{
-	if (data->reset_cont)
-		reset_control_assert(data->reset_cont);
-}
-
-static void pca954x_reset_deassert(struct pca954x *data)
-{
-	if (data->reset_cont)
-		reset_control_deassert(data->reset_cont);
-}
-
-static void pca954x_reset_mux(struct pca954x *data)
-{
-	pca954x_reset_assert(data);
-	udelay(1);
-	pca954x_reset_deassert(data);
-}
-
 static int pca954x_select_chan(struct i2c_mux_core *muxc, u32 chan)
 {
 	struct pca954x *data = i2c_mux_priv(muxc);
@@ -347,8 +329,6 @@ static int pca954x_select_chan(struct i2c_mux_core *muxc, u32 chan)
 		ret = pca954x_reg_write(muxc->parent, client, regval);
 		data->last_chan = ret < 0 ? 0 : regval;
 	}
-	if (ret == -ETIMEDOUT && data->reset_cont)
-		pca954x_reset_mux(data);
 
 	return ret;
 }
@@ -358,7 +338,6 @@ static int pca954x_deselect_mux(struct i2c_mux_core *muxc, u32 chan)
 	struct pca954x *data = i2c_mux_priv(muxc);
 	struct i2c_client *client = data->client;
 	s32 idle_state;
-	int ret = 0;
 
 	idle_state = READ_ONCE(data->idle_state);
 	if (idle_state >= 0)
@@ -368,10 +347,8 @@ static int pca954x_deselect_mux(struct i2c_mux_core *muxc, u32 chan)
 	if (idle_state == MUX_IDLE_DISCONNECT) {
 		/* Deselect active channel */
 		data->last_chan = 0;
-		ret = pca954x_reg_write(muxc->parent, client,
-					data->last_chan);
-		if (ret == -ETIMEDOUT && data->reset_cont)
-			pca954x_reset_mux(data);
+		return pca954x_reg_write(muxc->parent, client,
+					 data->last_chan);
 	}
 
 	/* otherwise leave as-is */
@@ -550,8 +527,27 @@ static int pca954x_get_reset(struct device *dev, struct pca954x *data)
 	if (IS_ERR(data->reset_cont))
 		return dev_err_probe(dev, PTR_ERR(data->reset_cont),
 				     "Failed to get reset\n");
+	else if (data->reset_cont)
+		return 0;
+
+	/*
+	 * fallback to legacy reset-gpios
+	 */
+	data->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(data->reset_gpio)) {
+		return dev_err_probe(dev, PTR_ERR(data->reset_gpio),
+				     "Failed to get reset gpio");
+	}
 
 	return 0;
+}
+
+static void pca954x_reset_deassert(struct pca954x *data)
+{
+	if (data->reset_cont)
+		reset_control_deassert(data->reset_cont);
+	else
+		gpiod_set_value_cansleep(data->reset_gpio, 0);
 }
 
 /*
@@ -593,7 +589,7 @@ static int pca954x_probe(struct i2c_client *client)
 	if (ret)
 		goto fail_cleanup;
 
-	if (data->reset_cont) {
+	if (data->reset_cont || data->reset_gpio) {
 		udelay(1);
 		pca954x_reset_deassert(data);
 		/* Give the chip some time to recover. */

@@ -10,6 +10,7 @@
 
 #include <asm/apic.h>
 #include <asm/cpu.h>
+#include <asm/cpuid/api.h>
 #include <asm/smp.h>
 #include <asm/numa.h>
 #include <asm/cacheinfo.h>
@@ -173,12 +174,6 @@ static void init_hygon(struct cpuinfo_x86 *c)
 	u64 vm_cr;
 
 	early_init_hygon(c);
-
-	/*
-	 * Bit 31 in normal CPUID used for nonstandard 3DNow ID;
-	 * 3DNow is IDd by bit 31 in extended CPUID (1*32+31) anyway
-	 */
-	clear_cpu_cap(c, 0*32+31);
 
 	set_cpu_cap(c, X86_FEATURE_REP_GOOD);
 

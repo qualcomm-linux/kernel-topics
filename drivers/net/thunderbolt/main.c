@@ -10,6 +10,7 @@
  */
 
 #include <linux/atomic.h>
+#include <linux/ethtool.h>
 #include <linux/highmem.h>
 #include <linux/if_vlan.h>
 #include <linux/jhash.h>
@@ -33,11 +34,12 @@
 #define TBNET_RING_SIZE		256
 #define TBNET_LOGIN_RETRIES	60
 #define TBNET_LOGOUT_RETRIES	10
+#define TBNET_THROTTLING	128000
 #define TBNET_E2E		BIT(0)
 #define TBNET_MATCH_FRAGS_ID	BIT(1)
 #define TBNET_64K_FRAMES	BIT(2)
 #define TBNET_MAX_MTU		SZ_64K
-#define TBNET_FRAME_SIZE	SZ_4K
+#define TBNET_FRAME_SIZE	TB_MAX_FRAME_SIZE
 #define TBNET_MAX_PAYLOAD_SIZE	\
 	(TBNET_FRAME_SIZE - sizeof(struct thunderbolt_ip_frame_header))
 /* Rx packets need to hold space for skb_shared_info */
@@ -326,11 +328,6 @@ static void stop_login(struct tbnet *net)
 	netdev_dbg(net->dev, "login stopped\n");
 }
 
-static inline unsigned int tbnet_frame_size(const struct tbnet_frame *tf)
-{
-	return tf->frame.size ? : TBNET_FRAME_SIZE;
-}
-
 static void tbnet_free_buffers(struct tbnet_ring *ring)
 {
 	unsigned int i;
@@ -561,7 +558,7 @@ static struct tbnet_frame *tbnet_get_tx_buffer(struct tbnet *net)
 	tf->frame.size = 0;
 
 	dma_sync_single_for_cpu(dma_dev, tf->frame.buffer_phy,
-				tbnet_frame_size(tf), DMA_TO_DEVICE);
+				tb_ring_frame_size(&tf->frame), DMA_TO_DEVICE);
 
 	return tf;
 }
@@ -743,7 +740,7 @@ static bool tbnet_check_frame(struct tbnet *net, const struct tbnet_frame *tf,
 	}
 
 	/* Should be greater than just header i.e. contains data */
-	size = tbnet_frame_size(tf);
+	size = tb_ring_frame_size(&tf->frame);
 	if (size <= sizeof(*hdr)) {
 		net->stats.rx_length_errors++;
 		return false;
@@ -786,8 +783,12 @@ static bool tbnet_check_frame(struct tbnet *net, const struct tbnet_frame *tf,
 		return true;
 	}
 
-	/* Start of packet, validate the frame header */
-	if (frame_count == 0 || frame_count > TBNET_RING_SIZE / 4) {
+	/* Start of packet, validate the frame header. tbnet_poll() puts the
+	 * first frame in the skb linear area and every further frame in a page
+	 * fragment, so a packet may not span more than MAX_SKB_FRAGS + 1 frames
+	 * without overflowing skb_shinfo()->frags[].
+	 */
+	if (frame_count == 0 || frame_count > MAX_SKB_FRAGS + 1) {
 		net->stats.rx_length_errors++;
 		return false;
 	}
@@ -960,6 +961,9 @@ static int tbnet_open(struct net_device *dev)
 	}
 	net->rx_ring.ring = ring;
 
+	tb_ring_throttling(net->tx_ring.ring, TBNET_THROTTLING);
+	tb_ring_throttling(net->rx_ring.ring, TBNET_THROTTLING);
+
 	napi_enable(&net->napi);
 	start_login(net);
 
@@ -1010,7 +1014,8 @@ static bool tbnet_xmit_csum_and_map(struct tbnet *net, struct sk_buff *skb,
 						hdr->frame_index, hdr->frame_count);
 			dma_sync_single_for_device(dma_dev,
 				frames[i]->frame.buffer_phy,
-				tbnet_frame_size(frames[i]), DMA_TO_DEVICE);
+				tb_ring_frame_size(&frames[i]->frame),
+						   DMA_TO_DEVICE);
 		}
 
 		return true;
@@ -1084,7 +1089,7 @@ static bool tbnet_xmit_csum_and_map(struct tbnet *net, struct sk_buff *skb,
 	 */
 	for (i = 0; i < frame_count; i++) {
 		dma_sync_single_for_device(dma_dev, frames[i]->frame.buffer_phy,
-			tbnet_frame_size(frames[i]), DMA_TO_DEVICE);
+			tb_ring_frame_size(&frames[i]->frame), DMA_TO_DEVICE);
 	}
 
 	return true;
@@ -1261,7 +1266,55 @@ static const struct net_device_ops tbnet_netdev_ops = {
 	.ndo_open = tbnet_open,
 	.ndo_stop = tbnet_stop,
 	.ndo_start_xmit = tbnet_start_xmit,
+	.ndo_set_mac_address = eth_mac_addr,
 	.ndo_get_stats64 = tbnet_get_stats64,
+};
+
+static int tbnet_get_link_ksettings(struct net_device *dev,
+				    struct ethtool_link_ksettings *cmd)
+{
+	const struct tbnet *net = netdev_priv(dev);
+	const struct tb_xdomain *xd = net->xd;
+	int speed;
+
+	ethtool_link_ksettings_zero_link_mode(cmd, supported);
+	ethtool_link_ksettings_zero_link_mode(cmd, advertising);
+
+	/* Figure out the current link speed and width */
+	switch (xd->link_speed) {
+	case 40:
+		speed = SPEED_80000;
+		break;
+
+	case 20:
+		if (xd->link_width == 2)
+			speed = SPEED_40000;
+		else
+			speed = SPEED_20000;
+		break;
+
+	case 10:
+		if (xd->link_width == 2) {
+			speed = SPEED_20000;
+			break;
+		}
+		fallthrough;
+
+	default:
+		speed = SPEED_10000;
+		break;
+	}
+
+	cmd->base.speed = speed;
+	cmd->base.duplex = DUPLEX_FULL;
+	cmd->base.autoneg = AUTONEG_DISABLE;
+	cmd->base.port = PORT_OTHER;
+
+	return 0;
+}
+
+static const struct ethtool_ops tbnet_ethtool_ops = {
+	.get_link_ksettings = tbnet_get_link_ksettings,
 };
 
 static void tbnet_generate_mac(struct net_device *dev)
@@ -1281,6 +1334,9 @@ static void tbnet_generate_mac(struct net_device *dev)
 	hash = jhash2((u32 *)xd->local_uuid, 4, hash);
 	addr[5] = hash & 0xff;
 	eth_hw_addr_set(dev, addr);
+
+	/* Allow changing it if needed */
+	dev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
 }
 
 static int tbnet_probe(struct tb_service *svc, const struct tb_service_id *id)
@@ -1311,6 +1367,7 @@ static int tbnet_probe(struct tb_service *svc, const struct tb_service_id *id)
 
 	strcpy(dev->name, "thunderbolt%d");
 	dev->netdev_ops = &tbnet_netdev_ops;
+	dev->ethtool_ops = &tbnet_ethtool_ops;
 
 	/* ThunderboltIP takes advantage of TSO packets but instead of
 	 * segmenting them we just split the packet into Thunderbolt

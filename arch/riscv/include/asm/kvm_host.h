@@ -18,6 +18,7 @@
 #include <asm/ptrace.h>
 #include <asm/kvm_tlb.h>
 #include <asm/kvm_vmid.h>
+#include <asm/kvm_vcpu_config.h>
 #include <asm/kvm_vcpu_fp.h>
 #include <asm/kvm_vcpu_insn.h>
 #include <asm/kvm_vcpu_sbi.h>
@@ -47,17 +48,10 @@
 
 #define __KVM_HAVE_ARCH_FLUSH_REMOTE_TLBS_RANGE
 
-#define KVM_HEDELEG_DEFAULT		(BIT(EXC_INST_MISALIGNED) | \
-					 BIT(EXC_INST_ILLEGAL)     | \
-					 BIT(EXC_BREAKPOINT)      | \
-					 BIT(EXC_SYSCALL)         | \
-					 BIT(EXC_INST_PAGE_FAULT) | \
-					 BIT(EXC_LOAD_PAGE_FAULT) | \
-					 BIT(EXC_STORE_PAGE_FAULT))
+#define KVM_HAVE_MMU_RWLOCK
 
-#define KVM_HIDELEG_DEFAULT		(BIT(IRQ_VS_SOFT)  | \
-					 BIT(IRQ_VS_TIMER) | \
-					 BIT(IRQ_VS_EXT))
+#define KVM_DIRTY_LOG_MANUAL_CAPS	(KVM_DIRTY_LOG_MANUAL_PROTECT_ENABLE | \
+					 KVM_DIRTY_LOG_INITIALLY_SET)
 
 struct kvm_vm_stat {
 	struct kvm_vm_stat_generic generic;
@@ -91,6 +85,7 @@ struct kvm_arch {
 	/* G-stage page table */
 	pgd_t *pgd;
 	phys_addr_t pgd_phys;
+	unsigned long pgd_levels;
 
 	/* Guest Timer */
 	struct kvm_guest_timer timer;
@@ -162,12 +157,6 @@ struct kvm_vcpu_csr {
 	unsigned long vsatp;
 	unsigned long scounteren;
 	unsigned long senvcfg;
-};
-
-struct kvm_vcpu_config {
-	u64 henvcfg;
-	u64 hstateen0;
-	unsigned long hedeleg;
 };
 
 struct kvm_vcpu_smstateen_csr {
@@ -270,6 +259,9 @@ struct kvm_vcpu_arch {
 	/* 'static' configurations which are set only once */
 	struct kvm_vcpu_config cfg;
 
+	/* Indicates modified guest CSRs */
+	bool csr_dirty;
+
 	/* SBI steal-time accounting */
 	struct {
 		gpa_t shmem;
@@ -326,5 +318,8 @@ void kvm_riscv_vcpu_power_on(struct kvm_vcpu *vcpu);
 bool kvm_riscv_vcpu_stopped(struct kvm_vcpu *vcpu);
 
 void kvm_riscv_vcpu_record_steal_time(struct kvm_vcpu *vcpu);
+
+/* Flags representing implementation specific details */
+DECLARE_STATIC_KEY_FALSE(kvm_riscv_vsstage_tlb_no_gpa);
 
 #endif /* __RISCV_KVM_HOST_H__ */

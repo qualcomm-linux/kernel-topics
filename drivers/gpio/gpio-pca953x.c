@@ -86,46 +86,49 @@
 #define PCA_CHIP_TYPE(x)	((x) & PCA_TYPE_MASK)
 
 static const struct i2c_device_id pca953x_id[] = {
-	{ "pca6408", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "pca6416", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "pca9505", 40 | PCA953X_TYPE | PCA_INT, },
-	{ "pca9506", 40 | PCA953X_TYPE | PCA_INT, },
-	{ "pca9534", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "pca9535", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "pca9536", 4  | PCA953X_TYPE, },
-	{ "pca9537", 4  | PCA953X_TYPE | PCA_INT, },
-	{ "pca9538", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "pca9539", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "pca9554", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "pca9555", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "pca9556", 8  | PCA953X_TYPE, },
-	{ "pca9557", 8  | PCA953X_TYPE, },
-	{ "pca9574", 8  | PCA957X_TYPE | PCA_INT, },
-	{ "pca9575", 16 | PCA957X_TYPE | PCA_INT, },
-	{ "pca9698", 40 | PCA953X_TYPE, },
+	{ .name = "pca6408", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca6416", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9505", .driver_data = 40 | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9506", .driver_data = 40 | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9534", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9535", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9536", .driver_data = 4  | PCA953X_TYPE },
+	{ .name = "pca9537", .driver_data = 4  | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9538", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9539", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9554", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9555", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca9556", .driver_data = 8  | PCA953X_TYPE },
+	{ .name = "pca9557", .driver_data = 8  | PCA953X_TYPE },
+	{ .name = "pca9574", .driver_data = 8  | PCA957X_TYPE | PCA_INT },
+	{ .name = "pca9575", .driver_data = 16 | PCA957X_TYPE | PCA_INT },
+	{ .name = "pca9698", .driver_data = 40 | PCA953X_TYPE },
 
-	{ "pcal6408", 8 | PCA953X_TYPE | PCA_LATCH_INT, },
-	{ "pcal6416", 16 | PCA953X_TYPE | PCA_LATCH_INT, },
-	{ "pcal6524", 24 | PCA953X_TYPE | PCA_LATCH_INT, },
-	{ "pcal6534", 34 | PCAL653X_TYPE | PCA_LATCH_INT, },
-	{ "pcal9535", 16 | PCA953X_TYPE | PCA_LATCH_INT, },
-	{ "pcal9554b", 8  | PCA953X_TYPE | PCA_LATCH_INT, },
-	{ "pcal9555a", 16 | PCA953X_TYPE | PCA_LATCH_INT, },
+	{ .name = "pcal6408",  .driver_data = 8  | PCA953X_TYPE | PCA_LATCH_INT },
+	{ .name = "pcal6416",  .driver_data = 16 | PCA953X_TYPE | PCA_LATCH_INT },
+	{ .name = "pcal6524",  .driver_data = 24 | PCA953X_TYPE | PCA_LATCH_INT },
+	{ .name = "pcal6534",  .driver_data = 34 | PCAL653X_TYPE | PCA_LATCH_INT },
+	{ .name = "pcal9535",  .driver_data = 16 | PCA953X_TYPE | PCA_LATCH_INT },
+	{ .name = "pcal9554b", .driver_data = 8  | PCA953X_TYPE | PCA_LATCH_INT },
+	{ .name = "pcal9555a", .driver_data = 16 | PCA953X_TYPE | PCA_LATCH_INT },
 
-	{ "max7310", 8  | PCA953X_TYPE, },
-	{ "max7312", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "max7313", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "max7315", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "max7318", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "pca6107", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "tca6408", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "tca6416", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "tca6418", 18 | TCA6418_TYPE | PCA_INT, },
-	{ "tca6424", 24 | PCA953X_TYPE | PCA_INT, },
-	{ "tca9538", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "tca9539", 16 | PCA953X_TYPE | PCA_INT, },
-	{ "tca9554", 8  | PCA953X_TYPE | PCA_INT, },
-	{ "xra1202", 8  | PCA953X_TYPE },
+	{ .name = "max7310", .driver_data = 8  | PCA953X_TYPE },
+	{ .name = "max7312", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "max7313", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "max7315", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "max7318", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "pca6107", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "tca6408", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "tca6416", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "tca6418", .driver_data = 18 | TCA6418_TYPE | PCA_INT },
+	{ .name = "tca6424", .driver_data = 24 | PCA953X_TYPE | PCA_INT },
+	{ .name = "tca9538", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "tca9539", .driver_data = 16 | PCA953X_TYPE | PCA_INT },
+	{ .name = "tca9554", .driver_data = 8  | PCA953X_TYPE | PCA_INT },
+	{ .name = "xra1202", .driver_data = 8  | PCA953X_TYPE },
+
+	{ .name = "tcal6408", .driver_data = 8  | PCA953X_TYPE | PCA_LATCH_INT },
+	{ .name = "tcal6416", .driver_data = 16 | PCA953X_TYPE | PCA_LATCH_INT },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, pca953x_id);
@@ -306,7 +309,7 @@ static inline u8 pca953x_get_bit_mask(struct pca953x_chip *chip, unsigned int of
  *     Interrupt mask register		0x40 + 5 * bank_size	RW
  *     Interrupt status register	0x40 + 6 * bank_size	R
  *
- * - Registers with bit 0x80 set, the AI bit
+ * - Registers with bit 0x80 set, the AI bit (auto increment)
  *   The bit is cleared and the registers fall into one of the
  *   categories above.
  */
@@ -854,10 +857,13 @@ static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
 	int level;
 
 	if (chip->driver_data & PCA_PCAL) {
+		DECLARE_BITMAP(latched_inputs, MAX_LINE);
 		guard(mutex)(&chip->i2c_lock);
 
-		/* Enable latch on interrupt-enabled inputs */
-		pca953x_write_regs(chip, PCAL953X_IN_LATCH, chip->irq_mask);
+		/* Enable latch on edge-triggered interrupt-enabled inputs */
+		bitmap_or(latched_inputs, chip->irq_trig_fall, chip->irq_trig_raise, gc->ngpio);
+		bitmap_and(latched_inputs, latched_inputs, chip->irq_mask, gc->ngpio);
+		pca953x_write_regs(chip, PCAL953X_IN_LATCH, latched_inputs);
 
 		bitmap_complement(irq_mask, chip->irq_mask, gc->ngpio);
 
@@ -871,11 +877,9 @@ static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
 	bitmap_or(irq_mask, chip->irq_trig_fall, chip->irq_trig_raise, gc->ngpio);
 	bitmap_or(irq_mask, irq_mask, chip->irq_trig_level_high, gc->ngpio);
 	bitmap_or(irq_mask, irq_mask, chip->irq_trig_level_low, gc->ngpio);
-	bitmap_complement(reg_direction, reg_direction, gc->ngpio);
-	bitmap_and(irq_mask, irq_mask, reg_direction, gc->ngpio);
 
 	/* Look for any newly setup interrupt */
-	for_each_set_bit(level, irq_mask, gc->ngpio)
+	for_each_andnot_bit(level, irq_mask, reg_direction, gc->ngpio)
 		pca953x_gpio_direction_input(&chip->gpio_chip, level);
 
 	mutex_unlock(&chip->irq_lock);
@@ -911,6 +915,8 @@ static void pca953x_irq_shutdown(struct irq_data *d)
 	clear_bit(hwirq, chip->irq_trig_fall);
 	clear_bit(hwirq, chip->irq_trig_level_low);
 	clear_bit(hwirq, chip->irq_trig_level_high);
+
+	pca953x_irq_mask(d);
 }
 
 static void pca953x_irq_print_chip(struct irq_data *data, struct seq_file *p)
@@ -940,13 +946,34 @@ static bool pca953x_irq_pending(struct pca953x_chip *chip, unsigned long *pendin
 	DECLARE_BITMAP(old_stat, MAX_LINE);
 	DECLARE_BITMAP(cur_stat, MAX_LINE);
 	DECLARE_BITMAP(new_stat, MAX_LINE);
+	DECLARE_BITMAP(int_stat, MAX_LINE);
 	DECLARE_BITMAP(trigger, MAX_LINE);
 	DECLARE_BITMAP(edges, MAX_LINE);
 	int ret;
 
+	if (chip->driver_data & PCA_PCAL) {
+		/* Read INT_STAT before it is cleared by the input-port read. */
+		ret = pca953x_read_regs(chip, PCAL953X_INT_STAT, int_stat);
+		if (ret)
+			return false;
+	}
+
 	ret = pca953x_read_regs(chip, chip->regs->input, cur_stat);
 	if (ret)
 		return false;
+
+	if (chip->driver_data & PCA_PCAL) {
+		/* Detect short pulses via INT_STAT. */
+		bitmap_and(trigger, int_stat, chip->irq_mask, gc->ngpio);
+
+		/* Apply filter for rising/falling edge selection. */
+		bitmap_replace(new_stat, chip->irq_trig_fall, chip->irq_trig_raise,
+			       cur_stat, gc->ngpio);
+
+		bitmap_and(int_stat, new_stat, trigger, gc->ngpio);
+	} else {
+		bitmap_zero(int_stat, gc->ngpio);
+	}
 
 	/* Remove output pins from the equation */
 	pca953x_read_regs(chip, chip->regs->direction, reg_direction);
@@ -961,7 +988,8 @@ static bool pca953x_irq_pending(struct pca953x_chip *chip, unsigned long *pendin
 
 	if (bitmap_empty(chip->irq_trig_level_high, gc->ngpio) &&
 	    bitmap_empty(chip->irq_trig_level_low, gc->ngpio)) {
-		if (bitmap_empty(trigger, gc->ngpio))
+		if (bitmap_empty(trigger, gc->ngpio) &&
+		    bitmap_empty(int_stat, gc->ngpio))
 			return false;
 	}
 
@@ -969,13 +997,13 @@ static bool pca953x_irq_pending(struct pca953x_chip *chip, unsigned long *pendin
 	bitmap_and(old_stat, chip->irq_trig_raise, new_stat, gc->ngpio);
 	bitmap_or(edges, old_stat, cur_stat, gc->ngpio);
 	bitmap_and(pending, edges, trigger, gc->ngpio);
+	bitmap_or(pending, pending, int_stat, gc->ngpio);
 
 	bitmap_and(cur_stat, new_stat, chip->irq_trig_level_high, gc->ngpio);
 	bitmap_and(cur_stat, cur_stat, chip->irq_mask, gc->ngpio);
 	bitmap_or(pending, pending, cur_stat, gc->ngpio);
 
-	bitmap_complement(cur_stat, new_stat, gc->ngpio);
-	bitmap_and(cur_stat, cur_stat, reg_direction, gc->ngpio);
+	bitmap_andnot(cur_stat, reg_direction, new_stat, gc->ngpio);
 	bitmap_and(old_stat, cur_stat, chip->irq_trig_level_low, gc->ngpio);
 	bitmap_and(old_stat, old_stat, chip->irq_mask, gc->ngpio);
 	bitmap_or(pending, pending, old_stat, gc->ngpio);
@@ -1203,10 +1231,10 @@ static int pca953x_probe(struct i2c_client *client)
 	pca953x_setup_gpio(chip, chip->driver_data & PCA_GPIO_MASK);
 
 	if (NBANK(chip) > 2 || PCA_CHIP_TYPE(chip->driver_data) == PCA957X_TYPE) {
-		dev_info(dev, "using AI\n");
+		dev_info(dev, "using auto increment\n");
 		regmap_config = &pca953x_ai_i2c_regmap;
 	} else {
-		dev_info(dev, "using no AI\n");
+		dev_info(dev, "using no auto increment\n");
 		regmap_config = &pca953x_i2c_regmap;
 	}
 
@@ -1380,7 +1408,7 @@ static int pca953x_resume(struct device *dev)
 		ret = regulator_enable(chip->regulator);
 		if (ret) {
 			dev_err(dev, "Failed to enable regulator: %d\n", ret);
-			return 0;
+			return ret;
 		}
 	}
 
@@ -1440,6 +1468,9 @@ static const struct of_device_id pca953x_dt_ids[] = {
 	{ .compatible = "ti,tca9535", .data = OF_953X(16, PCA_INT), },
 	{ .compatible = "ti,tca9538", .data = OF_953X( 8, PCA_INT), },
 	{ .compatible = "ti,tca9539", .data = OF_953X(16, PCA_INT), },
+
+	{ .compatible = "ti,tcal6408", .data = OF_953X( 8, PCA_LATCH_INT), },
+	{ .compatible = "ti,tcal6416", .data = OF_953X(16, PCA_LATCH_INT), },
 
 	{ .compatible = "onnn,cat9554", .data = OF_953X( 8, PCA_INT), },
 	{ .compatible = "onnn,pca9654", .data = OF_953X( 8, PCA_INT), },

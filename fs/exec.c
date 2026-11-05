@@ -35,6 +35,7 @@
 #include <linux/init.h>
 #include <linux/sched/mm.h>
 #include <linux/sched/coredump.h>
+#include <linux/sched/exec_state.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/numa_balancing.h>
 #include <linux/sched/task.h>
@@ -262,6 +263,9 @@ static int bprm_mm_init(struct linux_binprm *bprm)
 	err = -ENOMEM;
 	if (!mm)
 		goto err;
+
+	/* Staged for would_dump() narrowing; consumed by begin_new_exec(). */
+	bprm->user_ns = get_user_ns(current_user_ns());
 
 	/* Save current stack limit for all calculations made during exec. */
 	task_lock(current->group_leader);
@@ -555,7 +559,7 @@ int copy_string_kernel(const char *arg, struct linux_binprm *bprm)
 		return -E2BIG;
 
 	while (len > 0) {
-		unsigned int bytes_to_copy = min_t(unsigned int, len,
+		unsigned int bytes_to_copy = min(len,
 				min_not_zero(offset_in_page(pos), PAGE_SIZE));
 		struct page *page;
 
@@ -777,10 +781,8 @@ static struct file *do_open_execat(int fd, struct filename *name, int flags)
 		return ERR_PTR(-EINVAL);
 	if (flags & AT_SYMLINK_NOFOLLOW)
 		open_exec_flags.lookup_flags &= ~LOOKUP_FOLLOW;
-	if (flags & AT_EMPTY_PATH)
-		open_exec_flags.lookup_flags |= LOOKUP_EMPTY;
 
-	file = do_filp_open(fd, name, &open_exec_flags);
+	file = do_file_open(fd, name, &open_exec_flags);
 	if (IS_ERR(file))
 		return file;
 
@@ -815,14 +817,8 @@ static struct file *do_open_execat(int fd, struct filename *name, int flags)
  */
 struct file *open_exec(const char *name)
 {
-	struct filename *filename = getname_kernel(name);
-	struct file *f = ERR_CAST(filename);
-
-	if (!IS_ERR(filename)) {
-		f = do_open_execat(AT_FDCWD, filename, 0);
-		putname(filename);
-	}
-	return f;
+	CLASS(filename_kernel, filename)(name);
+	return do_open_execat(AT_FDCWD, filename, 0);
 }
 EXPORT_SYMBOL(open_exec);
 
@@ -840,13 +836,20 @@ EXPORT_SYMBOL(read_code);
 /*
  * Maps the mm_struct mm into the current task struct.
  * On success, this function returns with exec_update_lock
- * held for writing.
+ * held for writing. The replaced address space is stashed in
+ * bprm->old_mm for setup_new_exec() to release outside the lock.
  */
-static int exec_mmap(struct mm_struct *mm)
+static int exec_mmap(struct linux_binprm *bprm)
 {
+	struct task_exec_state *exec_state __free(put_task_exec_state) = NULL;
+	struct mm_struct *mm = bprm->mm;
 	struct task_struct *tsk;
 	struct mm_struct *old_mm, *active_mm;
 	int ret;
+
+	exec_state = alloc_task_exec_state(bprm->user_ns);
+	if (!exec_state)
+		return -ENOMEM;
 
 	/* Notify parent that we're no longer interested in the old VM */
 	tsk = current;
@@ -878,6 +881,7 @@ static int exec_mmap(struct mm_struct *mm)
 	tsk->active_mm = mm;
 	tsk->mm = mm;
 	mm_init_cid(mm, tsk);
+	exec_state = task_exec_state_replace(tsk, exec_state);
 	/*
 	 * This prevents preemption while active_mm is being loaded and
 	 * it and mm are being updated, which could cause problems for
@@ -896,13 +900,20 @@ static int exec_mmap(struct mm_struct *mm)
 	if (old_mm) {
 		mmap_read_unlock(old_mm);
 		BUG_ON(active_mm != old_mm);
-		setmax_mm_hiwater_rss(&tsk->signal->maxrss, old_mm);
-		mm_update_next_owner(old_mm);
-		mmput(old_mm);
+		/* Defer teardown to setup_new_exec(), outside the exec locks. */
+		bprm->old_mm = old_mm;
 		return 0;
 	}
 	mmdrop_lazy_tlb(active_mm);
 	return 0;
+}
+
+/* Release the address space replaced by exec, outside the exec locks. */
+static void exec_mm_put_old(struct mm_struct *old_mm)
+{
+	setmax_mm_hiwater_rss(&current->signal->maxrss, old_mm);
+	mm_update_next_owner(old_mm);
+	mmput(old_mm);
 }
 
 static int de_thread(struct task_struct *tsk)
@@ -1082,7 +1093,7 @@ static int unshare_sighand(struct task_struct *me)
  */
 void __set_task_comm(struct task_struct *tsk, const char *buf, bool exec)
 {
-	size_t len = min(strlen(buf), sizeof(tsk->comm) - 1);
+	size_t len = strnlen(buf, sizeof(tsk->comm) - 1);
 
 	trace_task_rename(tsk, buf);
 	memcpy(tsk->comm, buf, len);
@@ -1153,7 +1164,7 @@ int begin_new_exec(struct linux_binprm * bprm)
 	 * Release all of the old mmap stuff
 	 */
 	acct_arg_size(bprm, 0);
-	retval = exec_mmap(bprm->mm);
+	retval = exec_mmap(bprm);
 	if (retval)
 		goto out;
 
@@ -1218,9 +1229,9 @@ int begin_new_exec(struct linux_binprm * bprm)
 	if (bprm->interp_flags & BINPRM_FLAGS_ENFORCE_NONDUMP ||
 	    !(uid_eq(current_euid(), current_uid()) &&
 	      gid_eq(current_egid(), current_gid())))
-		set_dumpable(current->mm, suid_dumpable);
+		task_exec_state_set_dumpable(suid_dumpable);
 	else
-		set_dumpable(current->mm, SUID_DUMP_USER);
+		task_exec_state_set_dumpable(TASK_DUMPABLE_OWNER);
 
 	perf_event_exec();
 
@@ -1269,7 +1280,7 @@ int begin_new_exec(struct linux_binprm * bprm)
 	 * wait until new credentials are committed
 	 * by commit_creds() above
 	 */
-	if (get_dumpable(me->mm) != SUID_DUMP_USER)
+	if (task_exec_state_get_dumpable(me) != TASK_DUMPABLE_OWNER)
 		perf_event_exit_task(me);
 	/*
 	 * cred_guard_mutex must be held at least to this point to prevent
@@ -1280,10 +1291,9 @@ int begin_new_exec(struct linux_binprm * bprm)
 
 	/* Pass the opened binary to the interpreter. */
 	if (bprm->have_execfd) {
-		retval = get_unused_fd_flags(0);
+		retval = FD_ADD(0, bprm->executable);
 		if (retval < 0)
 			goto out_unlock;
-		fd_install(retval, bprm->executable);
 		bprm->executable = NULL;
 		bprm->execfd = retval;
 	}
@@ -1307,14 +1317,14 @@ void would_dump(struct linux_binprm *bprm, struct file *file)
 		struct user_namespace *old, *user_ns;
 		bprm->interp_flags |= BINPRM_FLAGS_ENFORCE_NONDUMP;
 
-		/* Ensure mm->user_ns contains the executable */
-		user_ns = old = bprm->mm->user_ns;
+		/* Ensure bprm->user_ns contains the executable. */
+		user_ns = old = bprm->user_ns;
 		while ((user_ns != &init_user_ns) &&
 		       !privileged_wrt_inode_uidgid(user_ns, idmap, inode))
 			user_ns = user_ns->parent;
 
 		if (old != user_ns) {
-			bprm->mm->user_ns = get_user_ns(user_ns);
+			bprm->user_ns = get_user_ns(user_ns);
 			put_user_ns(old);
 		}
 	}
@@ -1337,6 +1347,12 @@ void setup_new_exec(struct linux_binprm * bprm)
 	me->mm->task_size = TASK_SIZE;
 	up_write(&me->signal->exec_update_lock);
 	mutex_unlock(&me->signal->cred_guard_mutex);
+
+	/* The exec locks are dropped: release the old address space now. */
+	if (bprm->old_mm) {
+		exec_mm_put_old(bprm->old_mm);
+		bprm->old_mm = NULL;
+	}
 }
 EXPORT_SYMBOL(setup_new_exec);
 
@@ -1384,6 +1400,8 @@ static void free_bprm(struct linux_binprm *bprm)
 		acct_arg_size(bprm, 0);
 		mmput(bprm->mm);
 	}
+	if (bprm->user_ns)
+		put_user_ns(bprm->user_ns);
 	free_arg_pages(bprm);
 	if (bprm->cred) {
 		/* in case exec fails before de_thread() succeeds */
@@ -1391,6 +1409,9 @@ static void free_bprm(struct linux_binprm *bprm)
 		mutex_unlock(&current->signal->cred_guard_mutex);
 		abort_creds(bprm->cred);
 	}
+	/* exec swapped the mm but failed before setup_new_exec() freed it */
+	if (bprm->old_mm)
+		exec_mm_put_old(bprm->old_mm);
 	do_close_execat(bprm->file);
 	if (bprm->executable)
 		fput(bprm->executable);
@@ -1411,7 +1432,7 @@ static struct linux_binprm *alloc_bprm(int fd, struct filename *filename, int fl
 	if (IS_ERR(file))
 		return ERR_CAST(file);
 
-	bprm = kzalloc(sizeof(*bprm), GFP_KERNEL);
+	bprm = kzalloc_obj(*bprm);
 	if (!bprm) {
 		do_close_execat(file);
 		return ERR_PTR(-ENOMEM);
@@ -1471,6 +1492,9 @@ out_free:
 	free_bprm(bprm);
 	return ERR_PTR(retval);
 }
+
+DEFINE_CLASS(bprm, struct linux_binprm *, if (!IS_ERR(_T)) free_bprm(_T),
+	alloc_bprm(fd, name, flags), int fd, struct filename *name, int flags)
 
 int bprm_change_interp(const char *interp, struct linux_binprm *bprm)
 {
@@ -1775,7 +1799,7 @@ out:
 		force_fatal_sig(SIGSEGV);
 
 	sched_mm_cid_after_execve(current);
-	rseq_set_notify_resume(current);
+	rseq_force_update();
 	current->in_execve = 0;
 
 	return retval;
@@ -1786,11 +1810,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr envp,
 			      int flags)
 {
-	struct linux_binprm *bprm;
 	int retval;
-
-	if (IS_ERR(filename))
-		return PTR_ERR(filename);
 
 	/*
 	 * We move the actual failure in case of RLIMIT_NPROC excess from
@@ -1799,47 +1819,43 @@ static int do_execveat_common(int fd, struct filename *filename,
 	 * whether NPROC limit is still exceeded.
 	 */
 	if ((current->flags & PF_NPROC_EXCEEDED) &&
-	    is_rlimit_overlimit(current_ucounts(), UCOUNT_RLIMIT_NPROC, rlimit(RLIMIT_NPROC))) {
-		retval = -EAGAIN;
-		goto out_ret;
-	}
+	    is_rlimit_overlimit(current_ucounts(), UCOUNT_RLIMIT_NPROC, rlimit(RLIMIT_NPROC)))
+		return -EAGAIN;
 
 	/* We're below the limit (still or again), so we don't want to make
 	 * further execve() calls fail. */
 	current->flags &= ~PF_NPROC_EXCEEDED;
 
-	bprm = alloc_bprm(fd, filename, flags);
-	if (IS_ERR(bprm)) {
-		retval = PTR_ERR(bprm);
-		goto out_ret;
-	}
+	CLASS(bprm, bprm)(fd, filename, flags);
+	if (IS_ERR(bprm))
+		return PTR_ERR(bprm);
 
 	retval = count(argv, MAX_ARG_STRINGS);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 	bprm->argc = retval;
 
 	retval = count(envp, MAX_ARG_STRINGS);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 	bprm->envc = retval;
 
 	retval = bprm_stack_limits(bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 
 	retval = copy_string_kernel(bprm->filename, bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 	bprm->exec = bprm->p;
 
 	retval = copy_strings(bprm->envc, envp, bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 
 	retval = copy_strings(bprm->argc, argv, bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 
 	/*
 	 * When argv is empty, add an empty string ("") as argv[0] to
@@ -1850,133 +1866,61 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (bprm->argc == 0) {
 		retval = copy_string_kernel("", bprm);
 		if (retval < 0)
-			goto out_free;
+			return retval;
 		bprm->argc = 1;
 
 		pr_warn_once("process '%s' launched '%s' with NULL argv: empty string added\n",
 			     current->comm, bprm->filename);
 	}
 
-	retval = bprm_execve(bprm);
-out_free:
-	free_bprm(bprm);
-
-out_ret:
-	putname(filename);
-	return retval;
+	return bprm_execve(bprm);
 }
 
 int kernel_execve(const char *kernel_filename,
 		  const char *const *argv, const char *const *envp)
 {
-	struct filename *filename;
-	struct linux_binprm *bprm;
-	int fd = AT_FDCWD;
 	int retval;
 
 	/* It is non-sense for kernel threads to call execve */
 	if (WARN_ON_ONCE(current->flags & PF_KTHREAD))
 		return -EINVAL;
 
-	filename = getname_kernel(kernel_filename);
-	if (IS_ERR(filename))
-		return PTR_ERR(filename);
-
-	bprm = alloc_bprm(fd, filename, 0);
-	if (IS_ERR(bprm)) {
-		retval = PTR_ERR(bprm);
-		goto out_ret;
-	}
+	CLASS(filename_kernel, filename)(kernel_filename);
+	CLASS(bprm, bprm)(AT_FDCWD, filename, 0);
+	if (IS_ERR(bprm))
+		return PTR_ERR(bprm);
 
 	retval = count_strings_kernel(argv);
 	if (WARN_ON_ONCE(retval == 0))
-		retval = -EINVAL;
+		return -EINVAL;
 	if (retval < 0)
-		goto out_free;
+		return retval;
 	bprm->argc = retval;
 
 	retval = count_strings_kernel(envp);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 	bprm->envc = retval;
 
 	retval = bprm_stack_limits(bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 
 	retval = copy_string_kernel(bprm->filename, bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 	bprm->exec = bprm->p;
 
 	retval = copy_strings_kernel(bprm->envc, envp, bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 
 	retval = copy_strings_kernel(bprm->argc, argv, bprm);
 	if (retval < 0)
-		goto out_free;
+		return retval;
 
-	retval = bprm_execve(bprm);
-out_free:
-	free_bprm(bprm);
-out_ret:
-	putname(filename);
-	return retval;
+	return bprm_execve(bprm);
 }
-
-static int do_execve(struct filename *filename,
-	const char __user *const __user *__argv,
-	const char __user *const __user *__envp)
-{
-	struct user_arg_ptr argv = { .ptr.native = __argv };
-	struct user_arg_ptr envp = { .ptr.native = __envp };
-	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
-}
-
-static int do_execveat(int fd, struct filename *filename,
-		const char __user *const __user *__argv,
-		const char __user *const __user *__envp,
-		int flags)
-{
-	struct user_arg_ptr argv = { .ptr.native = __argv };
-	struct user_arg_ptr envp = { .ptr.native = __envp };
-
-	return do_execveat_common(fd, filename, argv, envp, flags);
-}
-
-#ifdef CONFIG_COMPAT
-static int compat_do_execve(struct filename *filename,
-	const compat_uptr_t __user *__argv,
-	const compat_uptr_t __user *__envp)
-{
-	struct user_arg_ptr argv = {
-		.is_compat = true,
-		.ptr.compat = __argv,
-	};
-	struct user_arg_ptr envp = {
-		.is_compat = true,
-		.ptr.compat = __envp,
-	};
-	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
-}
-
-static int compat_do_execveat(int fd, struct filename *filename,
-			      const compat_uptr_t __user *__argv,
-			      const compat_uptr_t __user *__envp,
-			      int flags)
-{
-	struct user_arg_ptr argv = {
-		.is_compat = true,
-		.ptr.compat = __argv,
-	};
-	struct user_arg_ptr envp = {
-		.is_compat = true,
-		.ptr.compat = __envp,
-	};
-	return do_execveat_common(fd, filename, argv, envp, flags);
-}
-#endif
 
 void set_binfmt(struct linux_binfmt *new)
 {
@@ -1991,15 +1935,9 @@ void set_binfmt(struct linux_binfmt *new)
 }
 EXPORT_SYMBOL(set_binfmt);
 
-/*
- * set_dumpable stores three-value SUID_DUMP_* into mm->flags.
- */
-void set_dumpable(struct mm_struct *mm, int value)
+static inline struct user_arg_ptr native_arg(const char __user *const __user *p)
 {
-	if (WARN_ON((unsigned)value > SUID_DUMP_ROOT))
-		return;
-
-	__mm_flags_set_mask_dumpable(mm, value);
+	return (struct user_arg_ptr){.ptr.native = p};
 }
 
 SYSCALL_DEFINE3(execve,
@@ -2007,7 +1945,9 @@ SYSCALL_DEFINE3(execve,
 		const char __user *const __user *, argv,
 		const char __user *const __user *, envp)
 {
-	return do_execve(getname(filename), argv, envp);
+	CLASS(filename, name)(filename);
+	return do_execveat_common(AT_FDCWD, name,
+				  native_arg(argv), native_arg(envp), 0);
 }
 
 SYSCALL_DEFINE5(execveat,
@@ -2016,17 +1956,25 @@ SYSCALL_DEFINE5(execveat,
 		const char __user *const __user *, envp,
 		int, flags)
 {
-	return do_execveat(fd,
-			   getname_uflags(filename, flags),
-			   argv, envp, flags);
+	CLASS(filename_uflags, name)(filename, flags);
+	return do_execveat_common(fd, name,
+				  native_arg(argv), native_arg(envp), flags);
 }
 
 #ifdef CONFIG_COMPAT
+
+static inline struct user_arg_ptr compat_arg(const compat_uptr_t __user *p)
+{
+	return (struct user_arg_ptr){.is_compat = true, .ptr.compat = p};
+}
+
 COMPAT_SYSCALL_DEFINE3(execve, const char __user *, filename,
 	const compat_uptr_t __user *, argv,
 	const compat_uptr_t __user *, envp)
 {
-	return compat_do_execve(getname(filename), argv, envp);
+	CLASS(filename, name)(filename);
+	return do_execveat_common(AT_FDCWD, name,
+				  compat_arg(argv), compat_arg(envp), 0);
 }
 
 COMPAT_SYSCALL_DEFINE5(execveat, int, fd,
@@ -2035,9 +1983,9 @@ COMPAT_SYSCALL_DEFINE5(execveat, int, fd,
 		       const compat_uptr_t __user *, envp,
 		       int,  flags)
 {
-	return compat_do_execveat(fd,
-				  getname_uflags(filename, flags),
-				  argv, envp, flags);
+	CLASS(filename_uflags, name)(filename, flags);
+	return do_execveat_common(fd, name,
+				  compat_arg(argv), compat_arg(envp), flags);
 }
 #endif
 
@@ -2046,9 +1994,11 @@ COMPAT_SYSCALL_DEFINE5(execveat, int, fd,
 static int proc_dointvec_minmax_coredump(const struct ctl_table *table, int write,
 		void *buffer, size_t *lenp, loff_t *ppos)
 {
-	int error = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+	int error, old = READ_ONCE(suid_dumpable);
 
-	if (!error && write)
+	error = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+
+	if (!error && write && (old != READ_ONCE(suid_dumpable)))
 		validate_coredump_safety();
 	return error;
 }

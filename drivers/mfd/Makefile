@@ -122,6 +122,8 @@ obj-$(CONFIG_MFD_MC13XXX)	+= mc13xxx-core.o
 obj-$(CONFIG_MFD_MC13XXX_SPI)	+= mc13xxx-spi.o
 obj-$(CONFIG_MFD_MC13XXX_I2C)	+= mc13xxx-i2c.o
 
+obj-$(CONFIG_MFD_PF1550)	+= pf1550.o
+
 obj-$(CONFIG_MFD_NCT6694)	+= nct6694.o
 
 obj-$(CONFIG_MFD_CORE)		+= mfd-core.o
@@ -129,7 +131,6 @@ obj-$(CONFIG_MFD_CORE)		+= mfd-core.o
 ocelot-soc-objs			:= ocelot-core.o ocelot-spi.o
 obj-$(CONFIG_MFD_OCELOT)	+= ocelot-soc.o
 
-obj-$(CONFIG_EZX_PCAP)		+= ezx-pcap.o
 obj-$(CONFIG_MFD_CPCAP)		+= motorola-cpcap.o
 
 obj-$(CONFIG_MCP)		+= mcp-core.o
@@ -205,7 +206,6 @@ obj-$(CONFIG_MFD_RDC321X)	+= rdc321x-southbridge.o
 obj-$(CONFIG_MFD_JANZ_CMODIO)	+= janz-cmodio.o
 obj-$(CONFIG_MFD_TPS6586X)	+= tps6586x.o
 obj-$(CONFIG_MFD_VX855)		+= vx855.o
-obj-$(CONFIG_MFD_WL1273_CORE)	+= wl1273-core.o
 
 si476x-core-y := si476x-cmd.o si476x-prop.o si476x-i2c.o
 obj-$(CONFIG_MFD_SI476X_CORE)	+= si476x-core.o

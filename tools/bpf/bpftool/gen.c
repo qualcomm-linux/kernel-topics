@@ -731,10 +731,10 @@ static int gen_trace(struct bpf_object *obj, const char *obj_name, const char *h
 		{							    \n\
 			struct %1$s *skel;				    \n\
 									    \n\
-			skel = skel_alloc(sizeof(*skel));		    \n\
+			skel = (struct %1$s *)skel_alloc(sizeof(*skel));    \n\
 			if (!skel)					    \n\
 				goto cleanup;				    \n\
-			skel->ctx.sz = (void *)&skel->links - (void *)skel; \n\
+			skel->ctx.sz = (char *)&skel->links - (char *)skel; \n\
 		",
 		obj_name, opts.data_sz);
 	bpf_object__for_each_map(map, obj) {
@@ -755,7 +755,7 @@ static int gen_trace(struct bpf_object *obj, const char *obj_name, const char *h
 		\n\
 		\";							    \n\
 									    \n\
-				skel->%1$s = skel_prep_map_data((void *)data, %2$zd,\n\
+				skel->%1$s = (__typeof__(skel->%1$s))skel_prep_map_data((void *)data, %2$zd,\n\
 								sizeof(data) - 1);\n\
 				if (!skel->%1$s)			    \n\
 					goto cleanup;			    \n\
@@ -857,7 +857,7 @@ static int gen_trace(struct bpf_object *obj, const char *obj_name, const char *h
 
 		codegen("\
 		\n\
-			skel->%1$s = skel_finalize_map_data(&skel->maps.%1$s.initial_value,  \n\
+			skel->%1$s = (__typeof__(skel->%1$s))skel_finalize_map_data(&skel->maps.%1$s.initial_value,\n\
 							%2$zd, %3$s, skel->maps.%1$s.map_fd);\n\
 			if (!skel->%1$s)				    \n\
 				return -ENOMEM;				    \n\
@@ -1399,7 +1399,7 @@ static int do_skeleton(int argc, char **argv)
 				continue;
 
 			if (use_loader)
-				printf("t\tint %s_fd;\n", ident);
+				printf("\t\tint %s_fd;\n", ident);
 			else
 				printf("\t\tstruct bpf_link *%s;\n", ident);
 		}
@@ -2094,7 +2094,8 @@ btfgen_mark_type(struct btfgen_info *info, unsigned int type_id, bool follow_poi
 	struct btf_type *cloned_type;
 	struct btf_param *param;
 	struct btf_array *array;
-	int err, i;
+	__u32 i;
+	int err;
 
 	if (type_id == 0)
 		return 0;
@@ -2229,7 +2230,8 @@ static int btfgen_mark_type_match(struct btfgen_info *info, __u32 type_id, bool 
 	const struct btf_type *btf_type;
 	struct btf *btf = info->src_btf;
 	struct btf_type *cloned_type;
-	int i, err;
+	int err;
+	__u32 i;
 
 	if (type_id == 0)
 		return 0;
@@ -2249,7 +2251,7 @@ static int btfgen_mark_type_match(struct btfgen_info *info, __u32 type_id, bool 
 	case BTF_KIND_STRUCT:
 	case BTF_KIND_UNION: {
 		struct btf_member *m = btf_members(btf_type);
-		__u16 vlen = btf_vlen(btf_type);
+		__u32 vlen = btf_vlen(btf_type);
 
 		if (behind_ptr)
 			break;
@@ -2286,7 +2288,7 @@ static int btfgen_mark_type_match(struct btfgen_info *info, __u32 type_id, bool 
 		break;
 	}
 	case BTF_KIND_FUNC_PROTO: {
-		__u16 vlen = btf_vlen(btf_type);
+		__u32 vlen = btf_vlen(btf_type);
 		struct btf_param *param;
 
 		/* mark ret type */
@@ -2492,8 +2494,9 @@ static struct btf *btfgen_get_btf(struct btfgen_info *info)
 {
 	struct btf *btf_new = NULL;
 	unsigned int *ids = NULL;
-	unsigned int i, n = btf__type_cnt(info->marked_btf);
+	unsigned int n = btf__type_cnt(info->marked_btf);
 	int err = 0;
+	__u32 i;
 
 	btf_new = btf__new_empty();
 	if (!btf_new) {
@@ -2523,8 +2526,7 @@ static struct btf *btfgen_get_btf(struct btfgen_info *info)
 		/* add members for struct and union */
 		if (btf_is_composite(type)) {
 			struct btf_member *cloned_m, *m;
-			unsigned short vlen;
-			int idx_src;
+			__u32 vlen, idx_src;
 
 			name = btf__str_by_offset(info->src_btf, type->name_off);
 

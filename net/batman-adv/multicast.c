@@ -399,7 +399,7 @@ batadv_mcast_mla_meshif_get_ipv4(struct net_device *dev,
 		if (batadv_mcast_mla_is_duplicate(mcast_addr, mcast_list))
 			continue;
 
-		new = kmalloc(sizeof(*new), GFP_ATOMIC);
+		new = kmalloc_obj(*new, GFP_ATOMIC);
 		if (!new) {
 			ret = -ENOMEM;
 			break;
@@ -472,7 +472,7 @@ batadv_mcast_mla_meshif_get_ipv6(struct net_device *dev,
 		if (batadv_mcast_mla_is_duplicate(mcast_addr, mcast_list))
 			continue;
 
-		new = kmalloc(sizeof(*new), GFP_ATOMIC);
+		new = kmalloc_obj(*new, GFP_ATOMIC);
 		if (!new) {
 			ret = -ENOMEM;
 			break;
@@ -632,7 +632,7 @@ static int batadv_mcast_mla_bridge_get(struct net_device *dev,
 		if (batadv_mcast_mla_is_duplicate(mcast_addr, mcast_list))
 			continue;
 
-		new = kmalloc(sizeof(*new), GFP_ATOMIC);
+		new = kmalloc_obj(*new, GFP_ATOMIC);
 		if (!new) {
 			ret = -ENOMEM;
 			break;
@@ -1099,7 +1099,7 @@ static int batadv_mcast_forw_mode_check(struct batadv_priv *bat_priv,
 {
 	struct ethhdr *ethhdr = eth_hdr(skb);
 
-	if (!atomic_read(&bat_priv->multicast_mode))
+	if (!READ_ONCE(bat_priv->multicast_mode))
 		return -EINVAL;
 
 	switch (ntohs(ethhdr->h_proto)) {
@@ -1204,7 +1204,7 @@ batadv_mcast_forw_mode_by_count(struct batadv_priv *bat_priv,
 	    batadv_mcast_forw_push(bat_priv, skb, vid, is_routable, count))
 		return BATADV_FORW_MCAST;
 
-	if (count <= atomic_read(&bat_priv->multicast_fanout))
+	if (count <= READ_ONCE(bat_priv->multicast_fanout))
 		return BATADV_FORW_UCASTS;
 
 	return BATADV_FORW_BCAST;
@@ -2161,7 +2161,7 @@ int batadv_mcast_flags_dump(struct sk_buff *msg, struct netlink_callback *cb)
  */
 void batadv_mcast_free(struct batadv_priv *bat_priv)
 {
-	cancel_delayed_work_sync(&bat_priv->mcast.work);
+	disable_delayed_work_sync(&bat_priv->mcast.work);
 
 	batadv_tvlv_container_unregister(bat_priv, BATADV_TVLV_MCAST, 2);
 	batadv_tvlv_handler_unregister(bat_priv, BATADV_TVLV_MCAST_TRACKER, 1);

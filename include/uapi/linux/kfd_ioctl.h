@@ -44,9 +44,14 @@
  * - 1.16 - Add contiguous VRAM allocation flag
  * - 1.17 - Add SDMA queue creation with target SDMA engine ID
  * - 1.18 - Rename pad in set_memory_policy_args to misc_process_flag
+ * - 1.19 - Add a new ioctl to craete secondary kfd processes
+ * - 1.20 - Trap handler support for expert scheduling mode available
+ * - 1.21 - Debugger support to subscribe to LDS out-of-address exceptions
+ * - 1.22 - Add queue creation with metadata ring base address
+ * - 1.23 - Add profiler control ioctl to enable/disable profiler on a process
  */
 #define KFD_IOCTL_MAJOR_VERSION 1
-#define KFD_IOCTL_MINOR_VERSION 18
+#define KFD_IOCTL_MINOR_VERSION 23
 
 struct kfd_ioctl_get_version_args {
 	__u32 major_version;	/* from KFD */
@@ -84,7 +89,7 @@ struct kfd_ioctl_create_queue_args {
 	__u32 ctx_save_restore_size;	/* to KFD */
 	__u32 ctl_stack_size;		/* to KFD */
 	__u32 sdma_engine_id;		/* to KFD */
-	__u32 pad;
+	__u32 metadata_ring_size;	/* to KFD */
 };
 
 struct kfd_ioctl_destroy_queue_args {
@@ -145,6 +150,8 @@ struct kfd_dbg_device_info_entry {
 	__u32 num_xcc;
 	__u32 capability;
 	__u32 debug_prop;
+	__u32 capability2;
+	__u32 pad;
 };
 
 /* For kfd_ioctl_set_memory_policy_args.default_policy and alternate_policy */
@@ -945,6 +952,7 @@ enum kfd_dbg_trap_address_watch_mode {
 enum kfd_dbg_trap_flags {
 	KFD_DBG_TRAP_FLAG_SINGLE_MEM_OP = 1,
 	KFD_DBG_TRAP_FLAG_SINGLE_ALU_OP = 2,
+	KFD_DBG_TRAP_FLAG_LDS_OUT_OF_ADDR_RANGE = 4
 };
 
 /* Trap exceptions */
@@ -1551,6 +1559,36 @@ struct kfd_ioctl_dbg_trap_args {
 	};
 };
 
+#define KFD_IOC_PROFILER_VERSION_NUM 1
+enum kfd_profiler_ops {
+	KFD_IOC_PROFILER_PMC = 0,
+	KFD_IOC_PROFILER_VERSION = 2,
+	KFD_IOC_PROFILER_PTL_CONTROL = 3,
+};
+
+/**
+ * Enables/Disables GPU Specific profiler settings
+ */
+struct kfd_ioctl_pmc_settings {
+	__u32 gpu_id;             /* This is the user_gpu_id */
+	__u32 lock;               /* Lock GPU for Profiling */
+	__u32 perfcount_enable;   /* Force Perfcount Enable for queues on GPU */
+};
+
+struct kfd_ioctl_ptl_control {
+	__u32 gpu_id; /* user_gpu_id */
+	__u32 enable; /* set 1 to enable PTL, set 0 to disable PTL */
+};
+
+struct kfd_ioctl_profiler_args {
+	__u32 op;						/* kfd_profiler_op */
+	union {
+		struct kfd_ioctl_pmc_settings  pmc;
+		struct kfd_ioctl_ptl_control   ptl;
+		__u32 version;				/* KFD_IOC_PROFILER_VERSION_NUM */
+	};
+};
+
 #define AMDKFD_IOCTL_BASE 'K'
 #define AMDKFD_IO(nr)			_IO(AMDKFD_IOCTL_BASE, nr)
 #define AMDKFD_IOR(nr, type)		_IOR(AMDKFD_IOCTL_BASE, nr, type)
@@ -1671,7 +1709,13 @@ struct kfd_ioctl_dbg_trap_args {
 #define AMDKFD_IOC_DBG_TRAP			\
 		AMDKFD_IOWR(0x26, struct kfd_ioctl_dbg_trap_args)
 
+#define AMDKFD_IOC_CREATE_PROCESS		\
+		AMDKFD_IO(0x27)
+
+#define AMDKFD_IOC_PROFILER			\
+		AMDKFD_IOWR(0x28, struct kfd_ioctl_profiler_args)
+
 #define AMDKFD_COMMAND_START		0x01
-#define AMDKFD_COMMAND_END		0x27
+#define AMDKFD_COMMAND_END		0x29
 
 #endif

@@ -83,6 +83,8 @@ static const struct reg_sequence rt5650_init_list[] = {
 	{RT5645_PWR_ANLG1, 0x02},
 	{RT5645_IL_CMD3, 0x6728},
 	{RT5645_PR_BASE + 0x3a,	0x0000},
+	{RT5645_CLSD_OUT_CTRL1, 0x4059},
+	{RT5645_GEN_CTRL3, 0x0200},
 };
 
 static const struct reg_default rt5645_reg[] = {
@@ -1855,13 +1857,9 @@ static int rt5645_spk_event(struct snd_soc_dapm_widget *w,
 			RT5645_PWR_CLS_D_L,
 			RT5645_PWR_CLS_D | RT5645_PWR_CLS_D_R |
 			RT5645_PWR_CLS_D_L);
-		snd_soc_component_update_bits(component, RT5645_GEN_CTRL3,
-			RT5645_DET_CLK_MASK, RT5645_DET_CLK_MODE1);
 		break;
 
 	case SND_SOC_DAPM_PRE_PMD:
-		snd_soc_component_update_bits(component, RT5645_GEN_CTRL3,
-			RT5645_DET_CLK_MASK, RT5645_DET_CLK_DIS);
 		snd_soc_component_write(component, RT5645_EQ_CTRL2, 0);
 		snd_soc_component_update_bits(component, RT5645_PWR_DIG1,
 			RT5645_PWR_CLS_D | RT5645_PWR_CLS_D_R |
@@ -3071,10 +3069,11 @@ static int rt5645_set_bias_level(struct snd_soc_component *component,
 			enum snd_soc_bias_level level)
 {
 	struct rt5645_priv *rt5645 = snd_soc_component_get_drvdata(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 
 	switch (level) {
 	case SND_SOC_BIAS_PREPARE:
-		if (SND_SOC_BIAS_STANDBY == snd_soc_component_get_bias_level(component)) {
+		if (SND_SOC_BIAS_STANDBY == snd_soc_dapm_get_bias_level(dapm)) {
 			snd_soc_component_update_bits(component, RT5645_PWR_ANLG1,
 				RT5645_PWR_VREF1 | RT5645_PWR_MB |
 				RT5645_PWR_BG | RT5645_PWR_VREF2,
@@ -3099,7 +3098,7 @@ static int rt5645_set_bias_level(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component, RT5645_PWR_ANLG1,
 			RT5645_PWR_FV1 | RT5645_PWR_FV2,
 			RT5645_PWR_FV1 | RT5645_PWR_FV2);
-		if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
+		if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_OFF) {
 			snd_soc_component_write(component, RT5645_DEPOP_M2, 0x1140);
 			msleep(40);
 			if (rt5645->en_button_func)
@@ -3130,7 +3129,7 @@ static int rt5645_set_bias_level(struct snd_soc_component *component,
 static void rt5645_enable_push_button_irq(struct snd_soc_component *component,
 	bool enable)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	int ret;
 
 	if (enable) {
@@ -3169,7 +3168,7 @@ static void rt5645_enable_push_button_irq(struct snd_soc_component *component,
 
 static int rt5645_jack_detect(struct snd_soc_component *component, int jack_insert)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct rt5645_priv *rt5645 = snd_soc_component_get_drvdata(component);
 	unsigned int val;
 
@@ -3180,7 +3179,7 @@ static int rt5645_jack_detect(struct snd_soc_component *component, int jack_inse
 		snd_soc_dapm_force_enable_pin(dapm, "LDO2");
 		snd_soc_dapm_force_enable_pin(dapm, "Mic Det Power");
 		snd_soc_dapm_sync(dapm);
-		if (!snd_soc_card_is_instantiated(dapm->card)) {
+		if (!snd_soc_card_is_instantiated(component->card)) {
 			/* Power up necessary bits for JD if dapm is
 			   not ready yet */
 			regmap_update_bits(rt5645->regmap, RT5645_PWR_ANLG1,
@@ -3449,7 +3448,7 @@ static void rt5645_btn_check_callback(struct timer_list *t)
 
 static int rt5645_probe(struct snd_soc_component *component)
 {
-	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(component);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
 	struct rt5645_priv *rt5645 = snd_soc_component_get_drvdata(component);
 
 	rt5645->component = component;
@@ -3478,7 +3477,7 @@ static int rt5645_probe(struct snd_soc_component *component)
 		break;
 	}
 
-	snd_soc_component_force_bias_level(component, SND_SOC_BIAS_OFF);
+	snd_soc_dapm_force_bias_level(dapm, SND_SOC_BIAS_OFF);
 
 	/* for JD function */
 	if (rt5645->pdata.jd_mode) {
@@ -3645,8 +3644,8 @@ static const struct regmap_config temp_regmap = {
 };
 
 static const struct i2c_device_id rt5645_i2c_id[] = {
-	{ "rt5645" },
-	{ "rt5650" },
+	{ .name = "rt5645" },
+	{ .name = "rt5650" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, rt5645_i2c_id);

@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2020 Collabora Ltd.
  */
+#include <linux/arm-smccc.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/init.h>
@@ -15,6 +16,7 @@
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/soc/mediatek/infracfg.h>
+#include <linux/soc/mediatek/mtk_sip_svc.h>
 
 #include "mt6735-pm-domains.h"
 #include "mt6795-pm-domains.h"
@@ -24,12 +26,20 @@
 #include "mt8183-pm-domains.h"
 #include "mt8186-pm-domains.h"
 #include "mt8188-pm-domains.h"
+#include "mt8189-pm-domains.h"
 #include "mt8192-pm-domains.h"
 #include "mt8195-pm-domains.h"
+#include "mt8196-pm-domains.h"
 #include "mt8365-pm-domains.h"
 
 #define MTK_POLL_DELAY_US		10
 #define MTK_POLL_TIMEOUT		USEC_PER_SEC
+
+#define MTK_HWV_POLL_DELAY_US		5
+#define MTK_HWV_POLL_TIMEOUT		(300 * USEC_PER_MSEC)
+
+#define MTK_HWV_PREPARE_DELAY_US	1
+#define MTK_HWV_PREPARE_TIMEOUT		(3 * USEC_PER_MSEC)
 
 #define PWR_RST_B_BIT			BIT(0)
 #define PWR_ISO_BIT			BIT(1)
@@ -45,9 +55,12 @@
 #define PWR_RTFF_SAVE_FLAG		BIT(27)
 #define PWR_RTFF_UFS_CLK_DIS		BIT(28)
 
+#define MTK_SIP_KERNEL_HWCCF_CONTROL	MTK_SIP_SMC_CMD(0x540)
+
 struct scpsys_domain {
 	struct generic_pm_domain genpd;
 	const struct scpsys_domain_data *data;
+	const struct scpsys_hwv_domain_data *hwv_data;
 	struct scpsys *scpsys;
 	int num_clks;
 	struct clk_bulk_data *clks;
@@ -71,16 +84,54 @@ struct scpsys {
 static bool scpsys_domain_is_on(struct scpsys_domain *pd)
 {
 	struct scpsys *scpsys = pd->scpsys;
-	u32 status, status2;
+	u32 mask = pd->data->sta_mask;
+	u32 status, status2, mask2;
+
+	mask2 = pd->data->sta2nd_mask ? pd->data->sta2nd_mask : mask;
 
 	regmap_read(scpsys->base, pd->data->pwr_sta_offs, &status);
-	status &= pd->data->sta_mask;
+	status &= mask;
 
 	regmap_read(scpsys->base, pd->data->pwr_sta2nd_offs, &status2);
-	status2 &= pd->data->sta_mask;
+	status2 &= mask2;
 
 	/* A domain is on when both status bits are set. */
 	return status && status2;
+}
+
+static bool scpsys_hwv_domain_is_disable_done(struct scpsys_domain *pd)
+{
+	const struct scpsys_hwv_domain_data *hwv = pd->hwv_data;
+	u32 regs[2] = { hwv->done, hwv->clr_sta };
+	u32 val[2];
+	u32 mask = BIT(hwv->setclr_bit);
+
+	regmap_multi_reg_read(pd->scpsys->base, regs, val, 2);
+
+	/* Disable is done when the bit is set in DONE, cleared in CLR_STA */
+	return (val[0] & mask) && !(val[1] & mask);
+}
+
+static bool scpsys_hwv_domain_is_enable_done(struct scpsys_domain *pd)
+{
+	const struct scpsys_hwv_domain_data *hwv = pd->hwv_data;
+	u32 regs[3] = { hwv->done, hwv->en, hwv->set_sta };
+	u32 val[3];
+	u32 mask = BIT(hwv->setclr_bit);
+
+	regmap_multi_reg_read(pd->scpsys->base, regs, val, 3);
+
+	/* Enable is done when the bit is set in DONE and EN, cleared in SET_STA */
+	return (val[0] & mask) && (val[1] & mask) && !(val[2] & mask);
+}
+
+static int scpsys_sec_infra_power_on(bool on)
+{
+	struct arm_smccc_res res;
+	unsigned long cmd = on ? 1 : 0;
+
+	arm_smccc_smc(MTK_SIP_KERNEL_HWCCF_CONTROL, cmd, 0, 0, 0, 0, 0, 0, &res);
+	return res.a0;
 }
 
 static int scpsys_sram_enable(struct scpsys_domain *pd)
@@ -200,7 +251,7 @@ static int scpsys_bus_protect_set(struct scpsys_domain *pd,
 					MTK_POLL_DELAY_US, MTK_POLL_TIMEOUT);
 }
 
-static int scpsys_bus_protect_enable(struct scpsys_domain *pd)
+static int scpsys_bus_protect_enable(struct scpsys_domain *pd, u8 flags)
 {
 	for (int i = 0; i < SPM_MAX_BUS_PROT_DATA; i++) {
 		const struct scpsys_bus_prot_data *bpd = &pd->data->bp_cfg[i];
@@ -208,6 +259,10 @@ static int scpsys_bus_protect_enable(struct scpsys_domain *pd)
 
 		if (!bpd->bus_prot_set_clr_mask)
 			break;
+
+		if ((bpd->flags & BUS_PROT_IGNORE_SUBCLK) !=
+		    (flags & BUS_PROT_IGNORE_SUBCLK))
+			continue;
 
 		if (bpd->flags & BUS_PROT_INVERTED)
 			ret = scpsys_bus_protect_clear(pd, bpd);
@@ -220,13 +275,17 @@ static int scpsys_bus_protect_enable(struct scpsys_domain *pd)
 	return 0;
 }
 
-static int scpsys_bus_protect_disable(struct scpsys_domain *pd)
+static int scpsys_bus_protect_disable(struct scpsys_domain *pd, u8 flags)
 {
 	for (int i = SPM_MAX_BUS_PROT_DATA - 1; i >= 0; i--) {
 		const struct scpsys_bus_prot_data *bpd = &pd->data->bp_cfg[i];
 		int ret;
 
 		if (!bpd->bus_prot_set_clr_mask)
+			continue;
+
+		if ((bpd->flags & BUS_PROT_IGNORE_SUBCLK) !=
+		    (flags & BUS_PROT_IGNORE_SUBCLK))
 			continue;
 
 		if (bpd->flags & BUS_PROT_INVERTED)
@@ -249,6 +308,161 @@ static int scpsys_regulator_disable(struct regulator *supply)
 {
 	return supply ? regulator_disable(supply) : 0;
 }
+
+static int scpsys_hwv_power_on(struct generic_pm_domain *genpd)
+{
+	struct scpsys_domain *pd = container_of(genpd, struct scpsys_domain, genpd);
+	const struct scpsys_hwv_domain_data *hwv = pd->hwv_data;
+	struct scpsys *scpsys = pd->scpsys;
+	u32 val;
+	int ret;
+
+	if (MTK_SCPD_CAPS(pd, MTK_SCPD_INFRA_PWR_CTL)) {
+		ret = scpsys_sec_infra_power_on(true);
+		if (ret)
+			return ret;
+	}
+
+	ret = scpsys_regulator_enable(pd->supply);
+	if (ret)
+		goto err_infra;
+
+	ret = clk_bulk_prepare_enable(pd->num_clks, pd->clks);
+	if (ret)
+		goto err_reg;
+
+	/* For HWV the subsys clocks refer to the HWV low power subsystem */
+	ret = clk_bulk_prepare_enable(pd->num_subsys_clks, pd->subsys_clks);
+	if (ret)
+		goto err_disable_clks;
+
+	/* Make sure the HW Voter is idle and able to accept commands */
+	ret = regmap_read_poll_timeout_atomic(scpsys->base, hwv->done, val,
+					      val & BIT(hwv->setclr_bit),
+					      MTK_HWV_POLL_DELAY_US,
+					      MTK_HWV_POLL_TIMEOUT);
+	if (ret) {
+		dev_err(scpsys->dev, "Failed to power on: HW Voter busy.\n");
+		goto err_disable_subsys_clks;
+	}
+
+	/*
+	 * Instruct the HWV to power on the MTCMOS (power domain): after that,
+	 * the same bit will be unset immediately by the hardware.
+	 */
+	regmap_write(scpsys->base, hwv->set, BIT(hwv->setclr_bit));
+
+	/*
+	 * Wait until the HWV sets the bit again, signalling that its internal
+	 * state machine was started and it now processing the vote command.
+	 */
+	ret = regmap_read_poll_timeout_atomic(scpsys->base, hwv->set, val,
+					      val & BIT(hwv->setclr_bit),
+					      MTK_HWV_PREPARE_DELAY_US,
+					      MTK_HWV_PREPARE_TIMEOUT);
+	if (ret) {
+		dev_err(scpsys->dev, "Failed to power on: HW Voter not starting.\n");
+		goto err_disable_subsys_clks;
+	}
+
+	/* Wait for ACK, signalling that the MTCMOS was enabled */
+	ret = readx_poll_timeout_atomic(scpsys_hwv_domain_is_enable_done, pd, val, val,
+					MTK_HWV_POLL_DELAY_US, MTK_HWV_POLL_TIMEOUT);
+	if (ret) {
+		dev_err(scpsys->dev, "Failed to power on: HW Voter ACK timeout.\n");
+		goto err_disable_subsys_clks;
+	}
+
+	/* It's done! Disable the HWV low power subsystem clocks */
+	clk_bulk_disable_unprepare(pd->num_subsys_clks, pd->subsys_clks);
+
+	if (MTK_SCPD_CAPS(pd, MTK_SCPD_INFRA_PWR_CTL))
+		scpsys_sec_infra_power_on(false);
+
+	return 0;
+
+err_disable_subsys_clks:
+	clk_bulk_disable_unprepare(pd->num_subsys_clks, pd->subsys_clks);
+err_disable_clks:
+	clk_bulk_disable_unprepare(pd->num_clks, pd->clks);
+err_reg:
+	scpsys_regulator_disable(pd->supply);
+err_infra:
+	if (MTK_SCPD_CAPS(pd, MTK_SCPD_INFRA_PWR_CTL))
+		scpsys_sec_infra_power_on(false);
+	return ret;
+};
+
+static int scpsys_hwv_power_off(struct generic_pm_domain *genpd)
+{
+	struct scpsys_domain *pd = container_of(genpd, struct scpsys_domain, genpd);
+	const struct scpsys_hwv_domain_data *hwv = pd->hwv_data;
+	struct scpsys *scpsys = pd->scpsys;
+	u32 val;
+	int ret;
+
+	if (MTK_SCPD_CAPS(pd, MTK_SCPD_INFRA_PWR_CTL)) {
+		ret = scpsys_sec_infra_power_on(true);
+		if (ret)
+			return ret;
+	}
+
+	ret = clk_bulk_prepare_enable(pd->num_subsys_clks, pd->subsys_clks);
+	if (ret)
+		goto err_infra;
+
+	/* Make sure the HW Voter is idle and able to accept commands */
+	ret = regmap_read_poll_timeout_atomic(scpsys->base, hwv->done, val,
+					      val & BIT(hwv->setclr_bit),
+					      MTK_HWV_POLL_DELAY_US,
+					      MTK_HWV_POLL_TIMEOUT);
+	if (ret)
+		goto err_disable_subsys_clks;
+
+
+	/*
+	 * Instruct the HWV to power off the MTCMOS (power domain): differently
+	 * from poweron, the bit will be kept set.
+	 */
+	regmap_write(scpsys->base, hwv->clr, BIT(hwv->setclr_bit));
+
+	/*
+	 * Wait until the HWV clears the bit, signalling that its internal
+	 * state machine was started and it now processing the clear command.
+	 */
+	ret = regmap_read_poll_timeout_atomic(scpsys->base, hwv->clr, val,
+					      !(val & BIT(hwv->setclr_bit)),
+					      MTK_HWV_PREPARE_DELAY_US,
+					      MTK_HWV_PREPARE_TIMEOUT);
+	if (ret)
+		goto err_disable_subsys_clks;
+
+	/* Poweroff needs 100us for the HW to stabilize */
+	udelay(100);
+
+	/* Wait for ACK, signalling that the MTCMOS was disabled */
+	ret = readx_poll_timeout_atomic(scpsys_hwv_domain_is_disable_done, pd, val, val,
+					MTK_HWV_POLL_DELAY_US, MTK_HWV_POLL_TIMEOUT);
+	if (ret)
+		goto err_disable_subsys_clks;
+
+	clk_bulk_disable_unprepare(pd->num_subsys_clks, pd->subsys_clks);
+	clk_bulk_disable_unprepare(pd->num_clks, pd->clks);
+
+	scpsys_regulator_disable(pd->supply);
+
+	if (MTK_SCPD_CAPS(pd, MTK_SCPD_INFRA_PWR_CTL))
+		scpsys_sec_infra_power_on(false);
+
+	return 0;
+
+err_disable_subsys_clks:
+	clk_bulk_disable_unprepare(pd->num_subsys_clks, pd->subsys_clks);
+err_infra:
+	if (MTK_SCPD_CAPS(pd, MTK_SCPD_INFRA_PWR_CTL))
+		scpsys_sec_infra_power_on(false);
+	return ret;
+};
 
 static int scpsys_ctl_pwrseq_on(struct scpsys_domain *pd)
 {
@@ -428,6 +642,15 @@ static int scpsys_power_on(struct generic_pm_domain *genpd)
 		goto err_pwr_ack;
 
 	/*
+	 * In MT8189 mminfra power domain, the bus protect policy separates
+	 * into two parts, one is set before subsys clocks enabled, and another
+	 * need to enable after subsys clocks enable.
+	 */
+	ret = scpsys_bus_protect_disable(pd, BUS_PROT_IGNORE_SUBCLK);
+	if (ret < 0)
+		goto err_pwr_ack;
+
+	/*
 	 * In few Mediatek platforms(e.g. MT6779), the bus protect policy is
 	 * stricter, which leads to bus protect release must be prior to bus
 	 * access.
@@ -443,7 +666,7 @@ static int scpsys_power_on(struct generic_pm_domain *genpd)
 	if (ret < 0)
 		goto err_disable_subsys_clks;
 
-	ret = scpsys_bus_protect_disable(pd);
+	ret = scpsys_bus_protect_disable(pd, 0);
 	if (ret < 0)
 		goto err_disable_sram;
 
@@ -457,7 +680,7 @@ static int scpsys_power_on(struct generic_pm_domain *genpd)
 	return 0;
 
 err_enable_bus_protect:
-	scpsys_bus_protect_enable(pd);
+	scpsys_bus_protect_enable(pd, 0);
 err_disable_sram:
 	scpsys_sram_disable(pd);
 err_disable_subsys_clks:
@@ -478,7 +701,7 @@ static int scpsys_power_off(struct generic_pm_domain *genpd)
 	bool tmp;
 	int ret;
 
-	ret = scpsys_bus_protect_enable(pd);
+	ret = scpsys_bus_protect_enable(pd, 0);
 	if (ret < 0)
 		return ret;
 
@@ -491,6 +714,10 @@ static int scpsys_power_off(struct generic_pm_domain *genpd)
 				pd->data->ext_buck_iso_mask);
 
 	clk_bulk_disable_unprepare(pd->num_subsys_clks, pd->subsys_clks);
+
+	ret = scpsys_bus_protect_enable(pd, BUS_PROT_IGNORE_SUBCLK);
+	if (ret < 0)
+		return ret;
 
 	if (MTK_SCPD_CAPS(pd, MTK_SCPD_MODEM_PWRSEQ))
 		scpsys_modem_pwrseq_off(pd);
@@ -514,6 +741,7 @@ static struct
 generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys, struct device_node *node)
 {
 	const struct scpsys_domain_data *domain_data;
+	const struct scpsys_hwv_domain_data *hwv_domain_data;
 	struct scpsys_domain *pd;
 	struct property *prop;
 	const char *clk_name;
@@ -529,14 +757,33 @@ generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys, struct device_no
 		return ERR_PTR(-EINVAL);
 	}
 
-	if (id >= scpsys->soc_data->num_domains) {
-		dev_err(scpsys->dev, "%pOF: invalid domain id %d\n", node, id);
-		return ERR_PTR(-EINVAL);
-	}
+	switch (scpsys->soc_data->type) {
+	case SCPSYS_MTCMOS_TYPE_DIRECT_CTL:
+		if (id >= scpsys->soc_data->num_domains) {
+			dev_err(scpsys->dev, "%pOF: invalid domain id %d\n", node, id);
+			return ERR_PTR(-EINVAL);
+		}
 
-	domain_data = &scpsys->soc_data->domains_data[id];
-	if (domain_data->sta_mask == 0) {
-		dev_err(scpsys->dev, "%pOF: undefined domain id %d\n", node, id);
+		domain_data = &scpsys->soc_data->domains_data[id];
+		hwv_domain_data = NULL;
+
+		if (domain_data->sta_mask == 0) {
+			dev_err(scpsys->dev, "%pOF: undefined domain id %d\n", node, id);
+			return ERR_PTR(-EINVAL);
+		}
+
+		break;
+	case SCPSYS_MTCMOS_TYPE_HW_VOTER:
+		if (id >= scpsys->soc_data->num_hwv_domains) {
+			dev_err(scpsys->dev, "%pOF: invalid HWV domain id %d\n", node, id);
+			return ERR_PTR(-EINVAL);
+		}
+
+		domain_data = NULL;
+		hwv_domain_data = &scpsys->soc_data->hwv_domains_data[id];
+
+		break;
+	default:
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -545,6 +792,7 @@ generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys, struct device_no
 		return ERR_PTR(-ENOMEM);
 
 	pd->data = domain_data;
+	pd->hwv_data = hwv_domain_data;
 	pd->scpsys = scpsys;
 
 	if (MTK_SCPD_CAPS(pd, MTK_SCPD_DOMAIN_SUPPLY)) {
@@ -604,6 +852,31 @@ generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys, struct device_no
 		pd->subsys_clks[i].clk = clk;
 	}
 
+	if (scpsys->domains[id]) {
+		ret = -EINVAL;
+		dev_err(scpsys->dev,
+			"power domain with id %d already exists, check your device-tree\n", id);
+		goto err_put_subsys_clocks;
+	}
+
+	if (pd->data && pd->data->name)
+		pd->genpd.name = pd->data->name;
+	else if (pd->hwv_data && pd->hwv_data->name)
+		pd->genpd.name = pd->hwv_data->name;
+	else
+		pd->genpd.name = node->name;
+
+	if (scpsys->soc_data->type == SCPSYS_MTCMOS_TYPE_DIRECT_CTL) {
+		pd->genpd.power_off = scpsys_power_off;
+		pd->genpd.power_on = scpsys_power_on;
+	} else {
+		pd->genpd.power_off = scpsys_hwv_power_off;
+		pd->genpd.power_on = scpsys_hwv_power_on;
+
+		/* HW-Voter code can be invoked in atomic context */
+		pd->genpd.flags |= GENPD_FLAG_IRQ_SAFE;
+	}
+
 	/*
 	 * Initially turn on all domains to make the domains usable
 	 * with !CONFIG_PM and to get the hardware in sync with the
@@ -615,7 +888,7 @@ generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys, struct device_no
 			dev_warn(scpsys->dev,
 				 "%pOF: A default off power domain has been ON\n", node);
 	} else {
-		ret = scpsys_power_on(&pd->genpd);
+		ret = pd->genpd.power_on(&pd->genpd);
 		if (ret < 0) {
 			dev_err(scpsys->dev, "%pOF: failed to power on domain: %d\n", node, ret);
 			goto err_put_subsys_clocks;
@@ -624,21 +897,6 @@ generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys, struct device_no
 		if (MTK_SCPD_CAPS(pd, MTK_SCPD_ALWAYS_ON))
 			pd->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
 	}
-
-	if (scpsys->domains[id]) {
-		ret = -EINVAL;
-		dev_err(scpsys->dev,
-			"power domain with id %d already exists, check your device-tree\n", id);
-		goto err_put_subsys_clocks;
-	}
-
-	if (!pd->data->name)
-		pd->genpd.name = node->name;
-	else
-		pd->genpd.name = pd->data->name;
-
-	pd->genpd.power_off = scpsys_power_off;
-	pd->genpd.power_on = scpsys_power_on;
 
 	if (MTK_SCPD_CAPS(pd, MTK_SCPD_ACTIVE_WAKEUP))
 		pd->genpd.flags |= GENPD_FLAG_ACTIVE_WAKEUP;
@@ -757,6 +1015,7 @@ static int scpsys_get_bus_protection_legacy(struct device *dev, struct scpsys *s
 	struct device_node *node, *smi_np;
 	int num_regmaps = 0, i, j;
 	struct regmap *regmap[3];
+	int ret = 0;
 
 	/*
 	 * Legacy code retrieves a maximum of three bus protection handles:
@@ -769,6 +1028,7 @@ static int scpsys_get_bus_protection_legacy(struct device *dev, struct scpsys *s
 	 * this makes it then possible to allocate the array of bus_prot
 	 * regmaps and convert all to the new style handling.
 	 */
+	of_node_get(np);
 	node = of_find_node_with_property(np, "mediatek,infracfg");
 	if (node) {
 		regmap[0] = syscon_regmap_lookup_by_phandle(node, "mediatek,infracfg");
@@ -782,6 +1042,7 @@ static int scpsys_get_bus_protection_legacy(struct device *dev, struct scpsys *s
 		regmap[0] = NULL;
 	}
 
+	of_node_get(np);
 	node = of_find_node_with_property(np, "mediatek,smi");
 	if (node) {
 		smi_np = of_parse_phandle(node, "mediatek,smi", 0);
@@ -800,15 +1061,19 @@ static int scpsys_get_bus_protection_legacy(struct device *dev, struct scpsys *s
 		regmap[1] = NULL;
 	}
 
+	of_node_get(np);
 	node = of_find_node_with_property(np, "mediatek,infracfg-nao");
 	if (node) {
 		regmap[2] = syscon_regmap_lookup_by_phandle(node, "mediatek,infracfg-nao");
 		num_regmaps++;
-		of_node_put(node);
-		if (IS_ERR(regmap[2]))
-			return dev_err_probe(dev, PTR_ERR(regmap[2]),
+		if (IS_ERR(regmap[2])) {
+			ret = dev_err_probe(dev, PTR_ERR(regmap[2]),
 					     "%pOF: failed to get infracfg regmap\n",
 					     node);
+			of_node_put(node);
+			return ret;
+		}
+		of_node_put(node);
 	} else {
 		regmap[2] = NULL;
 	}
@@ -912,12 +1177,28 @@ static const struct of_device_id scpsys_of_match[] = {
 		.data = &mt8188_scpsys_data,
 	},
 	{
+		.compatible = "mediatek,mt8189-power-controller",
+		.data = &mt8189_scpsys_data,
+	},
+	{
 		.compatible = "mediatek,mt8192-power-controller",
 		.data = &mt8192_scpsys_data,
 	},
 	{
 		.compatible = "mediatek,mt8195-power-controller",
 		.data = &mt8195_scpsys_data,
+	},
+	{
+		.compatible = "mediatek,mt8196-power-controller",
+		.data = &mt8196_scpsys_data,
+	},
+	{
+		.compatible = "mediatek,mt8196-hwv-hfrp-power-controller",
+		.data = &mt8196_hfrpsys_hwv_data,
+	},
+	{
+		.compatible = "mediatek,mt8196-hwv-scp-power-controller",
+		.data = &mt8196_scpsys_hwv_data,
 	},
 	{
 		.compatible = "mediatek,mt8365-power-controller",
@@ -931,10 +1212,9 @@ static int scpsys_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	const struct scpsys_soc_data *soc;
-	struct device_node *node;
 	struct device *parent;
 	struct scpsys *scpsys;
-	int ret;
+	int num_domains, ret;
 
 	soc = of_device_get_match_data(&pdev->dev);
 	if (!soc) {
@@ -942,7 +1222,9 @@ static int scpsys_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	scpsys = devm_kzalloc(dev, struct_size(scpsys, domains, soc->num_domains), GFP_KERNEL);
+	num_domains = soc->num_domains + soc->num_hwv_domains;
+
+	scpsys = devm_kzalloc(dev, struct_size(scpsys, domains, num_domains), GFP_KERNEL);
 	if (!scpsys)
 		return -ENOMEM;
 
@@ -950,7 +1232,7 @@ static int scpsys_probe(struct platform_device *pdev)
 	scpsys->soc_data = soc;
 
 	scpsys->pd_data.domains = scpsys->domains;
-	scpsys->pd_data.num_domains = soc->num_domains;
+	scpsys->pd_data.num_domains = num_domains;
 
 	parent = dev->parent;
 	if (!parent) {
@@ -973,21 +1255,18 @@ static int scpsys_probe(struct platform_device *pdev)
 		return ret;
 
 	ret = -ENODEV;
-	for_each_available_child_of_node(np, node) {
+	for_each_available_child_of_node_scoped(np, node) {
 		struct generic_pm_domain *domain;
 
 		domain = scpsys_add_one_domain(scpsys, node);
 		if (IS_ERR(domain)) {
 			ret = PTR_ERR(domain);
-			of_node_put(node);
 			goto err_cleanup_domains;
 		}
 
 		ret = scpsys_add_subdomain(scpsys, node);
-		if (ret) {
-			of_node_put(node);
+		if (ret)
 			goto err_cleanup_domains;
-		}
 	}
 
 	if (ret) {

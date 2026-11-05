@@ -60,9 +60,10 @@ static int gro_cell_poll(struct napi_struct *napi, int budget)
 	struct sk_buff *skb;
 	int work_done = 0;
 
-	__local_lock_nested_bh(&cell->bh_lock);
 	while (work_done < budget) {
+		__local_lock_nested_bh(&cell->bh_lock);
 		skb = __skb_dequeue(&cell->napi_skbs);
+		__local_unlock_nested_bh(&cell->bh_lock);
 		if (!skb)
 			break;
 		napi_gro_receive(napi, skb);
@@ -71,7 +72,6 @@ static int gro_cell_poll(struct napi_struct *napi, int budget)
 
 	if (work_done < budget)
 		napi_complete_done(napi, work_done);
-	__local_unlock_nested_bh(&cell->bh_lock);
 	return work_done;
 }
 
@@ -132,7 +132,7 @@ void gro_cells_destroy(struct gro_cells *gcells)
 	 * because we might be called from cleanup_net(), and we
 	 * definitely do not want to block this critical task.
 	 */
-	defer = kmalloc(sizeof(*defer), GFP_KERNEL | __GFP_NOWARN);
+	defer = kmalloc_obj(*defer, GFP_KERNEL | __GFP_NOWARN);
 	if (likely(defer)) {
 		defer->ptr = gcells->cells;
 		call_rcu(&defer->rcu, percpu_free_defer_callback);

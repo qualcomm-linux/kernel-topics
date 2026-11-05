@@ -497,8 +497,8 @@ static void _check_addc(struct rtw89_dev *rtwdev, enum rtw89_rf_path path)
 
 	for (i = 0; i < ADDC_T_AVG; i++) {
 		tmp = rtw89_phy_read32_mask(rtwdev, R_DBG32_D, MASKDWORD);
-		dc_re += sign_extend32(FIELD_GET(0xfff000, tmp), 11);
-		dc_im += sign_extend32(FIELD_GET(0xfff, tmp), 11);
+		dc_re += FIELD_GET_SIGNED(0xfff000, tmp);
+		dc_im += FIELD_GET_SIGNED(0xfff, tmp);
 	}
 
 	dc_re /= ADDC_T_AVG;
@@ -1696,7 +1696,7 @@ static void _dpk_onoff(struct rtw89_dev *rtwdev, enum rtw89_rf_path path, bool o
 			       MASKBYTE3, _dpk_order_convert(rtwdev) << 1 | val);
 
 	rtw89_debug(rtwdev, RTW89_DBG_RFK, "[DPK] S%d[%d] DPK %s !!!\n", path,
-		    kidx, dpk->is_dpk_enable && !off ? "enable" : "disable");
+		    kidx, str_enable_disable(dpk->is_dpk_enable && !off));
 }
 
 static void _dpk_one_shot(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy,
@@ -1763,8 +1763,8 @@ static void _dpk_information(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy,
 	rtw89_debug(rtwdev, RTW89_DBG_RFK,
 		    "[DPK] S%d[%d] (PHY%d): TSSI %s/ DBCC %s/ %s/ CH%d/ %s\n",
 		    path, dpk->cur_idx[path], phy,
-		    rtwdev->is_tssi_mode[path] ? "on" : "off",
-		    rtwdev->dbcc_en ? "on" : "off",
+		    str_on_off(rtwdev->is_tssi_mode[path]),
+		    str_on_off(rtwdev->dbcc_en),
 		    dpk->bp[path][kidx].band == 0 ? "2G" :
 		    dpk->bp[path][kidx].band == 1 ? "5G" : "6G",
 		    dpk->bp[path][kidx].ch,
@@ -4167,10 +4167,14 @@ void rtw8852b_set_channel_rf(struct rtw89_dev *rtwdev,
 
 void rtw8852b_mcc_get_ch_info(struct rtw89_dev *rtwdev, enum rtw89_phy_idx phy_idx)
 {
-	const struct rtw89_chan *chan = rtw89_mgnt_chan_get(rtwdev, 0);
 	struct rtw89_rfk_mcc_info_data *rfk_mcc = rtwdev->rfk_mcc.data;
 	struct rtw89_rfk_chan_desc desc[__RTW89_RFK_CHS_NR_V0] = {};
+	struct rtw89_entity_conf conf;
+	const struct rtw89_chan *chan;
 	u8 idx;
+
+	rtw89_entity_get_conf(rtwdev, &conf);
+	chan = conf.chans[0];
 
 	for (idx = 0; idx < ARRAY_SIZE(desc); idx++) {
 		struct rtw89_rfk_chan_desc *p = &desc[idx];

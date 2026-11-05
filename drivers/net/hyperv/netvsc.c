@@ -12,6 +12,7 @@
 #include <linux/sched.h>
 #include <linux/wait.h>
 #include <linux/mm.h>
+#include <linux/highmem.h>
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/slab.h>
@@ -129,7 +130,7 @@ static struct netvsc_device *alloc_net_device(void)
 {
 	struct netvsc_device *net_device;
 
-	net_device = kzalloc(sizeof(struct netvsc_device), GFP_KERNEL);
+	net_device = kzalloc_obj(struct netvsc_device);
 	if (!net_device)
 		return NULL;
 
@@ -965,12 +966,22 @@ static void netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 	}
 
 	for (i = 0; i < page_count; i++) {
-		char *src = phys_to_virt(pb[i].pfn << HV_HYP_PAGE_SHIFT);
-		u32 offset = pb[i].offset;
+		phys_addr_t paddr = (pb[i].pfn << HV_HYP_PAGE_SHIFT) +
+				    pb[i].offset;
 		u32 len = pb[i].len;
 
-		memcpy(dest, (src + offset), len);
-		dest += len;
+		while (len) {
+			struct page *page = phys_to_page(paddr);
+			u32 off = offset_in_page(paddr);
+			u32 chunk = min_t(u32, len, PAGE_SIZE - off);
+			char *src = kmap_local_page(page);
+
+			memcpy(dest, src + off, chunk);
+			kunmap_local(src);
+			dest += chunk;
+			paddr += chunk;
+			len -= chunk;
+		}
 	}
 
 	if (padding)
@@ -1025,9 +1036,8 @@ static int netvsc_dma_map(struct hv_device *hv_dev,
 	if (!hv_is_isolation_supported())
 		return 0;
 
-	packet->dma_range = kcalloc(page_count,
-				    sizeof(*packet->dma_range),
-				    GFP_ATOMIC);
+	packet->dma_range = kzalloc_objs(*packet->dma_range, page_count,
+					 GFP_ATOMIC);
 	if (!packet->dma_range)
 		return -ENOMEM;
 

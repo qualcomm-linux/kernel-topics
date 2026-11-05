@@ -11,7 +11,9 @@ use core::{
 };
 use pin_init::{PinInit, Wrapper, Zeroable};
 
-pub use crate::sync::aref::{ARef, AlwaysRefCounted};
+#[doc(hidden)]
+pub mod for_lt;
+pub use for_lt::ForLt;
 
 /// Used to transfer ownership to and from foreign (non-Rust) languages.
 ///
@@ -29,10 +31,14 @@ pub unsafe trait ForeignOwnable: Sized {
     const FOREIGN_ALIGN: usize;
 
     /// Type used to immutably borrow a value that is currently foreign-owned.
-    type Borrowed<'a>;
+    type Borrowed<'a>
+    where
+        Self: 'a;
 
     /// Type used to mutably borrow a value that is currently foreign-owned.
-    type BorrowedMut<'a>;
+    type BorrowedMut<'a>
+    where
+        Self: 'a;
 
     /// Converts a Rust-owned object to a foreign-owned one.
     ///
@@ -289,7 +295,6 @@ impl<T, F: FnOnce(T)> Drop for ScopeGuard<T, F> {
 /// # Examples
 ///
 /// ```
-/// # #![expect(unreachable_pub, clippy::disallowed_names)]
 /// use kernel::types::Opaque;
 /// # // Emulate a C struct binding which is from C, maybe uninitialized or not, only the C side
 /// # // knows.

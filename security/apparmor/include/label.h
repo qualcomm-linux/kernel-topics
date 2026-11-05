@@ -102,7 +102,7 @@ enum label_flags {
 
 struct aa_label;
 struct aa_proxy {
-	struct kref count;
+	struct aa_common_ref count;
 	struct aa_label __rcu *label;
 };
 
@@ -125,7 +125,7 @@ struct label_it {
  * vec: vector of profiles comprising the compound label
  */
 struct aa_label {
-	struct kref count;
+	struct aa_common_ref count;
 	struct rb_node node;
 	struct rcu_head rcu;
 	struct aa_proxy *proxy;
@@ -357,7 +357,7 @@ int aa_label_match(struct aa_profile *profile, struct aa_ruleset *rules,
  */
 static inline struct aa_label *__aa_get_label(struct aa_label *l)
 {
-	if (l && kref_get_unless_zero(&l->count))
+	if (l && kref_get_unless_zero(&l->count.count))
 		return l;
 
 	return NULL;
@@ -366,7 +366,7 @@ static inline struct aa_label *__aa_get_label(struct aa_label *l)
 static inline struct aa_label *aa_get_label(struct aa_label *l)
 {
 	if (l)
-		kref_get(&(l->count));
+		kref_get(&(l->count.count));
 
 	return l;
 }
@@ -386,7 +386,7 @@ static inline struct aa_label *aa_get_label_rcu(struct aa_label __rcu **l)
 	rcu_read_lock();
 	do {
 		c = rcu_dereference(*l);
-	} while (c && !kref_get_unless_zero(&c->count));
+	} while (c && !kref_get_unless_zero(&c->count.count));
 	rcu_read_unlock();
 
 	return c;
@@ -423,10 +423,42 @@ static inline struct aa_label *aa_get_newest_label(struct aa_label *l)
 	return aa_get_label(l);
 }
 
+/**
+ * aa_get_newest_label_condref - find the newest version of @l
+ * @l: the label to check for newer versions of
+ * @needput: returns whether the reference needs put
+ *
+ * Returns: refcounted newest version of @l taking into account
+ *          replacement, renames and removals
+ *          return @l.
+ */
+static inline struct aa_label *aa_get_newest_label_condref(struct aa_label *l,
+							   bool *needput)
+{
+	if (l && unlikely(label_is_stale(l))) {
+		struct aa_label *tmp;
+
+		AA_BUG(!l->proxy);
+		AA_BUG(!l->proxy->label);
+		/* BUG: only way this can happen is @l ref count and its
+		 * replacement count have gone to 0 and are on their way
+		 * to destruction. ie. we have a refcounting error
+		 */
+		tmp = aa_get_label_rcu(&l->proxy->label);
+		AA_BUG(!tmp);
+
+		*needput = true;
+		return tmp;
+	}
+
+	*needput = false;
+	return l;
+}
+
 static inline void aa_put_label(struct aa_label *l)
 {
 	if (l)
-		kref_put(&l->count, aa_label_kref);
+		kref_put(&l->count.count, aa_label_kref);
 }
 
 /* wrapper fn to indicate semantics of the check */
@@ -443,7 +475,7 @@ void aa_proxy_kref(struct kref *kref);
 static inline struct aa_proxy *aa_get_proxy(struct aa_proxy *proxy)
 {
 	if (proxy)
-		kref_get(&(proxy->count));
+		kref_get(&(proxy->count.count));
 
 	return proxy;
 }
@@ -451,7 +483,7 @@ static inline struct aa_proxy *aa_get_proxy(struct aa_proxy *proxy)
 static inline void aa_put_proxy(struct aa_proxy *proxy)
 {
 	if (proxy)
-		kref_put(&proxy->count, aa_proxy_kref);
+		kref_put(&proxy->count.count, aa_proxy_kref);
 }
 
 void __aa_proxy_redirect(struct aa_label *orig, struct aa_label *new);

@@ -522,7 +522,7 @@ drm_gpusvm_notifier_alloc(struct drm_gpusvm *gpusvm, unsigned long fault_addr)
 	if (gpusvm->ops->notifier_alloc)
 		notifier = gpusvm->ops->notifier_alloc();
 	else
-		notifier = kzalloc(sizeof(*notifier), GFP_KERNEL);
+		notifier = kzalloc_obj(*notifier);
 
 	if (!notifier)
 		return ERR_PTR(-ENOMEM);
@@ -629,7 +629,7 @@ drm_gpusvm_range_alloc(struct drm_gpusvm *gpusvm,
 	if (gpusvm->ops->range_alloc)
 		range = gpusvm->ops->range_alloc(gpusvm);
 	else
-		range = kzalloc(sizeof(*range), GFP_KERNEL);
+		range = kzalloc_obj(*range);
 
 	if (!range)
 		return ERR_PTR(-ENOMEM);
@@ -742,6 +742,127 @@ err_free:
 	kvfree(pfns);
 	return err ? false : true;
 }
+
+/**
+ * drm_gpusvm_scan_mm() - Check the migration state of a drm_gpusvm_range
+ * @range: Pointer to the struct drm_gpusvm_range to check.
+ * @dev_private_owner: The struct dev_private_owner to use to determine
+ * compatible device-private pages.
+ * @pagemap: The struct dev_pagemap pointer to use for pagemap-specific
+ * checks.
+ *
+ * Scan the CPU address space corresponding to @range and return the
+ * current migration state. Note that the result may be invalid as
+ * soon as the function returns. It's an advisory check.
+ *
+ * TODO: Bail early and call hmm_range_fault() for subranges.
+ *
+ * Return: See &enum drm_gpusvm_scan_result.
+ */
+enum drm_gpusvm_scan_result drm_gpusvm_scan_mm(struct drm_gpusvm_range *range,
+					       void *dev_private_owner,
+					       const struct dev_pagemap *pagemap)
+{
+	struct mmu_interval_notifier *notifier = &range->notifier->notifier;
+	unsigned long start = drm_gpusvm_range_start(range);
+	unsigned long end = drm_gpusvm_range_end(range);
+	struct hmm_range hmm_range = {
+		.default_flags = 0,
+		.notifier = notifier,
+		.start = start,
+		.end = end,
+		.dev_private_owner = dev_private_owner,
+	};
+	unsigned long timeout =
+		jiffies + msecs_to_jiffies(HMM_RANGE_DEFAULT_TIMEOUT);
+	enum drm_gpusvm_scan_result state = DRM_GPUSVM_SCAN_UNPOPULATED, new_state;
+	unsigned long *pfns;
+	unsigned long npages = npages_in_range(start, end);
+	const struct dev_pagemap *other = NULL;
+	int err, i;
+
+	pfns = kvmalloc_array(npages, sizeof(*pfns), GFP_KERNEL);
+	if (!pfns)
+		return DRM_GPUSVM_SCAN_UNPOPULATED;
+
+	hmm_range.hmm_pfns = pfns;
+
+retry:
+	hmm_range.notifier_seq = mmu_interval_read_begin(notifier);
+	mmap_read_lock(range->gpusvm->mm);
+
+	while (true) {
+		err = hmm_range_fault(&hmm_range);
+		if (err == -EBUSY) {
+			if (time_after(jiffies, timeout))
+				break;
+
+			hmm_range.notifier_seq =
+				mmu_interval_read_begin(notifier);
+			continue;
+		}
+		break;
+	}
+	mmap_read_unlock(range->gpusvm->mm);
+	if (err)
+		goto err_free;
+
+	drm_gpusvm_notifier_lock(range->gpusvm);
+	if (mmu_interval_read_retry(notifier, hmm_range.notifier_seq)) {
+		drm_gpusvm_notifier_unlock(range->gpusvm);
+		goto retry;
+	}
+
+	for (i = 0; i < npages;) {
+		struct page *page;
+		const struct dev_pagemap *cur = NULL;
+
+		if (!(pfns[i] & HMM_PFN_VALID)) {
+			state = DRM_GPUSVM_SCAN_UNPOPULATED;
+			break;
+		}
+
+		page = hmm_pfn_to_page(pfns[i]);
+		if (is_device_private_page(page) ||
+		    is_device_coherent_page(page))
+			cur = page_pgmap(page);
+
+		if (cur == pagemap) {
+			new_state = DRM_GPUSVM_SCAN_EQUAL;
+		} else if (cur && (cur == other || !other)) {
+			new_state = DRM_GPUSVM_SCAN_OTHER;
+			other = cur;
+		} else if (cur) {
+			new_state = DRM_GPUSVM_SCAN_MIXED_DEVICE;
+		} else {
+			new_state = DRM_GPUSVM_SCAN_SYSTEM;
+		}
+
+		/*
+		 * TODO: Could use an array for state
+		 * transitions, and caller might want it
+		 * to bail early for some results.
+		 */
+		if (state == DRM_GPUSVM_SCAN_UNPOPULATED) {
+			state = new_state;
+		} else if (state != new_state) {
+			if (new_state == DRM_GPUSVM_SCAN_SYSTEM ||
+			    state == DRM_GPUSVM_SCAN_SYSTEM)
+				state = DRM_GPUSVM_SCAN_MIXED;
+			else if (state != DRM_GPUSVM_SCAN_MIXED)
+				state = DRM_GPUSVM_SCAN_MIXED_DEVICE;
+		}
+
+		i += 1ul << drm_gpusvm_hmm_pfn_to_order(pfns[i], i, npages);
+	}
+
+	drm_gpusvm_notifier_unlock(range->gpusvm);
+
+err_free:
+	kvfree(pfns);
+	return state;
+}
+EXPORT_SYMBOL(drm_gpusvm_scan_mm);
 
 /**
  * drm_gpusvm_range_chunk_size() - Determine chunk size for GPU SVM range
@@ -944,6 +1065,11 @@ drm_gpusvm_range_find_or_insert(struct drm_gpusvm *gpusvm,
 		goto err_notifier_remove;
 	}
 
+	if (vas->vm_flags & (VM_IO | VM_PFNMAP)) {
+		err = -EIO;
+		goto err_notifier_remove;
+	}
+
 	range = drm_gpusvm_range_find(notifier, fault_addr, fault_addr + 1);
 	if (range)
 		goto out_mmunlock;
@@ -1018,18 +1144,24 @@ static void __drm_gpusvm_unmap_pages(struct drm_gpusvm *gpusvm,
 		struct drm_gpusvm_pages_flags flags = {
 			.__flags = svm_pages->flags.__flags,
 		};
+		bool use_iova = dma_use_iova(&svm_pages->state);
+
+		if (use_iova)
+			dma_iova_destroy(dev, &svm_pages->state,
+					 svm_pages->state_offset,
+					 svm_pages->dma_addr[0].dir, 0);
 
 		for (i = 0, j = 0; i < npages; j++) {
 			struct drm_pagemap_addr *addr = &svm_pages->dma_addr[j];
 
-			if (addr->proto == DRM_INTERCONNECT_SYSTEM)
+			if (!use_iova && addr->proto == DRM_INTERCONNECT_SYSTEM)
 				dma_unmap_page(dev,
 					       addr->addr,
 					       PAGE_SIZE << addr->order,
 					       addr->dir);
 			else if (dpagemap && dpagemap->ops->device_unmap)
 				dpagemap->ops->device_unmap(dpagemap,
-							    dev, *addr);
+							    dev, addr);
 			i += 1 << addr->order;
 		}
 
@@ -1038,6 +1170,7 @@ static void __drm_gpusvm_unmap_pages(struct drm_gpusvm *gpusvm,
 		flags.has_dma_mapping = false;
 		WRITE_ONCE(svm_pages->flags.__flags, flags.__flags);
 
+		drm_pagemap_put(svm_pages->dpagemap);
 		svm_pages->dpagemap = NULL;
 	}
 }
@@ -1216,14 +1349,14 @@ bool drm_gpusvm_range_pages_valid(struct drm_gpusvm *gpusvm,
 EXPORT_SYMBOL_GPL(drm_gpusvm_range_pages_valid);
 
 /**
- * drm_gpusvm_range_pages_valid_unlocked() - GPU SVM range pages valid unlocked
+ * drm_gpusvm_pages_valid_unlocked() - GPU SVM pages valid unlocked
  * @gpusvm: Pointer to the GPU SVM structure
- * @range: Pointer to the GPU SVM range structure
+ * @svm_pages: Pointer to the GPU SVM pages structure
  *
- * This function determines if a GPU SVM range pages are valid. Expected be
- * called without holding gpusvm->notifier_lock.
+ * This function determines if a GPU SVM pages are valid. Expected be called
+ * without holding gpusvm->notifier_lock.
  *
- * Return: True if GPU SVM range has valid pages, False otherwise
+ * Return: True if GPU SVM pages are valid, False otherwise
  */
 static bool drm_gpusvm_pages_valid_unlocked(struct drm_gpusvm *gpusvm,
 					    struct drm_gpusvm_pages *svm_pages)
@@ -1286,8 +1419,12 @@ int drm_gpusvm_get_pages(struct drm_gpusvm *gpusvm,
 	struct drm_gpusvm_pages_flags flags;
 	enum dma_data_direction dma_dir = ctx->read_only ? DMA_TO_DEVICE :
 							   DMA_BIDIRECTIONAL;
+	struct dma_iova_state *state = &svm_pages->state;
 
 retry:
+	if (time_after(jiffies, timeout))
+		return -EBUSY;
+
 	hmm_range.notifier_seq = mmu_interval_read_begin(notifier);
 	if (drm_gpusvm_pages_valid_unlocked(gpusvm, svm_pages))
 		goto set_seqno;
@@ -1321,6 +1458,9 @@ retry:
 	if (err)
 		goto err_free;
 
+	*state = (struct dma_iova_state){};
+	svm_pages->state_offset = 0;
+
 map_pages:
 	/*
 	 * Perform all dma mappings under the notifier lock to not
@@ -1346,7 +1486,7 @@ map_pages:
 		/* Unlock and restart mapping to allocate memory. */
 		drm_gpusvm_notifier_unlock(gpusvm);
 		svm_pages->dma_addr =
-			kvmalloc_array(npages, sizeof(*svm_pages->dma_addr), GFP_KERNEL);
+			kvmalloc_objs(*svm_pages->dma_addr, npages);
 		if (!svm_pages->dma_addr) {
 			err = -ENOMEM;
 			goto err_free;
@@ -1363,13 +1503,17 @@ map_pages:
 		order = drm_gpusvm_hmm_pfn_to_order(pfns[i], i, npages);
 		if (is_device_private_page(page) ||
 		    is_device_coherent_page(page)) {
-			if (zdd != page->zone_device_data && i > 0) {
+			struct drm_pagemap_zdd *__zdd =
+				drm_pagemap_page_zone_device_data(page);
+
+			if (!ctx->allow_mixed &&
+			    zdd != __zdd && i > 0) {
 				err = -EOPNOTSUPP;
 				goto err_unmap;
 			}
-			zdd = page->zone_device_data;
+			zdd = __zdd;
 			if (pagemap != page_pgmap(page)) {
-				if (i > 0) {
+				if (pagemap) {
 					err = -EOPNOTSUPP;
 					goto err_unmap;
 				}
@@ -1399,7 +1543,8 @@ map_pages:
 		} else {
 			dma_addr_t addr;
 
-			if (is_zone_device_page(page) || pagemap) {
+			if (is_zone_device_page(page) ||
+			    (pagemap && !ctx->allow_mixed)) {
 				err = -EOPNOTSUPP;
 				goto err_unmap;
 			}
@@ -1409,13 +1554,30 @@ map_pages:
 				goto err_unmap;
 			}
 
-			addr = dma_map_page(gpusvm->drm->dev,
-					    page, 0,
-					    PAGE_SIZE << order,
-					    dma_dir);
-			if (dma_mapping_error(gpusvm->drm->dev, addr)) {
-				err = -EFAULT;
-				goto err_unmap;
+			if (!i)
+				dma_iova_try_alloc(gpusvm->drm->dev, state,
+						   0, npages * PAGE_SIZE);
+
+			if (dma_use_iova(state)) {
+				err = dma_iova_link(gpusvm->drm->dev, state,
+						    hmm_pfn_to_phys(pfns[i]),
+						    svm_pages->state_offset,
+						    PAGE_SIZE << order,
+						    dma_dir, 0);
+				if (err)
+					goto err_unmap;
+
+				addr = state->addr + svm_pages->state_offset;
+				svm_pages->state_offset += PAGE_SIZE << order;
+			} else {
+				addr = dma_map_page(gpusvm->drm->dev,
+						    page, 0,
+						    PAGE_SIZE << order,
+						    dma_dir);
+				if (dma_mapping_error(gpusvm->drm->dev, addr)) {
+					err = -EFAULT;
+					goto err_unmap;
+				}
 			}
 
 			svm_pages->dma_addr[j] = drm_pagemap_addr_encode
@@ -1427,8 +1589,17 @@ map_pages:
 		flags.has_dma_mapping = true;
 	}
 
+	if (dma_use_iova(state)) {
+		err = dma_iova_sync(gpusvm->drm->dev, state, 0,
+				    svm_pages->state_offset);
+		if (err)
+			goto err_unmap;
+	}
+
 	if (pagemap) {
 		flags.has_devmem_pages = true;
+		drm_pagemap_get(dpagemap);
+		drm_pagemap_put(svm_pages->dpagemap);
 		svm_pages->dpagemap = dpagemap;
 	}
 
@@ -1443,6 +1614,7 @@ set_seqno:
 	return 0;
 
 err_unmap:
+	svm_pages->flags.has_dma_mapping = true;
 	__drm_gpusvm_unmap_pages(gpusvm, svm_pages, num_dma_mapped);
 	drm_gpusvm_notifier_unlock(gpusvm);
 err_free:

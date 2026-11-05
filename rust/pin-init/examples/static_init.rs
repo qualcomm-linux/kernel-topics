@@ -2,7 +2,6 @@
 
 #![allow(clippy::undocumented_unsafe_blocks)]
 #![cfg_attr(feature = "alloc", feature(allocator_api))]
-#![cfg_attr(not(RUSTC_LINT_REASONS_IS_STABLE), feature(lint_reasons))]
 #![allow(unused_imports)]
 
 use core::{
@@ -118,7 +117,7 @@ fn main() {
         for h in handles {
             h.join().expect("thread panicked");
         }
-        println!("{:?}, {:?}", &*mtx.lock(), &*COUNT.lock());
+        println!("{:?}, {:?}", *mtx.lock(), *COUNT.lock());
         assert_eq!(*mtx.lock(), workload * thread_count * 2);
     }
 }

@@ -15,12 +15,10 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/tty.h>
-#include <linux/tty_driver.h>
 #include <linux/tty_flip.h>
 #include <linux/module.h>
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
-#include <linux/uaccess.h>
 #include <linux/usb.h>
 #include <linux/usb/serial.h>
 #include <linux/usb/ezusb.h>
@@ -654,7 +652,7 @@ static int keyspan_pda_port_probe(struct usb_serial_port *port)
 
 	struct keyspan_pda_private *priv;
 
-	priv = kmalloc(sizeof(struct keyspan_pda_private), GFP_KERNEL);
+	priv = kmalloc_obj(struct keyspan_pda_private);
 	if (!priv)
 		return -ENOMEM;
 

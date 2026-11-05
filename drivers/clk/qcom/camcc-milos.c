@@ -30,6 +30,11 @@ enum {
 	DT_IFACE,
 };
 
+/* Need to match the order of interconnects in DT binding */
+enum {
+	DT_ICC_TOP_GDSC,
+};
+
 enum {
 	P_BI_TCXO,
 	P_CAM_CC_PLL0_OUT_EVEN,
@@ -1971,6 +1976,8 @@ static struct gdsc cam_cc_camss_top_gdsc = {
 	},
 	.pwrsts = PWRSTS_OFF_ON,
 	.flags = POLL_CFG_GDSCR | RETAIN_FF_ENABLE,
+	.needs_icc = true,
+	.icc_path_index = DT_ICC_TOP_GDSC,
 };
 
 static struct clk_regmap *cam_cc_milos_clocks[] = {
@@ -2104,7 +2111,7 @@ static struct clk_alpha_pll *cam_cc_milos_plls[] = {
 	&cam_cc_pll6,
 };
 
-static u32 cam_cc_milos_critical_cbcrs[] = {
+static const u32 cam_cc_milos_critical_cbcrs[] = {
 	0x25038, /* CAM_CC_GDSC_CLK */
 	0x2505c, /* CAM_CC_SLEEP_CLK */
 };
@@ -2117,7 +2124,7 @@ static const struct regmap_config cam_cc_milos_regmap_config = {
 	.fast_io = true,
 };
 
-static struct qcom_cc_driver_data cam_cc_milos_driver_data = {
+static const struct qcom_cc_driver_data cam_cc_milos_driver_data = {
 	.alpha_plls = cam_cc_milos_plls,
 	.num_alpha_plls = ARRAY_SIZE(cam_cc_milos_plls),
 	.clk_cbcrs = cam_cc_milos_critical_cbcrs,

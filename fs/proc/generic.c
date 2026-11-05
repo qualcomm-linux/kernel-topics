@@ -115,8 +115,8 @@ static bool pde_subdir_insert(struct proc_dir_entry *dir,
 	return true;
 }
 
-static int proc_notify_change(struct mnt_idmap *idmap,
-			      struct dentry *dentry, struct iattr *iattr)
+static int proc_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+		struct iattr *iattr)
 {
 	struct inode *inode = d_inode(dentry);
 	struct proc_dir_entry *de = PDE(inode);
@@ -151,7 +151,7 @@ static int proc_getattr(struct mnt_idmap *idmap,
 }
 
 static const struct inode_operations proc_file_inode_operations = {
-	.setattr	= proc_notify_change,
+	.setattr	= proc_setattr,
 };
 
 /*
@@ -364,7 +364,7 @@ const struct dentry_operations proc_net_dentry_ops = {
 static const struct inode_operations proc_dir_inode_operations = {
 	.lookup		= proc_lookup,
 	.getattr	= proc_getattr,
-	.setattr	= proc_notify_change,
+	.setattr	= proc_setattr,
 };
 
 static void pde_set_flags(struct proc_dir_entry *pde)
@@ -427,9 +427,13 @@ static struct proc_dir_entry *__proc_create(struct proc_dir_entry **parent,
 	if (xlate_proc_name(name, parent, &fn) != 0)
 		goto out;
 	qstr.name = fn;
-	qstr.len = strlen(fn);
-	if (qstr.len == 0 || qstr.len >= 256) {
-		WARN(1, "name len %u\n", qstr.len);
+	qstr.len = strnlen(fn, NAME_MAX + 1);
+	if (qstr.len == 0) {
+		WARN(1, "empty name\n");
+		return NULL;
+	}
+	if (qstr.len > NAME_MAX) {
+		WARN(1, "name too long\n");
 		return NULL;
 	}
 	if (qstr.len == 1 && fn[0] == '.') {
@@ -698,6 +702,12 @@ void pde_put(struct proc_dir_entry *pde)
 	}
 }
 
+static void pde_erase(struct proc_dir_entry *pde, struct proc_dir_entry *parent)
+{
+	rb_erase(&pde->subdir_node, &parent->subdir);
+	RB_CLEAR_NODE(&pde->subdir_node);
+}
+
 /*
  * Remove a /proc entry and free it if it's not currently in use.
  */
@@ -720,7 +730,7 @@ void remove_proc_entry(const char *name, struct proc_dir_entry *parent)
 			WARN(1, "removing permanent /proc entry '%s'", de->name);
 			de = NULL;
 		} else {
-			rb_erase(&de->subdir_node, &parent->subdir);
+			pde_erase(de, parent);
 			if (S_ISDIR(de->mode))
 				parent->nlink--;
 		}
@@ -764,7 +774,7 @@ int remove_proc_subtree(const char *name, struct proc_dir_entry *parent)
 			root->parent->name, root->name);
 		return -EINVAL;
 	}
-	rb_erase(&root->subdir_node, &parent->subdir);
+	pde_erase(root, parent);
 
 	de = root;
 	while (1) {
@@ -776,7 +786,7 @@ int remove_proc_subtree(const char *name, struct proc_dir_entry *parent)
 					next->parent->name, next->name);
 				return -EINVAL;
 			}
-			rb_erase(&next->subdir_node, &de->subdir);
+			pde_erase(next, de);
 			de = next;
 			continue;
 		}
@@ -834,4 +844,14 @@ ssize_t proc_simple_write(struct file *f, const char __user *ubuf, size_t size,
 	ret = pde->write(f, buf, size);
 	kfree(buf);
 	return ret == 0 ? size : ret;
+}
+
+/*
+ * Not exported to modules:
+ * modules' /proc files aren't permanent because modules aren't permanent.
+ */
+void impl_proc_make_permanent(struct proc_dir_entry *pde)
+{
+	if (pde)
+		pde_make_permanent(pde);
 }

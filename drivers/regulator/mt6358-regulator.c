@@ -31,7 +31,7 @@ struct mt6358_regulator_info {
 	u32 modeset_mask;
 };
 
-#define to_regulator_info(x) container_of((x), struct mt6358_regulator_info, desc)
+#define to_regulator_info(x) container_of_const((x), struct mt6358_regulator_info, desc)
 
 #define MT6358_BUCK(match, vreg, supply, min, max, step,	\
 		    vosel_mask, _da_vsel_reg, _da_vsel_mask,	\
@@ -724,8 +724,8 @@ static int mt6358_regulator_probe(struct platform_device *pdev)
 }
 
 static const struct platform_device_id mt6358_platform_ids[] = {
-	{"mt6358-regulator", 0},
-	{ /* sentinel */ },
+	{ .name = "mt6358-regulator" },
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(platform, mt6358_platform_ids);
 

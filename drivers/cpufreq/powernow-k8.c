@@ -39,6 +39,7 @@
 
 #include <asm/msr.h>
 #include <asm/cpu_device_id.h>
+#include <asm/cpuid/api.h>
 
 #include <linux/acpi.h>
 #include <linux/mutex.h>
@@ -1029,7 +1030,7 @@ static int powernowk8_cpu_init(struct cpufreq_policy *pol)
 	if (rc)
 		return -ENODEV;
 
-	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	data = kzalloc_obj(*data);
 	if (!data)
 		return -ENOMEM;
 

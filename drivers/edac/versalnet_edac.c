@@ -70,6 +70,8 @@
 #define XDDR5_BUS_WIDTH_32		1
 #define XDDR5_BUS_WIDTH_16		2
 
+#define MC_NAME_LEN			32
+
 /**
  * struct ecc_error_info - ECC error log information.
  * @burstpos:		Burst position.
@@ -433,7 +435,7 @@ static void handle_error(struct mc_priv  *priv, struct ecc_status *stat,
 	phys_addr_t pfn;
 	int err;
 
-	if (WARN_ON_ONCE(ctl_num > NUM_CONTROLLERS))
+	if (WARN_ON_ONCE(ctl_num >= NUM_CONTROLLERS))
 		return;
 
 	mci = priv->mci[ctl_num];
@@ -559,7 +561,7 @@ static int setup_mcdi(struct mc_priv *mc_priv)
 	struct cdx_mcdi *amd_mcdi;
 	int ret, i;
 
-	amd_mcdi = kzalloc(sizeof(*amd_mcdi), GFP_KERNEL);
+	amd_mcdi = kzalloc_obj(*amd_mcdi);
 	if (!amd_mcdi)
 		return -ENOMEM;
 
@@ -605,21 +607,23 @@ static int rpmsg_cb(struct rpmsg_device *rpdev, void *data,
 	length = result[MSG_ERR_LENGTH];
 	offset = result[MSG_ERR_OFFSET];
 
+	/*
+	 * The data can come in two stretches. Construct the regs from two
+	 * messages. The offset indicates the offset from which the data is to
+	 * be taken.
+	 */
+	for (i = 0 ; i < length; i++) {
+		k = offset + i;
+		j = ERROR_DATA + i;
+		mc_priv->regs[k] = result[j];
+	}
+
 	if (result[TOTAL_ERR_LENGTH] > length) {
 		if (!mc_priv->part_len)
 			mc_priv->part_len = length;
 		else
 			mc_priv->part_len += length;
-		/*
-		 * The data can come in 2 stretches. Construct the regs from 2
-		 * messages the offset indicates the offset from which the data is to
-		 * be taken
-		 */
-		for (i = 0 ; i < length; i++) {
-			k = offset + i;
-			j = ERROR_DATA + i;
-			mc_priv->regs[k] = result[j];
-		}
+
 		if (mc_priv->part_len < result[TOTAL_ERR_LENGTH])
 			return 0;
 		mc_priv->part_len = 0;
@@ -705,7 +709,7 @@ static int rpmsg_cb(struct rpmsg_device *rpdev, void *data,
 	/* Convert to bytes */
 	length = result[TOTAL_ERR_LENGTH] * 4;
 	log_non_standard_event(sec_type, &amd_versalnet_guid, mc_priv->message,
-			       sec_sev, (void *)&result[ERROR_DATA], length);
+			       sec_sev, (void *)&mc_priv->regs, length);
 
 	return 0;
 }
@@ -758,120 +762,132 @@ static void versal_edac_release(struct device *dev)
 	kfree(dev);
 }
 
-static int init_versalnet(struct mc_priv *priv, struct platform_device *pdev)
+static void remove_one_mc(struct mc_priv *priv, int i)
+{
+	struct mem_ctl_info *mci;
+
+	mci = priv->mci[i];
+	device_unregister(mci->pdev);
+	edac_mc_del_mc(mci->pdev);
+	edac_mc_free(mci);
+}
+
+static int init_one_mc(struct mc_priv *priv, struct platform_device *pdev, int i)
 {
 	u32 num_chans, rank, dwidth, config;
 	struct edac_mc_layer layers[2];
 	struct mem_ctl_info *mci;
+	char name[MC_NAME_LEN];
 	struct device *dev;
 	enum dev_type dt;
-	char *name;
-	int rc, i;
+	int rc;
 
-	for (i = 0; i < NUM_CONTROLLERS; i++) {
-		config = priv->adec[CONF + i * ADEC_NUM];
-		num_chans = FIELD_GET(MC5_NUM_CHANS_MASK, config);
-		rank = 1 << FIELD_GET(MC5_RANK_MASK, config);
-		dwidth = FIELD_GET(MC5_BUS_WIDTH_MASK, config);
+	config = priv->adec[CONF + i * ADEC_NUM];
+	num_chans = FIELD_GET(MC5_NUM_CHANS_MASK, config);
+	rank = 1 << FIELD_GET(MC5_RANK_MASK, config);
+	dwidth = FIELD_GET(MC5_BUS_WIDTH_MASK, config);
 
-		switch (dwidth) {
-		case XDDR5_BUS_WIDTH_16:
-			dt = DEV_X16;
-			break;
-		case XDDR5_BUS_WIDTH_32:
-			dt = DEV_X32;
-			break;
-		case XDDR5_BUS_WIDTH_64:
-			dt = DEV_X64;
-			break;
-		default:
-			dt = DEV_UNKNOWN;
-		}
-
-		if (dt == DEV_UNKNOWN)
-			continue;
-
-		/* Find the first enabled device and register that one. */
-		layers[0].type = EDAC_MC_LAYER_CHIP_SELECT;
-		layers[0].size = rank;
-		layers[0].is_virt_csrow = true;
-		layers[1].type = EDAC_MC_LAYER_CHANNEL;
-		layers[1].size = num_chans;
-		layers[1].is_virt_csrow = false;
-
-		rc = -ENOMEM;
-		mci = edac_mc_alloc(i, ARRAY_SIZE(layers), layers,
-				    sizeof(struct mc_priv));
-		if (!mci) {
-			edac_printk(KERN_ERR, EDAC_MC, "Failed memory allocation for MC%d\n", i);
-			goto err_alloc;
-		}
-
-		priv->mci[i] = mci;
-		priv->dwidth = dt;
-
-		dev = kzalloc(sizeof(*dev), GFP_KERNEL);
-		dev->release = versal_edac_release;
-		name = kmalloc(32, GFP_KERNEL);
-		sprintf(name, "versal-net-ddrmc5-edac-%d", i);
-		dev->init_name = name;
-		rc = device_register(dev);
-		if (rc)
-			goto err_alloc;
-
-		mci->pdev = dev;
-
-		platform_set_drvdata(pdev, priv);
-
-		mc_init(mci, dev);
-		rc = edac_mc_add_mc(mci);
-		if (rc) {
-			edac_printk(KERN_ERR, EDAC_MC, "Failed to register MC%d with EDAC core\n", i);
-			goto err_alloc;
-		}
+	switch (dwidth) {
+	case XDDR5_BUS_WIDTH_16:
+		dt = DEV_X16;
+		break;
+	case XDDR5_BUS_WIDTH_32:
+		dt = DEV_X32;
+		break;
+	case XDDR5_BUS_WIDTH_64:
+		dt = DEV_X64;
+		break;
+	default:
+		dt = DEV_UNKNOWN;
 	}
+
+	if (dt == DEV_UNKNOWN)
+		return 0;
+
+	/* Find the first enabled device and register that one. */
+	layers[0].type = EDAC_MC_LAYER_CHIP_SELECT;
+	layers[0].size = rank;
+	layers[0].is_virt_csrow = true;
+	layers[1].type = EDAC_MC_LAYER_CHANNEL;
+	layers[1].size = num_chans;
+	layers[1].is_virt_csrow = false;
+
+	rc = -ENOMEM;
+	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	if (!dev)
+		return rc;
+
+	mci = edac_mc_alloc(i, ARRAY_SIZE(layers), layers, sizeof(struct mc_priv));
+	if (!mci) {
+		edac_printk(KERN_ERR, EDAC_MC, "Failed memory allocation for MC%d\n", i);
+		goto err_dev_free;
+	}
+
+	sprintf(name, "versal-net-ddrmc5-edac-%d", i);
+
+	dev->init_name = name;
+	dev->release = versal_edac_release;
+
+	rc = device_register(dev);
+	if (rc)
+		goto err_mc_free;
+
+	mci->pdev = dev;
+	mc_init(mci, dev);
+
+	rc = edac_mc_add_mc(mci);
+	if (rc) {
+		edac_printk(KERN_ERR, EDAC_MC, "Failed to register MC%d with EDAC core\n", i);
+		goto err_unreg;
+	}
+
+	priv->mci[i] = mci;
+	priv->dwidth = dt;
+
+	platform_set_drvdata(pdev, priv);
+
 	return 0;
 
-err_alloc:
-	while (i--) {
-		mci = priv->mci[i];
-		if (!mci)
-			continue;
-
-		if (mci->pdev) {
-			device_unregister(mci->pdev);
-			edac_mc_del_mc(mci->pdev);
-		}
-
-		edac_mc_free(mci);
-	}
+err_unreg:
+	device_unregister(mci->pdev);
+err_mc_free:
+	edac_mc_free(mci);
+err_dev_free:
+	kfree(dev);
 
 	return rc;
 }
 
-static void remove_versalnet(struct mc_priv *priv)
+static int init_versalnet(struct mc_priv *priv, struct platform_device *pdev)
 {
-	struct mem_ctl_info *mci;
-	int i;
+	int rc, i;
 
 	for (i = 0; i < NUM_CONTROLLERS; i++) {
-		device_unregister(priv->mci[i]->pdev);
-		mci = edac_mc_del_mc(priv->mci[i]->pdev);
-		if (!mci)
-			return;
+		rc = init_one_mc(priv, pdev, i);
+		if (rc) {
+			while (i--)
+				remove_one_mc(priv, i);
 
-		edac_mc_free(mci);
+			return rc;
+		}
 	}
+	return 0;
+}
+
+static void remove_versalnet(struct mc_priv *priv)
+{
+	for (int i = 0; i < NUM_CONTROLLERS; i++)
+		remove_one_mc(priv, i);
 }
 
 static int mc_probe(struct platform_device *pdev)
 {
-	struct device_node *r5_core_node;
 	struct mc_priv *priv;
 	struct rproc *rp;
 	int rc;
 
-	r5_core_node = of_parse_phandle(pdev->dev.of_node, "amd,rproc", 0);
+	struct device_node *r5_core_node __free(device_node) =
+		of_parse_phandle(pdev->dev.of_node, "amd,rproc", 0);
 	if (!r5_core_node) {
 		dev_err(&pdev->dev, "amd,rproc: invalid phandle\n");
 		return -EINVAL;
@@ -915,6 +931,7 @@ static int mc_probe(struct platform_device *pdev)
 
 err_init:
 	cdx_mcdi_finish(priv->mcdi);
+	kfree(priv->mcdi);
 
 err_unreg:
 	unregister_rpmsg_driver(&amd_rpmsg_driver);
@@ -936,6 +953,7 @@ static void mc_remove(struct platform_device *pdev)
 	remove_versalnet(priv);
 	rproc_shutdown(priv->mcdi->r5_rproc);
 	cdx_mcdi_finish(priv->mcdi);
+	kfree(priv->mcdi);
 }
 
 static const struct of_device_id amd_edac_match[] = {

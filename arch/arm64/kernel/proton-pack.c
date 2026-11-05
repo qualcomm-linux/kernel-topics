@@ -24,6 +24,7 @@
 #include <linux/nospec.h>
 #include <linux/prctl.h>
 #include <linux/sched/task_stack.h>
+#include <linux/sysfs.h>
 
 #include <asm/debug-monitors.h>
 #include <asm/insn.h>
@@ -61,7 +62,7 @@ static void update_mitigation_state(enum mitigation_state *oldp,
 ssize_t cpu_show_spectre_v1(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
-	return sprintf(buf, "Mitigation: __user pointer sanitization\n");
+	return sysfs_emit(buf, "Mitigation: __user pointer sanitization\n");
 }
 
 /*
@@ -91,12 +92,7 @@ early_param("nospectre_v2", parse_spectre_v2_param);
 
 static bool spectre_v2_mitigations_off(void)
 {
-	bool ret = __nospectre_v2 || cpu_mitigations_off();
-
-	if (ret)
-		pr_info_once("spectre-v2 mitigation disabled by command line option\n");
-
-	return ret;
+	return __nospectre_v2 || cpu_mitigations_off();
 }
 
 static const char *get_bhb_affected_string(enum mitigation_state bhb_state)
@@ -131,7 +127,7 @@ ssize_t cpu_show_spectre_v2(struct device *dev, struct device_attribute *attr,
 	switch (spectre_v2_state) {
 	case SPECTRE_UNAFFECTED:
 		if (bhb_state == SPECTRE_UNAFFECTED)
-			return sprintf(buf, "Not affected\n");
+			return sysfs_emit(buf, "Not affected\n");
 
 		/*
 		 * Platforms affected by Spectre-BHB can't report
@@ -141,13 +137,13 @@ ssize_t cpu_show_spectre_v2(struct device *dev, struct device_attribute *attr,
 		fallthrough;
 	case SPECTRE_MITIGATED:
 		if (bhb_state == SPECTRE_MITIGATED && _unprivileged_ebpf_enabled())
-			return sprintf(buf, "Vulnerable: Unprivileged eBPF enabled\n");
+			return sysfs_emit(buf, "Vulnerable: Unprivileged eBPF enabled\n");
 
-		return sprintf(buf, "Mitigation: %s%s\n", v2_str, bhb_str);
+		return sysfs_emit(buf, "Mitigation: %s%s\n", v2_str, bhb_str);
 	case SPECTRE_VULNERABLE:
 		fallthrough;
 	default:
-		return sprintf(buf, "Vulnerable\n");
+		return sysfs_emit(buf, "Vulnerable\n");
 	}
 }
 
@@ -421,13 +417,8 @@ early_param("ssbd", parse_spectre_v4_param);
  */
 static bool spectre_v4_mitigations_off(void)
 {
-	bool ret = cpu_mitigations_off() ||
-		   __spectre_v4_policy == SPECTRE_V4_POLICY_MITIGATION_DISABLED;
-
-	if (ret)
-		pr_info_once("spectre-v4 mitigation disabled by command-line option\n");
-
-	return ret;
+	return cpu_mitigations_off() ||
+	       __spectre_v4_policy == SPECTRE_V4_POLICY_MITIGATION_DISABLED;
 }
 
 /* Do we need to toggle the mitigation state on entry to/exit from the kernel? */
@@ -448,13 +439,13 @@ ssize_t cpu_show_spec_store_bypass(struct device *dev,
 {
 	switch (spectre_v4_state) {
 	case SPECTRE_UNAFFECTED:
-		return sprintf(buf, "Not affected\n");
+		return sysfs_emit(buf, "Not affected\n");
 	case SPECTRE_MITIGATED:
-		return sprintf(buf, "Mitigation: Speculative Store Bypass disabled via prctl\n");
+		return sysfs_emit(buf, "Mitigation: Speculative Store Bypass disabled via prctl\n");
 	case SPECTRE_VULNERABLE:
 		fallthrough;
 	default:
-		return sprintf(buf, "Vulnerable\n");
+		return sysfs_emit(buf, "Vulnerable\n");
 	}
 }
 
@@ -897,6 +888,7 @@ static u8 spectre_bhb_loop_affected(void)
 		MIDR_ALL_VERSIONS(MIDR_CORTEX_X2),
 		MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N2),
 		MIDR_ALL_VERSIONS(MIDR_NEOVERSE_V1),
+		MIDR_ALL_VERSIONS(MIDR_HISI_TSV110),
 		{},
 	};
 	static const struct midr_range spectre_bhb_k24_list[] = {
@@ -1043,9 +1035,7 @@ void spectre_bhb_enable_mitigation(const struct arm64_cpu_capabilities *entry)
 	if (arm64_get_spectre_v2_state() == SPECTRE_VULNERABLE) {
 		/* No point mitigating Spectre-BHB alone. */
 	} else if (!IS_ENABLED(CONFIG_MITIGATE_SPECTRE_BRANCH_HISTORY)) {
-		pr_info_once("spectre-bhb mitigation disabled by compile time option\n");
-	} else if (cpu_mitigations_off() || __nospectre_bhb) {
-		pr_info_once("spectre-bhb mitigation disabled by command line option\n");
+		/* Do nothing */
 	} else if (supports_ecbhb(SCOPE_LOCAL_CPU)) {
 		state = SPECTRE_MITIGATED;
 		set_bit(BHB_HW, &system_bhb_mitigations);
@@ -1199,3 +1189,18 @@ void unpriv_ebpf_notify(int new_state)
 		pr_err("WARNING: %s", EBPF_WARN);
 }
 #endif
+
+void spectre_print_disabled_mitigations(void)
+{
+	/* Keep a single copy of the common message suffix to avoid duplication. */
+	const char *spectre_disabled_suffix = "mitigation disabled by command-line option\n";
+
+	if (spectre_v2_mitigations_off())
+		pr_info("spectre-v2 %s", spectre_disabled_suffix);
+
+	if (spectre_v4_mitigations_off())
+		pr_info("spectre-v4 %s", spectre_disabled_suffix);
+
+	if (__nospectre_bhb || cpu_mitigations_off())
+		pr_info("spectre-bhb %s", spectre_disabled_suffix);
+}

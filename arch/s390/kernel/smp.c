@@ -15,8 +15,7 @@
  * operates on physical cpu numbers needs to go into smp.c.
  */
 
-#define KMSG_COMPONENT "cpu"
-#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+#define pr_fmt(fmt) "cpu: " fmt
 
 #include <linux/cpufeature.h>
 #include <linux/workqueue.h>
@@ -55,7 +54,6 @@
 #include <asm/debug.h>
 #include <asm/os_info.h>
 #include <asm/sigp.h>
-#include <asm/idle.h>
 #include <asm/nmi.h>
 #include <asm/stacktrace.h>
 #include <asm/topology.h>
@@ -281,6 +279,9 @@ static void pcpu_attach_task(int cpu, struct task_struct *tsk)
 	lc->hardirq_timer = tsk->thread.hardirq_timer;
 	lc->softirq_timer = tsk->thread.softirq_timer;
 	lc->steal_timer = 0;
+#ifdef CONFIG_STACKPROTECTOR
+	lc->stack_canary = tsk->stack_canary;
+#endif
 }
 
 static void pcpu_start_fn(int cpu, void (*func)(void *), void *data)
@@ -305,9 +306,9 @@ static void __pcpu_delegate(pcpu_delegate_fn *func, void *data)
 	func(data);	/* should not return */
 }
 
-static void pcpu_delegate(struct pcpu *pcpu, int cpu,
-			  pcpu_delegate_fn *func,
-			  void *data, unsigned long stack)
+static void __noreturn pcpu_delegate(struct pcpu *pcpu, int cpu,
+				     pcpu_delegate_fn *func,
+				     void *data, unsigned long stack)
 {
 	struct lowcore *lc, *abs_lc;
 	unsigned int source_cpu;
@@ -370,7 +371,7 @@ static int pcpu_set_smt(unsigned int mtid)
 /*
  * Call function on the ipl CPU.
  */
-void smp_call_ipl_cpu(void (*func)(void *), void *data)
+void __noreturn smp_call_ipl_cpu(void (*func)(void *), void *data)
 {
 	struct lowcore *lc = lowcore_ptr[0];
 
@@ -697,6 +698,7 @@ static void __ref smp_get_core_info(struct sclp_core_info *info, int early)
 				continue;
 			info->core[info->configured].core_id =
 				address >> smp_cpu_mt_shift;
+			info->core[info->configured].type = boot_core_type;
 			info->configured++;
 		}
 		info->combined = info->configured;
@@ -1082,31 +1084,6 @@ static struct attribute_group cpu_common_attr_group = {
 	.attrs = cpu_common_attrs,
 };
 
-static struct attribute *cpu_online_attrs[] = {
-	&dev_attr_idle_count.attr,
-	&dev_attr_idle_time_us.attr,
-	NULL,
-};
-
-static struct attribute_group cpu_online_attr_group = {
-	.attrs = cpu_online_attrs,
-};
-
-static int smp_cpu_online(unsigned int cpu)
-{
-	struct cpu *c = per_cpu_ptr(&cpu_devices, cpu);
-
-	return sysfs_create_group(&c->dev.kobj, &cpu_online_attr_group);
-}
-
-static int smp_cpu_pre_down(unsigned int cpu)
-{
-	struct cpu *c = per_cpu_ptr(&cpu_devices, cpu);
-
-	sysfs_remove_group(&c->dev.kobj, &cpu_online_attr_group);
-	return 0;
-}
-
 bool arch_cpu_is_hotpluggable(int cpu)
 {
 	return !!cpu;
@@ -1142,13 +1119,13 @@ int __ref smp_rescan_cpus(bool early)
 	struct sclp_core_info *info;
 	int nr;
 
-	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	info = kzalloc_obj(*info);
 	if (!info)
 		return -ENOMEM;
 	smp_get_core_info(info, 0);
 	nr = __smp_rescan_cpus(info, early);
 	kfree(info);
-	if (nr)
+	if (nr && !early)
 		topology_schedule_update();
 	return 0;
 }
@@ -1172,18 +1149,13 @@ static DEVICE_ATTR_WO(rescan);
 static int __init s390_smp_init(void)
 {
 	struct device *dev_root;
-	int rc;
+	int rc = 0;
 
 	dev_root = bus_get_dev_root(&cpu_subsys);
 	if (dev_root) {
 		rc = device_create_file(dev_root, &dev_attr_rescan);
 		put_device(dev_root);
-		if (rc)
-			return rc;
 	}
-	rc = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "s390/smp:online",
-			       smp_cpu_online, smp_cpu_pre_down);
-	rc = rc <= 0 ? rc : 0;
 	return rc;
 }
 subsys_initcall(s390_smp_init);

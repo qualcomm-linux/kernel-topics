@@ -104,6 +104,9 @@
  * @regulator: LED supply regulator pointer
  * @led_enable: LED sync to be enabled
  * @model_id: Current device model ID enumerated
+ * @boost_ctrl: Cached configuration for the boost control register
+ * @brightness_ctrl: Cached configuration for brightness/brightness control
+ * @enabled: Cached enable state of the device
  */
 struct lm3692x_led {
 	struct mutex lock;
@@ -500,8 +503,8 @@ static void lm3692x_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id lm3692x_id[] = {
-	{ "lm36922", LM36922_MODEL },
-	{ "lm36923", LM36923_MODEL },
+	{ .name = "lm36922", .driver_data = LM36922_MODEL },
+	{ .name = "lm36923", .driver_data = LM36923_MODEL },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lm3692x_id);

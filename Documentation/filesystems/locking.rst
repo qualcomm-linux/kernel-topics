@@ -80,7 +80,9 @@ prototypes::
 	int (*getattr) (struct mnt_idmap *, const struct path *, struct kstat *, u32, unsigned int);
 	ssize_t (*listxattr) (struct dentry *, char *, size_t);
 	int (*fiemap)(struct inode *, struct fiemap_extent_info *, u64 start, u64 len);
-	void (*update_time)(struct inode *, struct timespec *, int);
+	void (*update_time)(struct inode *inode, enum fs_update_time type,
+			    int flags);
+	void (*sync_lazytime)(struct inode *inode);
 	int (*atomic_open)(struct inode *, struct dentry *,
 				struct file *, unsigned open_flag,
 				umode_t create_mode);
@@ -117,6 +119,7 @@ getattr:	no
 listxattr:	no
 fiemap:		no
 update_time:	no
+sync_lazytime:	no
 atomic_open:	shared (exclusive if O_CREAT is set in open flags)
 tmpfile:	no
 fileattr_get:	no or exclusive
@@ -177,7 +180,6 @@ prototypes::
 	int (*freeze_fs) (struct super_block *);
 	int (*unfreeze_fs) (struct super_block *);
 	int (*statfs) (struct dentry *, struct kstatfs *);
-	int (*remount_fs) (struct super_block *, int *, char *);
 	void (*umount_begin) (struct super_block *);
 	int (*show_options)(struct seq_file *, struct dentry *);
 	ssize_t (*quota_read)(struct super_block *, int, char *, size_t, loff_t);
@@ -201,7 +203,6 @@ sync_fs:		read
 freeze_fs:		write
 unfreeze_fs:		write
 statfs:			maybe(read)	(see below)
-remount_fs:		write
 umount_begin:		no
 show_options:		no		(namespace_sem)
 quota_read:		no		(see below)
@@ -226,8 +227,6 @@ file_system_type
 
 prototypes::
 
-	struct dentry *(*mount) (struct file_system_type *, int,
-		       const char *, void *);
 	void (*kill_sb) (struct super_block *);
 
 locking rules:
@@ -235,12 +234,8 @@ locking rules:
 =======		=========
 ops		may block
 =======		=========
-mount		yes
 kill_sb		yes
 =======		=========
-
-->mount() returns ERR_PTR or the root dentry; its superblock should be locked
-on return.
 
 ->kill_sb() takes a write-locked superblock, does all shutdown work on it,
 unlocks and drops the reference.
@@ -403,6 +398,7 @@ prototypes::
 	bool (*lm_breaker_owns_lease)(struct file_lock *);
         bool (*lm_lock_expirable)(struct file_lock *);
         void (*lm_expire_lock)(void);
+        bool (*lm_breaker_timedout)(struct file_lease *);
 
 locking rules:
 
@@ -416,21 +412,9 @@ lm_change		yes		no			no
 lm_breaker_owns_lease:	yes     	no			no
 lm_lock_expirable	yes		no			no
 lm_expire_lock		no		no			yes
+lm_open_conflict	yes		no			no
+lm_breaker_timedout     yes             no                      no
 ======================	=============	=================	=========
-
-buffer_head
-===========
-
-prototypes::
-
-	void (*b_end_io)(struct buffer_head *bh, int uptodate);
-
-locking rules:
-
-called from interrupts. In other words, extreme care is needed here.
-bh is locked, but that's all warranties we have here. Currently only RAID1,
-highmem, fs/buffer.c, and fs/ntfs/aops.c are providing these. Block devices
-call this method upon the IO completion.
 
 block_device_operations
 =======================
@@ -586,7 +570,7 @@ write_info:	yes		dqonoff_sem
 FS recursion means calling ->quota_read() and ->quota_write() from superblock
 operations.
 
-More details about quota locking can be found in fs/dquot.c.
+More details about quota locking can be found in fs/quota/dquot.c.
 
 vm_operations_struct
 ====================

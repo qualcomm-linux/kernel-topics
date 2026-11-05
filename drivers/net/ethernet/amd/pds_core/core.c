@@ -415,9 +415,8 @@ static int pdsc_viftypes_init(struct pdsc *pdsc)
 {
 	enum pds_core_vif_types vt;
 
-	pdsc->viftype_status = kcalloc(ARRAY_SIZE(pdsc_viftype_defaults),
-				       sizeof(*pdsc->viftype_status),
-				       GFP_KERNEL);
+	pdsc->viftype_status = kzalloc_objs(*pdsc->viftype_status,
+					    ARRAY_SIZE(pdsc_viftype_defaults));
 	if (!pdsc->viftype_status)
 		return -ENOMEM;
 
@@ -446,6 +445,8 @@ static int pdsc_viftypes_init(struct pdsc *pdsc)
 int pdsc_setup(struct pdsc *pdsc, bool init)
 {
 	int err;
+
+	pci_set_master(pdsc->pdev);
 
 	err = pdsc_dev_init(pdsc);
 	if (err)
@@ -480,6 +481,8 @@ void pdsc_teardown(struct pdsc *pdsc, bool removing)
 		pdsc_devcmd_reset(pdsc);
 	if (pdsc->adminqcq.work.func)
 		cancel_work_sync(&pdsc->adminqcq.work);
+
+	pci_clear_master(pdsc->pdev);
 
 	pdsc_core_uninit(pdsc);
 

@@ -6,6 +6,7 @@
  ******************************************************************************/
 #include <drv_types.h>
 #include <hal_data.h>
+#include <rtl8723b_xmit.h>
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Realtek Wireless Lan Driver");
@@ -259,13 +260,10 @@ static void loadparam(struct adapter *padapter, struct net_device *pnetdev)
 
 	registry_par->notch_filter = (u8)rtw_notch_filter;
 
-	registry_par->RegEnableTxPowerLimit = (u8)rtw_tx_pwr_lmt_enable;
-	registry_par->RegEnableTxPowerByRate = (u8)rtw_tx_pwr_by_rate;
+	registry_par->reg_enable_tx_power_limit = (u8)rtw_tx_pwr_lmt_enable;
+	registry_par->reg_enable_tx_power_by_rate = (u8)rtw_tx_pwr_by_rate;
 
-	registry_par->RegPowerBase = 14;
-	registry_par->TxBBSwing_2G = 0xFF;
-	registry_par->bEn_RFE = 1;
-	registry_par->RFE_Type = 64;
+	registry_par->reg_power_base = 14;
 
 	registry_par->qos_opt_enable = (u8)rtw_qos_opt_enable;
 
@@ -290,8 +288,8 @@ static int rtw_net_set_mac_address(struct net_device *pnetdev, void *p)
 static struct net_device_stats *rtw_net_get_stats(struct net_device *pnetdev)
 {
 	struct adapter *padapter = rtw_netdev_priv(pnetdev);
-	struct xmit_priv *pxmitpriv = &(padapter->xmitpriv);
-	struct recv_priv *precvpriv = &(padapter->recvpriv);
+	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
+	struct recv_priv *precvpriv = &padapter->recvpriv;
 
 	padapter->stats.tx_packets = pxmitpriv->tx_pkts;/* pxmitpriv->tx_pkts++; */
 	padapter->stats.rx_packets = precvpriv->rx_pkts;/* precvpriv->rx_pkts++; */
@@ -480,7 +478,13 @@ u32 rtw_start_drv_threads(struct adapter *padapter)
 	else
 		wait_for_completion(&padapter->cmdpriv.terminate_cmdthread_comp); /* wait for cmd_thread to run */
 
-	rtw_hal_start_thread(padapter);
+	padapter->xmitpriv.SdioXmitThread = kthread_run(rtl8723bs_xmit_thread,
+							padapter, "RTWHALXT");
+	if (IS_ERR(padapter->xmitpriv.SdioXmitThread)) {
+		padapter->xmitpriv.SdioXmitThread = NULL;
+		_status = _FAIL;
+	}
+
 	return _status;
 }
 
@@ -488,11 +492,16 @@ void rtw_stop_drv_threads(struct adapter *padapter)
 {
 	rtw_stop_cmd_thread(padapter);
 
-	/*  Below is to termindate tx_thread... */
+	/*  Below is to terminate tx_thread... */
 	complete(&padapter->xmitpriv.xmit_comp);
 	wait_for_completion(&padapter->xmitpriv.terminate_xmitthread_comp);
 
-	rtw_hal_stop_thread(padapter);
+	/* stop SdioXmitThread */
+	if (padapter->xmitpriv.SdioXmitThread) {
+		complete(&padapter->xmitpriv.SdioXmitStart);
+		wait_for_completion(&padapter->xmitpriv.SdioXmitTerminate);
+		padapter->xmitpriv.SdioXmitThread = NULL;
+	}
 }
 
 static void rtw_init_default_value(struct adapter *padapter)
@@ -541,7 +550,7 @@ static void rtw_init_default_value(struct adapter *padapter)
 	rtw_update_registrypriv_dev_network(padapter);
 
 	/* hal_priv */
-	rtw_hal_def_value_init(padapter);
+	rtl8723bs_init_default_value(padapter);
 
 	/* misc. */
 	RTW_ENABLE_FUNC(padapter, DF_RX_BIT);
@@ -553,14 +562,13 @@ static void rtw_init_default_value(struct adapter *padapter)
 	padapter->fix_rate = 0xFF;
 	padapter->driver_ampdu_spacing = 0xFF;
 	padapter->driver_rx_ampdu_factor =  0xFF;
-
 }
 
 struct dvobj_priv *devobj_init(void)
 {
 	struct dvobj_priv *pdvobj = NULL;
 
-	pdvobj = rtw_zmalloc(sizeof(*pdvobj));
+	pdvobj = kzalloc_obj(*pdvobj);
 	if (!pdvobj)
 		return NULL;
 
@@ -601,7 +609,7 @@ void rtw_reset_drv_sw(struct adapter *padapter)
 	struct pwrctrl_priv *pwrctrlpriv = adapter_to_pwrctl(padapter);
 
 	/* hal_priv */
-	rtw_hal_def_value_init(padapter);
+	rtl8723bs_init_default_value(padapter);
 
 	RTW_ENABLE_FUNC(padapter, DF_RX_BIT);
 	RTW_ENABLE_FUNC(padapter, DF_TX_BIT);
@@ -610,11 +618,10 @@ void rtw_reset_drv_sw(struct adapter *padapter)
 	padapter->xmitpriv.tx_pkts = 0;
 	padapter->recvpriv.rx_pkts = 0;
 
-	pmlmepriv->LinkDetectInfo.bBusyTraffic = false;
+	pmlmepriv->link_detect_info.busy_traffic = false;
 
-	/* pmlmepriv->LinkDetectInfo.TrafficBusyState = false; */
-	pmlmepriv->LinkDetectInfo.TrafficTransitionCount = 0;
-	pmlmepriv->LinkDetectInfo.LowPowerTransitionCount = 0;
+	pmlmepriv->link_detect_info.traffic_transition_count = 0;
+	pmlmepriv->link_detect_info.low_power_transition_count = 0;
 
 	_clr_fwstate_(pmlmepriv, _FW_UNDER_SURVEY | _FW_UNDER_LINKING);
 
@@ -629,6 +636,8 @@ void rtw_reset_drv_sw(struct adapter *padapter)
 
 u8 rtw_init_drv_sw(struct adapter *padapter)
 {
+	int res;
+
 	rtw_init_default_value(padapter);
 
 	rtw_init_hal_com_default_value(padapter);
@@ -646,7 +655,8 @@ u8 rtw_init_drv_sw(struct adapter *padapter)
 
 	init_mlme_ext_priv(padapter);
 
-	if (_rtw_init_xmit_priv(&padapter->xmitpriv, padapter) == _FAIL)
+	res = _rtw_init_xmit_priv(&padapter->xmitpriv, padapter);
+	if (res)
 		goto free_mlme_ext;
 
 	if (_rtw_init_recv_priv(&padapter->recvpriv, padapter) == _FAIL)
@@ -667,7 +677,7 @@ u8 rtw_init_drv_sw(struct adapter *padapter)
 
 	rtw_init_pwrctrl_priv(padapter);
 
-	rtw_hal_dm_init(padapter);
+	rtl8723b_init_dm_priv(padapter);
 
 	return _SUCCESS;
 
@@ -727,7 +737,7 @@ u8 rtw_free_drv_sw(struct adapter *padapter)
 
 	/* kfree((void *)padapter); */
 
-	rtw_hal_free_data(padapter);
+	rtw_hal_data_deinit(padapter);
 
 	/* free the old_pnetdev */
 	if (padapter->rereg_nd_name_priv.old_pnetdev) {
@@ -898,7 +908,6 @@ void rtw_ips_pwr_down(struct adapter *padapter)
 
 void rtw_ips_dev_unload(struct adapter *padapter)
 {
-
 	if (!padapter->bSurpriseRemoved)
 		rtw_hal_deinit(padapter);
 }
@@ -934,14 +943,6 @@ static int netdev_close(struct net_device *pnetdev)
 	padapter->net_closed = true;
 	padapter->netif_up = false;
 
-/*if (!padapter->hw_init_completed)
-	{
-
-		padapter->bDriverStopped = true;
-
-		rtw_dev_unload(padapter);
-	}
-	else*/
 	if (pwrctl->rf_pwrstate == rf_on) {
 		/* s1. */
 		if (pnetdev) {
@@ -961,7 +962,6 @@ static int netdev_close(struct net_device *pnetdev)
 	}
 
 	rtw_scan_abort(padapter);
-	adapter_wdev_data(padapter)->bandroid_scan = false;
 
 	return 0;
 }
@@ -974,13 +974,10 @@ void rtw_ndev_destructor(struct net_device *ndev)
 void rtw_dev_unload(struct adapter *padapter)
 {
 	struct pwrctrl_priv *pwrctl = adapter_to_pwrctl(padapter);
-	struct dvobj_priv *pobjpriv = padapter->dvobj;
-	struct debug_priv *pdbgpriv = &pobjpriv->drv_dbg;
 	struct cmd_priv *pcmdpriv = &padapter->cmdpriv;
 	u8 cnt = 0;
 
 	if (padapter->bup) {
-
 		padapter->bDriverStopped = true;
 		if (padapter->xmitpriv.ack_tx)
 			rtw_ack_tx_done(&padapter->xmitpriv, RTW_SCTX_DONE_DRV_STOP);
@@ -992,12 +989,10 @@ void rtw_dev_unload(struct adapter *padapter)
 			rtw_stop_drv_threads(padapter);
 
 		while (atomic_read(&pcmdpriv->cmdthd_running)) {
-			if (cnt > 5) {
+			if (cnt > 5)
 				break;
-			} else {
-				cnt++;
-				msleep(10);
-			}
+			cnt++;
+			msleep(10);
 		}
 
 		/* check the status of IPS */
@@ -1005,7 +1000,6 @@ void rtw_dev_unload(struct adapter *padapter)
 			/* check HW status and SW state */
 			netdev_dbg(padapter->pnetdev,
 				   "%s: driver in IPS-FWLPS\n", __func__);
-			pdbgpriv->dbg_dev_unload_inIPS_cnt++;
 			LeaveAllPowerSaveMode(padapter);
 		} else {
 			netdev_dbg(padapter->pnetdev,
@@ -1022,7 +1016,6 @@ void rtw_dev_unload(struct adapter *padapter)
 		}
 
 		padapter->bup = false;
-
 	}
 }
 
@@ -1089,24 +1082,21 @@ static void rtw_suspend_normal(struct adapter *padapter)
 void rtw_suspend_common(struct adapter *padapter)
 {
 	struct dvobj_priv *psdpriv = padapter->dvobj;
-	struct debug_priv *pdbgpriv = &psdpriv->drv_dbg;
 	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(psdpriv);
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 
 	unsigned long start_time = jiffies;
 
 	netdev_dbg(padapter->pnetdev, " suspend start\n");
-	pdbgpriv->dbg_suspend_cnt++;
 
 	pwrpriv->bInSuspend = true;
 
 	while (pwrpriv->bips_processing)
 		msleep(1);
 
-	if ((!padapter->bup) || (padapter->bDriverStopped) || (padapter->bSurpriseRemoved)) {
-		pdbgpriv->dbg_suspend_error_cnt++;
+	if ((!padapter->bup) || (padapter->bDriverStopped) || (padapter->bSurpriseRemoved))
 		return;
-	}
+
 	rtw_ps_deny(padapter, PS_DENY_SUSPEND);
 
 	rtw_cancel_all_timer(padapter);
@@ -1134,8 +1124,6 @@ static int rtw_resume_process_normal(struct adapter *padapter)
 	struct net_device *pnetdev;
 	struct pwrctrl_priv *pwrpriv;
 	struct mlme_priv *pmlmepriv;
-	struct dvobj_priv *psdpriv;
-	struct debug_priv *pdbgpriv;
 
 	int ret = _SUCCESS;
 
@@ -1147,15 +1135,13 @@ static int rtw_resume_process_normal(struct adapter *padapter)
 	pnetdev = padapter->pnetdev;
 	pwrpriv = adapter_to_pwrctl(padapter);
 	pmlmepriv = &padapter->mlmepriv;
-	psdpriv = padapter->dvobj;
-	pdbgpriv = &psdpriv->drv_dbg;
 	/*  interface init */
-	/* if (sdio_init(adapter_to_dvobj(padapter)) != _SUCCESS) */
-	if ((padapter->intf_init) && (padapter->intf_init(adapter_to_dvobj(padapter)) != _SUCCESS)) {
-		ret = -1;
-		goto exit;
+	if (padapter->intf_init) {
+		ret = padapter->intf_init(adapter_to_dvobj(padapter));
+		if (ret)
+			goto exit;
 	}
-	rtw_hal_disable_interrupt(padapter);
+	rtw_sdio_disable_interrupt(padapter);
 	/* if (sdio_alloc_irq(adapter_to_dvobj(padapter)) != _SUCCESS) */
 	if ((padapter->intf_alloc_irq) && (padapter->intf_alloc_irq(adapter_to_dvobj(padapter)) != _SUCCESS)) {
 		ret = -1;
@@ -1167,7 +1153,6 @@ static int rtw_resume_process_normal(struct adapter *padapter)
 
 	if (pm_netdev_open(pnetdev, true) != 0) {
 		ret = -1;
-		pdbgpriv->dbg_resume_error_cnt++;
 		goto exit;
 	}
 

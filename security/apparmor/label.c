@@ -52,7 +52,8 @@ static void free_proxy(struct aa_proxy *proxy)
 
 void aa_proxy_kref(struct kref *kref)
 {
-	struct aa_proxy *proxy = container_of(kref, struct aa_proxy, count);
+	struct aa_proxy *proxy = container_of(kref, struct aa_proxy,
+					      count.count);
 
 	free_proxy(proxy);
 }
@@ -61,9 +62,10 @@ struct aa_proxy *aa_alloc_proxy(struct aa_label *label, gfp_t gfp)
 {
 	struct aa_proxy *new;
 
-	new = kzalloc(sizeof(struct aa_proxy), gfp);
+	new = kzalloc_obj(struct aa_proxy, gfp);
 	if (new) {
-		kref_init(&new->count);
+		kref_init(&new->count.count);
+		new->count.reftype = REF_PROXY;
 		rcu_assign_pointer(new->label, aa_get_label(label));
 	}
 	return new;
@@ -81,7 +83,7 @@ void __aa_proxy_redirect(struct aa_label *orig, struct aa_label *new)
 	tmp = rcu_dereference_protected(orig->proxy->label,
 					&labels_ns(orig)->lock);
 	rcu_assign_pointer(orig->proxy->label, aa_get_label(new));
-	orig->flags |= FLAG_STALE;
+	__label_make_stale(orig);
 	aa_put_label(tmp);
 }
 
@@ -375,7 +377,8 @@ static void label_free_rcu(struct rcu_head *head)
 
 void aa_label_kref(struct kref *kref)
 {
-	struct aa_label *label = container_of(kref, struct aa_label, count);
+	struct aa_label *label = container_of(kref, struct aa_label,
+					      count.count);
 	struct aa_ns *ns = labels_ns(label);
 
 	if (!ns) {
@@ -412,7 +415,8 @@ bool aa_label_init(struct aa_label *label, int size, gfp_t gfp)
 
 	label->size = size;			/* doesn't include null */
 	label->vec[size] = NULL;		/* null terminate */
-	kref_init(&label->count);
+	kref_init(&label->count.count);
+	label->count.reftype = REF_NS;		/* for aafs purposes */
 	RB_CLEAR_NODE(&label->node);
 
 	return true;
@@ -434,7 +438,7 @@ struct aa_label *aa_label_alloc(int size, struct aa_proxy *proxy, gfp_t gfp)
 	AA_BUG(size < 1);
 
 	/*  + 1 for null terminator entry on vec */
-	new = kzalloc(struct_size(new, vec, size + 1), gfp);
+	new = kzalloc_flex(*new, vec, size + 1, gfp);
 	AA_DEBUG(DEBUG_LABEL, "%s (%p)\n", __func__, new);
 	if (!new)
 		goto fail;
@@ -454,7 +458,7 @@ struct aa_label *aa_label_alloc(int size, struct aa_proxy *proxy, gfp_t gfp)
 	return new;
 
 fail:
-	kfree(new);
+	aa_label_free(new);
 
 	return NULL;
 }
@@ -1172,22 +1176,21 @@ static struct aa_label *__label_find_merge(struct aa_labelset *ls,
 struct aa_label *aa_label_find_merge(struct aa_label *a, struct aa_label *b)
 {
 	struct aa_labelset *ls;
-	struct aa_label *label, *ar = NULL, *br = NULL;
+	struct aa_label *label;
 	unsigned long flags;
+	bool a_needput, b_needput;
 
 	AA_BUG(!a);
 	AA_BUG(!b);
 
-	if (label_is_stale(a))
-		a = ar = aa_get_newest_label(a);
-	if (label_is_stale(b))
-		b = br = aa_get_newest_label(b);
+	a = aa_get_newest_label_condref(a, &a_needput);
+	b = aa_get_newest_label_condref(b, &b_needput);
 	ls = labelset_of_merge(a, b);
 	read_lock_irqsave(&ls->lock, flags);
 	label = __label_find_merge(ls, a, b);
 	read_unlock_irqrestore(&ls->lock, flags);
-	aa_put_label(ar);
-	aa_put_label(br);
+	aa_put_label_condref(a, a_needput);
+	aa_put_label_condref(b, b_needput);
 
 	return label;
 }
@@ -1224,9 +1227,10 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 
 	if (!label) {
 		struct aa_label *new;
+		bool a_needput, b_needput;
 
-		a = aa_get_newest_label(a);
-		b = aa_get_newest_label(b);
+		a = aa_get_newest_label_condref(a, &a_needput);
+		b = aa_get_newest_label_condref(b, &b_needput);
 
 		/* could use label_merge_len(a, b), but requires double
 		 * comparison for small savings
@@ -1238,8 +1242,8 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 		label = label_merge_insert(new, a, b);
 		label_free_or_put_new(label, new);
 out:
-		aa_put_label(a);
-		aa_put_label(b);
+		aa_put_label_condref(a, a_needput);
+		aa_put_label_condref(b, b_needput);
 	}
 
 	return label;
@@ -1274,11 +1278,11 @@ static inline aa_state_t match_component(struct aa_profile *profile,
  * @rules: ruleset to search
  * @label: label to check access permissions for
  * @state: state to start match in
- * @subns: whether to do permission checks on components in a subns
+ * @inview: whether to match labels in view or only in scope
  * @request: permissions to request
  * @perms: perms struct to set
  *
- * Returns: 0 on success else ERROR
+ * Returns: state match stopped at or DFA_NOMATCH if aborted early
  *
  * For the label A//&B//&C this does the perm match for A//&B//&C
  * @perms should be preinitialized with allperms OR a previous permission
@@ -1287,7 +1291,7 @@ static inline aa_state_t match_component(struct aa_profile *profile,
 static int label_compound_match(struct aa_profile *profile,
 				struct aa_ruleset *rules,
 				struct aa_label *label,
-				aa_state_t state, bool subns, u32 request,
+				aa_state_t state, bool inview, u32 request,
 				struct aa_perms *perms)
 {
 	struct aa_profile *tp;
@@ -1295,7 +1299,7 @@ static int label_compound_match(struct aa_profile *profile,
 
 	/* find first subcomponent that is visible */
 	label_for_each(i, label, tp) {
-		if (!aa_ns_visible(profile->ns, tp->ns, subns))
+		if (!aa_ns_visible(profile->ns, tp->ns, inview))
 			continue;
 		state = match_component(profile, rules, tp, state);
 		if (!state)
@@ -1305,11 +1309,11 @@ static int label_compound_match(struct aa_profile *profile,
 
 	/* no component visible */
 	*perms = allperms;
-	return 0;
+	return state;
 
 next:
 	label_for_each_cont(i, label, tp) {
-		if (!aa_ns_visible(profile->ns, tp->ns, subns))
+		if (!aa_ns_visible(profile->ns, tp->ns, inview))
 			continue;
 		state = aa_dfa_match(rules->policy->dfa, state, "//&");
 		state = match_component(profile, rules, tp, state);
@@ -1317,15 +1321,11 @@ next:
 			goto fail;
 	}
 	*perms = *aa_lookup_perms(rules->policy, state);
-	aa_apply_modes_to_perms(profile, perms);
-	if ((perms->allow & request) != request)
-		return -EACCES;
-
-	return 0;
+	return state;
 
 fail:
 	*perms = nullperms;
-	return state;
+	return DFA_NOMATCH;
 }
 
 /**
@@ -1334,11 +1334,11 @@ fail:
  * @rules: ruleset to search
  * @label: label to check access permissions for
  * @start: state to start match in
- * @subns: whether to do permission checks on components in a subns
+ * @inview: whether to match labels in view or only in scope
  * @request: permissions to request
  * @perms: an initialized perms struct to add accumulation to
  *
- * Returns: 0 on success else ERROR
+ * Returns: the state the match finished in, may be the none matching state
  *
  * For the label A//&B//&C this does the perm match for each of A and B and C
  * @perms should be preinitialized with allperms OR a previous permission
@@ -1347,7 +1347,7 @@ fail:
 static int label_components_match(struct aa_profile *profile,
 				  struct aa_ruleset *rules,
 				  struct aa_label *label, aa_state_t start,
-				  bool subns, u32 request,
+				  bool inview, u32 request,
 				  struct aa_perms *perms)
 {
 	struct aa_profile *tp;
@@ -1357,7 +1357,7 @@ static int label_components_match(struct aa_profile *profile,
 
 	/* find first subcomponent to test */
 	label_for_each(i, label, tp) {
-		if (!aa_ns_visible(profile->ns, tp->ns, subns))
+		if (!aa_ns_visible(profile->ns, tp->ns, inview))
 			continue;
 		state = match_component(profile, rules, tp, start);
 		if (!state)
@@ -1366,31 +1366,29 @@ static int label_components_match(struct aa_profile *profile,
 	}
 
 	/* no subcomponents visible - no change in perms */
-	return 0;
+	return state;
 
 next:
 	tmp = *aa_lookup_perms(rules->policy, state);
-	aa_apply_modes_to_perms(profile, &tmp);
 	aa_perms_accum(perms, &tmp);
 	label_for_each_cont(i, label, tp) {
-		if (!aa_ns_visible(profile->ns, tp->ns, subns))
+		if (!aa_ns_visible(profile->ns, tp->ns, inview))
 			continue;
 		state = match_component(profile, rules, tp, start);
 		if (!state)
 			goto fail;
 		tmp = *aa_lookup_perms(rules->policy, state);
-		aa_apply_modes_to_perms(profile, &tmp);
 		aa_perms_accum(perms, &tmp);
 	}
 
 	if ((perms->allow & request) != request)
-		return -EACCES;
+		return DFA_NOMATCH;
 
-	return 0;
+	return state;
 
 fail:
 	*perms = nullperms;
-	return -EACCES;
+	return DFA_NOMATCH;
 }
 
 /**
@@ -1399,23 +1397,24 @@ fail:
  * @rules: ruleset to search
  * @label: label to match (NOT NULL)
  * @state: state to start in
- * @subns: whether to match subns components
+ * @inview: whether to match labels in view or only in scope
  * @request: permission request
  * @perms: Returns computed perms (NOT NULL)
  *
  * Returns: the state the match finished in, may be the none matching state
  */
 int aa_label_match(struct aa_profile *profile, struct aa_ruleset *rules,
-		   struct aa_label *label, aa_state_t state, bool subns,
+		   struct aa_label *label, aa_state_t state, bool inview,
 		   u32 request, struct aa_perms *perms)
 {
-	int error = label_compound_match(profile, rules, label, state, subns,
-					 request, perms);
-	if (!error)
-		return error;
+	aa_state_t tmp = label_compound_match(profile, rules, label, state,
+					      inview, request, perms);
+	if ((perms->allow & request) == request)
+		return tmp;
 
+	/* failed compound_match try component matches */
 	*perms = allperms;
-	return label_components_match(profile, rules, label, state, subns,
+	return label_components_match(profile, rules, label, state, inview,
 				      request, perms);
 }
 

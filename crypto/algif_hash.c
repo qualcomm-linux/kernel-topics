@@ -380,9 +380,9 @@ static struct proto_ops algif_hash_ops_nokey = {
 	.accept		=	hash_accept_nokey,
 };
 
-static void *hash_bind(const char *name, u32 type, u32 mask)
+static void *hash_bind(const char *name)
 {
-	return crypto_alloc_ahash(name, type, mask);
+	return crypto_alloc_ahash(name, 0, AF_ALG_CRYPTOAPI_MASK);
 }
 
 static void hash_release(void *private)
@@ -416,9 +416,8 @@ static int hash_accept_parent_nokey(void *private, struct sock *sk)
 	if (!ctx)
 		return -ENOMEM;
 
-	ctx->result = NULL;
+	memset(ctx, 0, len);
 	ctx->len = len;
-	ctx->more = false;
 	crypto_init_wait(&ctx->wait);
 
 	ask->private = ctx;

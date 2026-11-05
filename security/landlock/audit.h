@@ -43,12 +43,12 @@ struct landlock_request {
 	access_mask_t access;
 
 	/* Required fields for requests with layer masks. */
-	const layer_mask_t (*layer_masks)[];
-	size_t layer_masks_size;
+	const struct layer_masks *layer_masks;
 
 	/* Required fields for requests with deny masks. */
 	const access_mask_t all_existing_optional_access;
 	deny_masks_t deny_masks;
+	optional_access_t quiet_optional_accesses;
 };
 
 #ifdef CONFIG_AUDIT

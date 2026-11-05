@@ -7,6 +7,7 @@
 #define __KSMBD_CONNECTION_H__
 
 #include <linux/list.h>
+#include <linux/inet.h>
 #include <linux/ip.h>
 #include <net/sock.h>
 #include <net/tcp.h>
@@ -15,6 +16,7 @@
 #include <linux/kthread.h>
 #include <linux/nls.h>
 #include <linux/unicode.h>
+#include <linux/workqueue.h>
 
 #include "smb_common.h"
 #include "ksmbd_work.h"
@@ -33,7 +35,7 @@ enum {
 	KSMBD_SESS_RELEASING
 };
 
-struct ksmbd_stats {
+struct ksmbd_conn_stats {
 	atomic_t			open_files_count;
 	atomic64_t			request_served;
 };
@@ -48,6 +50,7 @@ struct ksmbd_conn {
 	struct mutex			srv_mutex;
 	int				status;
 	unsigned int			cli_cap;
+	bool				stop_called;
 	union {
 		__be32			inet_addr;
 #if IS_ENABLED(CONFIG_IPV6)
@@ -78,7 +81,7 @@ struct ksmbd_conn {
 	struct list_head		requests;
 	struct list_head		async_requests;
 	int				connection_type;
-	struct ksmbd_stats		stats;
+	struct ksmbd_conn_stats		stats;
 	char				ClientGUID[SMB2_CLIENT_GUID_SIZE];
 	struct ntlmssp_auth		ntlmssp;
 
@@ -112,12 +115,16 @@ struct ksmbd_conn {
 
 	__le16				cipher_type;
 	__le16				compress_algorithm;
+	/* Negotiated SMB 3.1.1 compression capabilities. */
+	bool				compress_chained;
+	bool				compress_pattern;
 	bool				posix_ext_supported;
 	bool				signing_negotiated;
 	__le16				signing_algorithm;
 	bool				binding;
 	atomic_t			refcnt;
 	bool				is_aapl;
+	struct work_struct		release_work;
 };
 
 struct ksmbd_conn_ops {
@@ -126,7 +133,6 @@ struct ksmbd_conn_ops {
 };
 
 struct ksmbd_transport_ops {
-	int (*prepare)(struct ksmbd_transport *t);
 	void (*disconnect)(struct ksmbd_transport *t);
 	void (*shutdown)(struct ksmbd_transport *t);
 	int (*read)(struct ksmbd_transport *t, char *buf,
@@ -163,6 +169,10 @@ void ksmbd_conn_wait_idle(struct ksmbd_conn *conn);
 int ksmbd_conn_wait_idle_sess_id(struct ksmbd_conn *curr_conn, u64 sess_id);
 struct ksmbd_conn *ksmbd_conn_alloc(void);
 void ksmbd_conn_free(struct ksmbd_conn *conn);
+struct ksmbd_conn *ksmbd_conn_get(struct ksmbd_conn *conn);
+void ksmbd_conn_put(struct ksmbd_conn *conn);
+int ksmbd_conn_wq_init(void);
+void ksmbd_conn_wq_destroy(void);
 bool ksmbd_conn_lookup_dialect(struct ksmbd_conn *c);
 int ksmbd_conn_write(struct ksmbd_work *work);
 int ksmbd_conn_rdma_read(struct ksmbd_conn *conn,

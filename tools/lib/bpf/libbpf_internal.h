@@ -74,6 +74,8 @@
 #define ELF64_ST_VISIBILITY(o) ((o) & 0x03)
 #endif
 
+#define JUMPTABLES_SEC ".jumptables"
+
 #define BTF_INFO_ENC(kind, kind_flag, vlen) \
 	((!!(kind_flag) << 31) | ((kind) << 24) | ((vlen) & BTF_MAX_VLEN))
 #define BTF_TYPE_ENC(name, info, size_or_type) (name), (info), (size_or_type)
@@ -248,6 +250,7 @@ const struct btf_type *skip_mods_and_typedefs(const struct btf *btf, __u32 id, _
 const struct btf_header *btf_header(const struct btf *btf);
 void btf_set_base_btf(struct btf *btf, const struct btf *base_btf);
 int btf_relocate(struct btf *btf, const struct btf *base_btf, __u32 **id_map);
+bool btf_type_is_traceable_func(const struct btf *btf, const struct btf_type *t);
 
 static inline enum btf_func_linkage btf_func_linkage(const struct btf_type *t)
 {
@@ -390,6 +393,14 @@ enum kern_feature_id {
 	FEAT_ARG_CTX_TAG,
 	/* Kernel supports '?' at the front of datasec names */
 	FEAT_BTF_QMARK_DATASEC,
+	/* Kernel supports LDIMM64 imm offsets past 512 MiB. */
+	FEAT_LDIMM64_FULL_RANGE_OFF,
+	/* Kernel supports uprobe syscall */
+	FEAT_UPROBE_SYSCALL,
+	/* Kernel supports BTF layout information */
+	FEAT_BTF_LAYOUT,
+	/* Kernel supports BPF syscall common attributes */
+	FEAT_BPF_SYSCALL_COMMON_ATTRS,
 	__FEAT_CNT,
 };
 
@@ -406,6 +417,7 @@ struct kern_feature_cache {
 
 bool feat_supported(struct kern_feature_cache *cache, enum kern_feature_id feat_id);
 bool kernel_supports(const struct bpf_object *obj, enum kern_feature_id feat_id);
+void bpf_object_set_feat_cache(struct bpf_object *obj, struct kern_feature_cache *cache);
 
 int probe_kern_syscall_wrapper(int token_fd);
 int probe_memcg_account(int token_fd);
@@ -416,6 +428,10 @@ int parse_cpu_mask_file(const char *fcpu, bool **mask, int *mask_sz);
 int libbpf__load_raw_btf(const char *raw_types, size_t types_len,
 			 const char *str_sec, size_t str_len,
 			 int token_fd);
+int libbpf__load_raw_btf_hdr(const struct btf_header *hdr,
+			     const char *raw_types, const char *str_sec,
+			     const char *layout_sec, int token_fd);
+struct btf *bpf_object__sanitize_btf(struct bpf_object *obj, struct btf *orig_btf);
 int btf_load_into_kernel(struct btf *btf,
 			 char *log_buf, size_t log_sz, __u32 log_level,
 			 int token_fd);
@@ -755,4 +771,5 @@ int probe_fd(int fd);
 #define SHA256_DWORD_SIZE SHA256_DIGEST_LENGTH / sizeof(__u64)
 
 void libbpf_sha256(const void *data, size_t len, __u8 out[SHA256_DIGEST_LENGTH]);
+int probe_sys_bpf_ext(void);
 #endif /* __LIBBPF_LIBBPF_INTERNAL_H */

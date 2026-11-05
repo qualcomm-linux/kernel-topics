@@ -1516,8 +1516,7 @@ static int anx7411_i2c_probe(struct i2c_client *client)
 
 	INIT_WORK(&plat->work, anx7411_work_func);
 	plat->workqueue = alloc_workqueue("anx7411_work",
-					  WQ_FREEZABLE |
-					  WQ_MEM_RECLAIM,
+					  WQ_FREEZABLE | WQ_MEM_RECLAIM | WQ_PERCPU,
 					  1);
 	if (!plat->workqueue) {
 		dev_err(dev, "fail to create work queue\n");
@@ -1578,8 +1577,8 @@ static void anx7411_i2c_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id anx7411_id[] = {
-	{ "anx7411" },
-	{}
+	{ .name = "anx7411" },
+	{ }
 };
 
 MODULE_DEVICE_TABLE(i2c, anx7411_id);

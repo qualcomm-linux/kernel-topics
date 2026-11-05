@@ -7,13 +7,13 @@
 
 #include "enetc_pf_common.h"
 
-static void enetc_set_si_hw_addr(struct enetc_pf *pf, int si,
-				 const u8 *mac_addr)
+void enetc_set_si_hw_addr(struct enetc_pf *pf, int si, const u8 *mac_addr)
 {
 	struct enetc_hw *hw = &pf->si->hw;
 
 	pf->ops->set_si_primary_mac(hw, si, mac_addr);
 }
+EXPORT_SYMBOL_GPL(enetc_set_si_hw_addr);
 
 static void enetc_get_si_hw_addr(struct enetc_pf *pf, int si, u8 *mac_addr)
 {
@@ -109,7 +109,7 @@ void enetc_pf_netdev_setup(struct enetc_si *si, struct net_device *ndev,
 
 	ndev->hw_features = NETIF_F_SG | NETIF_F_RXCSUM |
 			    NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX |
-			    NETIF_F_HW_VLAN_CTAG_FILTER | NETIF_F_LOOPBACK |
+			    NETIF_F_HW_VLAN_CTAG_FILTER |
 			    NETIF_F_HW_CSUM | NETIF_F_TSO | NETIF_F_TSO6 |
 			    NETIF_F_GSO_UDP_L4;
 	ndev->features = NETIF_F_HIGHDMA | NETIF_F_SG | NETIF_F_RXCSUM |
@@ -132,6 +132,9 @@ void enetc_pf_netdev_setup(struct enetc_si *si, struct net_device *ndev,
 		ndev->hw_features |= NETIF_F_RXHASH;
 		ndev->features |= NETIF_F_RXHASH;
 	}
+
+	if (!enetc_is_pseudo_mac(si))
+		ndev->hw_features |= NETIF_F_LOOPBACK;
 
 	/* TODO: currently, i.MX95 ENETC driver does not support advanced features */
 	if (!is_enetc_rev1(si))
@@ -173,7 +176,12 @@ static int enetc_mdio_probe(struct enetc_pf *pf, struct device_node *np)
 	bus->parent = dev;
 	mdio_priv = bus->priv;
 	mdio_priv->hw = &pf->si->hw;
-	mdio_priv->mdio_base = ENETC_EMDIO_BASE;
+
+	if (is_enetc_rev1(pf->si))
+		mdio_priv->mdio_base = ENETC_EMDIO_BASE;
+	else
+		mdio_priv->mdio_base = ENETC4_EMDIO_BASE;
+
 	snprintf(bus->id, MII_BUS_ID_SIZE, "%s", dev_name(dev));
 
 	err = of_mdiobus_register(bus, np);
@@ -218,7 +226,12 @@ static int enetc_imdio_create(struct enetc_pf *pf)
 	bus->phy_mask = ~0;
 	mdio_priv = bus->priv;
 	mdio_priv->hw = &pf->si->hw;
-	mdio_priv->mdio_base = ENETC_PM_IMDIO_BASE;
+
+	if (is_enetc_rev1(pf->si))
+		mdio_priv->mdio_base = ENETC_PM_IMDIO_BASE;
+	else
+		mdio_priv->mdio_base = ENETC4_PM_IMDIO_BASE;
+
 	snprintf(bus->id, MII_BUS_ID_SIZE, "%s-imdio", dev_name(dev));
 
 	err = mdiobus_register(bus);
@@ -421,6 +434,33 @@ int enetc_vlan_rx_del_vid(struct net_device *ndev, __be16 prot, u16 vid)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(enetc_vlan_rx_del_vid);
+
+int enetc_init_sriov_resources(struct enetc_pf *pf)
+{
+	struct device *dev = &pf->si->pdev->dev;
+
+	pf->total_vfs = pci_sriov_get_totalvfs(pf->si->pdev);
+	if (!pf->total_vfs)
+		return 0;
+
+	pf->rxmsg = devm_kcalloc(dev, pf->total_vfs,
+				 sizeof(struct enetc_msg_swbd),
+				 GFP_KERNEL);
+	if (!pf->rxmsg)
+		return -ENOMEM;
+
+	pf->vf_state = devm_kcalloc(dev, pf->total_vfs,
+				    sizeof(struct enetc_vf_state),
+				    GFP_KERNEL);
+	if (!pf->vf_state)
+		return -ENOMEM;
+
+	for (int i = 0; i < pf->total_vfs; i++)
+		mutex_init(&pf->vf_state[i].lock);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(enetc_init_sriov_resources);
 
 MODULE_DESCRIPTION("NXP ENETC PF common functionality driver");
 MODULE_LICENSE("Dual BSD/GPL");

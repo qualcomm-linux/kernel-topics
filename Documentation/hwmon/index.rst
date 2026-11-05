@@ -41,7 +41,9 @@ Hardware Monitoring Kernel Drivers
    adt7475
    aht10
    amc6821
+   aps-379
    aquacomputer_d5next
+   arctic_fan_controller
    asb100
    asc7621
    aspeed-g6-pwm-tach
@@ -52,7 +54,6 @@ Hardware Monitoring Kernel Drivers
    bcm54140
    bel-pfe
    bpa-rs600
-   bt1-pvt
    cgbc-hwmon
    chipcap2
    coretemp
@@ -60,6 +61,7 @@ Hardware Monitoring Kernel Drivers
    corsair-psu
    cros_ec_hwmon
    crps
+   d1u74t
    da9052
    da9055
    dell-smm-hwmon
@@ -68,7 +70,9 @@ Hardware Monitoring Kernel Drivers
    drivetemp
    ds1621
    ds620
+   e50sn12051
    emc1403
+   emc1812
    emc2103
    emc2305
    emc6w201
@@ -84,6 +88,7 @@ Hardware Monitoring Kernel Drivers
    gl518sm
    gpd-fan
    gxp-fan-ctrl
+   hac300s
    hih6130
    hp-wmi-sensors
    hs3001
@@ -110,6 +115,7 @@ Hardware Monitoring Kernel Drivers
    kbatt
    kfan
    lan966x
+   lattepanda-sigma-ec
    lineage-pem
    lm25066
    lm63
@@ -143,7 +149,10 @@ Hardware Monitoring Kernel Drivers
    ltc4260
    ltc4261
    ltc4282
+   ltc4283
    ltc4286
+   lx1308
+   macsmc-hwmon
    max127
    max15301
    max16064
@@ -151,9 +160,12 @@ Hardware Monitoring Kernel Drivers
    max1619
    max16601
    max1668
+   max17616
    max197
    max20730
    max20751
+   max20830
+   max20860a
    max31722
    max31730
    max31760
@@ -171,19 +183,24 @@ Hardware Monitoring Kernel Drivers
    mc33xs2410_hwmon
    mc34vr500
    mcp3021
+   mcp9982
    menf21bmc
    mlxreg-fan
    mp2856
    mp2869
    mp2888
    mp2891
+   mp2925
    mp29502
    mp2975
+   mp2985
    mp2993
    mp5023
    mp5920
+   mp5926
    mp5990
    mp9941
+   mp9945
    mpq8785
    nct6683
    nct6775
@@ -208,13 +225,13 @@ Hardware Monitoring Kernel Drivers
    pmbus
    powerz
    powr1220
+   prom21-xhci
    pt5161l
    pxe1610
    pwm-fan
    q54sj108a2
    qnap-mcu-hwmon
    raspberrypi-hwmon
-   sa67
    sbrmi
    sbtsi_temp
    sch5627
@@ -229,6 +246,7 @@ Hardware Monitoring Kernel Drivers
    shtc1
    sis5595
    sl28cpld
+   stef48h28
    smpro-hwmon
    smsc47b397
    smsc47m192
@@ -253,6 +271,7 @@ Hardware Monitoring Kernel Drivers
    tps40422
    tps53679
    tps546d24
+   tsc1641
    twl4030-madc-hwmon
    ucd9000
    ucd9200
@@ -275,11 +294,5 @@ Hardware Monitoring Kernel Drivers
    xdp710
    xdpe12284
    xdpe152c4
+   yogafan
    zl6100
-
-.. only::  subproject and html
-
-   Indices
-   =======
-
-   * :ref:`genindex`

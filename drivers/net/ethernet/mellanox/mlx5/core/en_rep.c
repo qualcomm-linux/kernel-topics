@@ -38,7 +38,6 @@
 #include <net/pkt_cls.h>
 #include <net/act_api.h>
 #include <net/devlink.h>
-#include <net/ipv6_stubs.h>
 
 #include "eswitch.h"
 #include "en.h"
@@ -419,6 +418,9 @@ static const struct ethtool_ops mlx5e_rep_ethtool_ops = {
 	.supported_coalesce_params = ETHTOOL_COALESCE_USECS |
 				     ETHTOOL_COALESCE_MAX_FRAMES |
 				     ETHTOOL_COALESCE_USE_ADAPTIVE,
+	.op_needs_rtnl	   = ETHTOOL_OP_NEEDS_RTNL_SCHANNELS |
+			     ETHTOOL_OP_NEEDS_RTNL_SRINGPARAM |
+			     ETHTOOL_OP_NEEDS_RTNL_GLINK,
 	.get_drvinfo	   = mlx5e_rep_get_drvinfo,
 	.get_link	   = ethtool_op_get_link,
 	.get_strings       = mlx5e_rep_get_strings,
@@ -476,7 +478,7 @@ static int mlx5e_sqs2vport_add_peers_rules(struct mlx5_eswitch *esw, struct mlx5
 		struct mlx5e_rep_sq_peer *sq_peer;
 		int err;
 
-		sq_peer = kzalloc(sizeof(*sq_peer), GFP_KERNEL);
+		sq_peer = kzalloc_obj(*sq_peer);
 		if (!sq_peer)
 			return -ENOMEM;
 
@@ -521,7 +523,7 @@ static int mlx5e_sqs2vport_start(struct mlx5_eswitch *esw,
 		devcom_locked = true;
 
 	for (i = 0; i < sqns_num; i++) {
-		rep_sq = kzalloc(sizeof(*rep_sq), GFP_KERNEL);
+		rep_sq = kzalloc_obj(*rep_sq);
 		if (!rep_sq) {
 			err = -ENOMEM;
 			goto out_err;
@@ -867,7 +869,7 @@ static void mlx5e_build_rep_params(struct net_device *netdev)
 	if (take_rtnl)
 		rtnl_lock();
 	/* update XDP supported features */
-	mlx5e_set_xdp_feature(netdev);
+	mlx5e_set_xdp_feature(priv);
 	if (take_rtnl)
 		rtnl_unlock();
 
@@ -1369,6 +1371,8 @@ static void mlx5e_uplink_rep_disable(struct mlx5e_priv *priv)
 	netdev_unlock(priv->netdev);
 	rtnl_unlock();
 
+	/* clean-up uplink's mpfs mac table */
+	queue_work(priv->wq, &priv->set_rx_mode_work);
 	mlx5e_rep_bridge_cleanup(priv);
 	mlx5e_dcbnl_delete_app(priv);
 	mlx5_notifier_unregister(mdev, &priv->events_nb);
@@ -1508,17 +1512,16 @@ mlx5e_vport_uplink_rep_load(struct mlx5_core_dev *dev, struct mlx5_eswitch_rep *
 {
 	struct mlx5e_rep_priv *rpriv = mlx5e_rep_to_rep_priv(rep);
 	struct net_device *netdev;
-	struct mlx5e_priv *priv;
 	int err;
 
 	netdev = mlx5_uplink_netdev_get(dev);
 	if (!netdev)
 		return 0;
 
-	priv = netdev_priv(netdev);
-	rpriv->netdev = priv->netdev;
-	err = mlx5e_netdev_change_profile(priv, &mlx5e_uplink_rep_profile,
-					  rpriv);
+	/* must not use netdev_priv(netdev), it might not be initialized yet */
+	rpriv->netdev = netdev;
+	err = mlx5e_netdev_change_profile(netdev, dev,
+					  &mlx5e_uplink_rep_profile, rpriv);
 	mlx5_uplink_netdev_put(dev, netdev);
 	return err;
 }
@@ -1546,7 +1549,7 @@ mlx5e_vport_uplink_rep_unload(struct mlx5e_rep_priv *rpriv)
 	if (!(priv->mdev->priv.flags & MLX5_PRIV_FLAGS_SWITCH_LEGACY))
 		unregister_netdev(netdev);
 
-	mlx5e_netdev_attach_nic_profile(priv);
+	mlx5e_netdev_attach_nic_profile(netdev, priv->mdev);
 }
 
 static int
@@ -1612,7 +1615,7 @@ err_cleanup_profile:
 	priv->profile->cleanup(priv);
 
 err_destroy_netdev:
-	mlx5e_destroy_netdev(netdev_priv(netdev));
+	mlx5e_destroy_netdev(netdev);
 	return err;
 }
 
@@ -1622,7 +1625,7 @@ mlx5e_vport_rep_load(struct mlx5_core_dev *dev, struct mlx5_eswitch_rep *rep)
 	struct mlx5e_rep_priv *rpriv;
 	int err;
 
-	rpriv = kvzalloc(sizeof(*rpriv), GFP_KERNEL);
+	rpriv = kvzalloc_obj(*rpriv);
 	if (!rpriv)
 		return -ENOMEM;
 
@@ -1667,7 +1670,7 @@ mlx5e_vport_rep_unload(struct mlx5_eswitch_rep *rep)
 	mlx5e_rep_vnic_reporter_destroy(priv);
 	mlx5e_detach_netdev(priv);
 	priv->profile->cleanup(priv);
-	mlx5e_destroy_netdev(priv);
+	mlx5e_destroy_netdev(netdev);
 free_ppriv:
 	kvfree(ppriv); /* mlx5e_rep_priv */
 }
@@ -1732,7 +1735,7 @@ static int mlx5e_vport_rep_event_pair(struct mlx5_eswitch *esw,
 			sq_peer->peer = peer_esw;
 			continue;
 		}
-		sq_peer = kzalloc(sizeof(*sq_peer), GFP_KERNEL);
+		sq_peer = kzalloc_obj(*sq_peer);
 		if (!sq_peer) {
 			err = -ENOMEM;
 			goto err_sq_alloc;

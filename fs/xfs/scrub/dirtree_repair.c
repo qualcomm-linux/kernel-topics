@@ -3,7 +3,7 @@
  * Copyright (c) 2023-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -459,7 +459,7 @@ xrep_dirtree_unlink(
 	if (error)
 		goto out_trans_cancel;
 
-	error = xfs_dir_removename(sc->tp, dp, &dl->xname, sc->ip->i_ino,
+	error = xfs_dir_removename(sc->tp, dp, &dl->xname, I_INO(sc->ip),
 			resblks);
 	if (error) {
 		ASSERT(error != -ENOENT);
@@ -567,7 +567,7 @@ xrep_dirtree_create_adoption_path(
 	 * Create a new xchk_path structure to remember this parent pointer
 	 * and record the first name step.
 	 */
-	path = kmalloc(sizeof(struct xchk_dirpath), XCHK_GFP_FLAGS);
+	path = kmalloc_obj(struct xchk_dirpath, XCHK_GFP_FLAGS);
 	if (!path)
 		return -ENOMEM;
 
@@ -583,7 +583,7 @@ xrep_dirtree_create_adoption_path(
 	 */
 	xfs_inode_to_parent_rec(&dl->pptr_rec, sc->orphanage);
 
-	error = xino_bitmap_set(&path->seen_inodes, sc->orphanage->i_ino);
+	error = xino_bitmap_set(&path->seen_inodes, I_INO(sc->orphanage));
 	if (error)
 		goto out_path;
 

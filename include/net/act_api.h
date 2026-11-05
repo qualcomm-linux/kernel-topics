@@ -45,6 +45,7 @@ struct tc_action {
 	struct tc_cookie	__rcu *user_cookie;
 	struct tcf_chain	__rcu *goto_chain;
 	u32			tcfa_flags;
+	struct rcu_head         tcfa_rcu;
 	u8			hw_stats;
 	u8			used_hw_stats;
 	bool			used_hw_stats_valid;
@@ -70,6 +71,7 @@ struct tc_action {
 #define TCA_ACT_FLAGS_REPLACE	(1U << (TCA_ACT_FLAGS_USER_BITS + 2))
 #define TCA_ACT_FLAGS_NO_RTNL	(1U << (TCA_ACT_FLAGS_USER_BITS + 3))
 #define TCA_ACT_FLAGS_AT_INGRESS	(1U << (TCA_ACT_FLAGS_USER_BITS + 4))
+#define TCA_ACT_FLAGS_AT_INGRESS_OR_CLSACT	(1U << (TCA_ACT_FLAGS_USER_BITS + 5))
 
 /* Update lastuse only if needed, to avoid dirtying a cache line.
  * We use a temp variable to avoid fetching jiffies twice.
@@ -159,7 +161,7 @@ int tc_action_net_init(struct net *net, struct tc_action_net *tn,
 {
 	int err = 0;
 
-	tn->idrinfo = kmalloc(sizeof(*tn->idrinfo), GFP_KERNEL);
+	tn->idrinfo = kmalloc_obj(*tn->idrinfo);
 	if (!tn->idrinfo)
 		return -ENOMEM;
 	tn->ops = ops;
@@ -240,7 +242,7 @@ static inline void tcf_action_update_bstats(struct tc_action *a,
 static inline void tcf_action_inc_drop_qstats(struct tc_action *a)
 {
 	if (likely(a->cpu_qstats)) {
-		qstats_drop_inc(this_cpu_ptr(a->cpu_qstats));
+		qstats_cpu_drop_inc(a->cpu_qstats);
 		return;
 	}
 	atomic_inc(&a->tcfa_drops);
@@ -249,7 +251,7 @@ static inline void tcf_action_inc_drop_qstats(struct tc_action *a)
 static inline void tcf_action_inc_overlimit_qstats(struct tc_action *a)
 {
 	if (likely(a->cpu_qstats)) {
-		qstats_overlimit_inc(this_cpu_ptr(a->cpu_qstats));
+		qstats_cpu_overlimit_inc(a->cpu_qstats);
 		return;
 	}
 	atomic_inc(&a->tcfa_overlimits);

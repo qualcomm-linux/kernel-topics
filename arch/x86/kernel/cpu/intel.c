@@ -205,6 +205,7 @@ static void early_init_intel(struct cpuinfo_x86 *c)
 
 	if (c->x86 >= 6 && !cpu_has(c, X86_FEATURE_IA64))
 		c->microcode = intel_get_microcode_revision();
+	c->intel_platform_id = intel_get_platform_id();
 
 	/* Now if any of them are set, check the blacklist and clear the lot */
 	if ((cpu_has(c, X86_FEATURE_SPEC_CTRL) ||
@@ -236,9 +237,7 @@ static void early_init_intel(struct cpuinfo_x86 *c)
 		clear_cpu_cap(c, X86_FEATURE_PSE);
 	}
 
-#ifdef CONFIG_X86_64
-	set_cpu_cap(c, X86_FEATURE_SYSENTER32);
-#else
+#ifndef CONFIG_X86_64
 	/* Netburst reports 64 bytes clflush size, but does IO in 128 bytes */
 	if (c->x86 == 15 && c->x86_cache_alignment == 64)
 		c->x86_cache_alignment = 128;
@@ -389,24 +388,15 @@ __setup("forcepae", forcepae_setup);
 
 static void intel_workarounds(struct cpuinfo_x86 *c)
 {
-#ifdef CONFIG_X86_F00F_BUG
 	/*
 	 * All models of Pentium and Pentium with MMX technology CPUs
 	 * have the F0 0F bug, which lets nonprivileged users lock up the
-	 * system. Announce that the fault handler will be checking for it.
+	 * system. The fault handler always checks for it.
 	 * The Quark is also family 5, but does not have the same bug.
 	 */
-	clear_cpu_bug(c, X86_BUG_F00F);
-	if (c->x86_vfm >= INTEL_FAM5_START && c->x86_vfm < INTEL_QUARK_X1000) {
-		static int f00f_workaround_enabled;
-
+	if (IS_ENABLED(CONFIG_X86_F00F_BUG) &&
+	    (c->x86_vfm >= INTEL_FAM5_START && c->x86_vfm < INTEL_QUARK_X1000))
 		set_cpu_bug(c, X86_BUG_F00F);
-		if (!f00f_workaround_enabled) {
-			pr_notice("Intel Pentium with F0 0F bug - workaround enabled.\n");
-			f00f_workaround_enabled = 1;
-		}
-	}
-#endif
 
 	/*
 	 * SEP CPUID bug: Pentium Pro reports SEP but doesn't have it until

@@ -3,7 +3,7 @@
  * Copyright (c) 2021-2024 Oracle.  All Rights Reserved.
  * Author: Darrick J. Wong <djwong@kernel.org>
  */
-#include "xfs.h"
+#include "xfs_platform.h"
 #include "xfs_fs.h"
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -602,7 +602,7 @@ xfs_rtrefcountbt_from_disk(
 	rblocklen = xfs_rtrefcount_broot_space(mp, dblock);
 
 	xfs_btree_init_block(mp, rblock, &xfs_rtrefcountbt_ops, 0, 0,
-			ip->i_ino);
+			I_INO(ip));
 
 	rblock->bb_level = dblock->bb_level;
 	rblock->bb_numrecs = dblock->bb_numrecs;
@@ -751,7 +751,7 @@ xfs_rtrefcountbt_create(
 			xfs_rtrefcount_broot_space_calc(mp, 0, 0));
 	if (broot)
 		xfs_btree_init_block(mp, broot, &xfs_rtrefcountbt_ops, 0, 0,
-				ip->i_ino);
+				I_INO(ip));
 	xfs_trans_log_inode(tp, ip, XFS_ILOG_CORE | XFS_ILOG_DBROOT);
 	return 0;
 }

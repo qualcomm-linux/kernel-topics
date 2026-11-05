@@ -3,15 +3,18 @@
 //! Support for firmware binaries designed to run on a RISC-V core. Such firmwares files have a
 //! dedicated header.
 
-use core::mem::size_of;
+use kernel::{
+    device,
+    dma::Coherent,
+    firmware::Firmware,
+    prelude::*,
+    transmute::FromBytes, //
+};
 
-use kernel::device;
-use kernel::firmware::Firmware;
-use kernel::prelude::*;
-use kernel::transmute::FromBytes;
-
-use crate::dma::DmaObject;
-use crate::firmware::BinFirmware;
+use crate::{
+    firmware::BinFirmware,
+    num::FromSafeCast, //
+};
 
 /// Descriptor for microcode running on a RISC-V core.
 #[repr(C)]
@@ -41,29 +44,29 @@ impl RmRiscvUCodeDesc {
     ///
     /// Fails if the header pointed at by `bin_fw` is not within the bounds of the firmware image.
     fn new(bin_fw: &BinFirmware<'_>) -> Result<Self> {
-        let offset = bin_fw.hdr.header_offset as usize;
+        let offset = usize::from_safe_cast(bin_fw.hdr.header_offset);
+        let end = offset.checked_add(size_of::<Self>()).ok_or(EINVAL)?;
 
         bin_fw
             .fw
-            .get(offset..offset + size_of::<Self>())
+            .get(offset..end)
             .and_then(Self::from_bytes_copy)
             .ok_or(EINVAL)
     }
 }
 
 /// A parsed firmware for a RISC-V core, ready to be loaded and run.
-#[expect(unused)]
 pub(crate) struct RiscvFirmware {
     /// Offset at which the code starts in the firmware image.
-    code_offset: u32,
+    pub(crate) code_offset: u32,
     /// Offset at which the data starts in the firmware image.
-    data_offset: u32,
+    pub(crate) data_offset: u32,
     /// Offset at which the manifest starts in the firmware image.
-    manifest_offset: u32,
+    pub(crate) manifest_offset: u32,
     /// Application version.
-    app_version: u32,
+    pub(crate) app_version: u32,
     /// Device-mapped firmware image.
-    ucode: DmaObject,
+    pub(crate) ucode: Coherent<[u8]>,
 }
 
 impl RiscvFirmware {
@@ -74,10 +77,11 @@ impl RiscvFirmware {
         let riscv_desc = RmRiscvUCodeDesc::new(&bin_fw)?;
 
         let ucode = {
-            let start = bin_fw.hdr.data_offset as usize;
-            let len = bin_fw.hdr.data_size as usize;
+            let start = usize::from_safe_cast(bin_fw.hdr.data_offset);
+            let len = usize::from_safe_cast(bin_fw.hdr.data_size);
+            let end = start.checked_add(len).ok_or(EINVAL)?;
 
-            DmaObject::from_data(dev, fw.data().get(start..start + len).ok_or(EINVAL)?)?
+            Coherent::from_slice(dev, fw.data().get(start..end).ok_or(EINVAL)?, GFP_KERNEL)?
         };
 
         Ok(Self {
