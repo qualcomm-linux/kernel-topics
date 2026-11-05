@@ -152,6 +152,21 @@ config DWMAC_QCOM_ETHQOS
 	  This selects the Qualcomm ETHQOS glue layer support for the
 	  stmmac device driver.
 
+config SHIKRA_ETHQOS_RECOVERY
+	tristate "Qualcomm Shikra ETHQOS thin recovery driver"
+	depends on OF && (ARCH_QCOM || COMPILE_TEST) && COMMON_CLK && RESET_CONTROLLER
+	help
+	  Minimal platform driver for the Qualcomm Shikra EVK that restores
+	  the Ethernet MAC clocks, deasserts the GCC reset and pulses the PHY
+	  reset after qcom-ethqos has been unbound from a qcom,shikra-ethqos
+	  device. This lets the MAC be handed over to vfio-platform, for
+	  example for the DPDK stmmac PMD.
+
+	  It matches the same compatible as DWMAC_QCOM_ETHQOS and is meant to
+	  be bound manually by device name.
+
+	  If unsure, say N.
+
 config DWMAC_RENESAS_GBETH
 	tristate "Renesas RZ/V2H(P) GBETH and RZ/T2H, RZ/N2H GMAC support"
 	default ARCH_RENESAS
