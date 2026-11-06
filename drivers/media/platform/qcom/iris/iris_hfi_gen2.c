@@ -997,7 +997,6 @@ static const struct platform_inst_fw_cap inst_fw_cap_sm8550_dec[] = {
 		.value = V4L2_MPEG_VIDEO_HEVC_TIER_HIGH,
 		.hfi_id = HFI_PROP_TIER,
 		.flags = CAP_FLAG_OUTPUT_PORT | CAP_FLAG_MENU,
-		.set = iris_set_u32_enum,
 	},
 	{
 		.cap_id = TIER_AV1,
@@ -1007,7 +1006,6 @@ static const struct platform_inst_fw_cap inst_fw_cap_sm8550_dec[] = {
 		.value = 0,
 		.hfi_id = HFI_PROP_TIER,
 		.flags = CAP_FLAG_INPUT_PORT,
-		.set = iris_set_u32,
 	},
 	{
 		.cap_id = DRAP,
