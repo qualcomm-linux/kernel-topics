@@ -63,10 +63,6 @@ static const u32 pwr_evnt_irq_stat_reg[DWC3_QCOM_MAX_PORTS] = {
 	0x238,
 };
 
-struct dwc3_qcom_platform_data {
-	bool			uses_eusb2_phy;
-};
-
 struct dwc3_qcom_port {
 	int			qusb2_phy_irq;
 	int			dp_hs_phy_irq;
@@ -92,7 +88,6 @@ struct dwc3_qcom {
 	struct icc_path		*icc_path_apps;
 
 	enum usb_role		current_role;
-	bool			uses_eusb2_phy;
 
 	/* Serializes the role notifier against system suspend and resume */
 	struct mutex		role_lock;
@@ -284,23 +279,15 @@ static void dwc3_qcom_disable_wakeup_irq(int irq)
 	disable_irq_nosync(irq);
 }
 
-static void dwc3_qcom_disable_port_interrupts(struct dwc3_qcom *qcom, int port_index)
+static void dwc3_qcom_disable_port_interrupts(struct dwc3_qcom_port *port)
 {
-	struct dwc3_qcom_port *port = &qcom->ports[port_index];
-
 	dwc3_qcom_disable_wakeup_irq(port->qusb2_phy_irq);
 
 	if (port->usb2_speed == USB_SPEED_LOW) {
-		if (qcom->uses_eusb2_phy)
-			dwc3_qcom_disable_wakeup_irq(port->dp_hs_phy_irq);
-		else
-			dwc3_qcom_disable_wakeup_irq(port->dm_hs_phy_irq);
+		dwc3_qcom_disable_wakeup_irq(port->dm_hs_phy_irq);
 	} else if ((port->usb2_speed == USB_SPEED_HIGH) ||
 			(port->usb2_speed == USB_SPEED_FULL)) {
-		if (qcom->uses_eusb2_phy)
-			dwc3_qcom_disable_wakeup_irq(port->dm_hs_phy_irq);
-		else
-			dwc3_qcom_disable_wakeup_irq(port->dp_hs_phy_irq);
+		dwc3_qcom_disable_wakeup_irq(port->dp_hs_phy_irq);
 	} else {
 		dwc3_qcom_disable_wakeup_irq(port->dp_hs_phy_irq);
 		dwc3_qcom_disable_wakeup_irq(port->dm_hs_phy_irq);
@@ -309,10 +296,8 @@ static void dwc3_qcom_disable_port_interrupts(struct dwc3_qcom *qcom, int port_i
 	dwc3_qcom_disable_wakeup_irq(port->ss_phy_irq);
 }
 
-static void dwc3_qcom_enable_port_interrupts(struct dwc3_qcom *qcom, int port_index)
+static void dwc3_qcom_enable_port_interrupts(struct dwc3_qcom_port *port)
 {
-	struct dwc3_qcom_port *port = &qcom->ports[port_index];
-
 	dwc3_qcom_enable_wakeup_irq(port->qusb2_phy_irq, 0);
 
 	/*
@@ -325,20 +310,12 @@ static void dwc3_qcom_enable_port_interrupts(struct dwc3_qcom *qcom, int port_in
 	 */
 
 	if (port->usb2_speed == USB_SPEED_LOW) {
-		if (qcom->uses_eusb2_phy)
-			dwc3_qcom_enable_wakeup_irq(port->dp_hs_phy_irq,
-						    IRQ_TYPE_EDGE_RISING);
-		else
-			dwc3_qcom_enable_wakeup_irq(port->dm_hs_phy_irq,
-						    IRQ_TYPE_EDGE_FALLING);
+		dwc3_qcom_enable_wakeup_irq(port->dm_hs_phy_irq,
+					    IRQ_TYPE_EDGE_FALLING);
 	} else if ((port->usb2_speed == USB_SPEED_HIGH) ||
 			(port->usb2_speed == USB_SPEED_FULL)) {
-		if (qcom->uses_eusb2_phy)
-			dwc3_qcom_enable_wakeup_irq(port->dm_hs_phy_irq,
-						    IRQ_TYPE_EDGE_RISING);
-		else
-			dwc3_qcom_enable_wakeup_irq(port->dp_hs_phy_irq,
-						    IRQ_TYPE_EDGE_FALLING);
+		dwc3_qcom_enable_wakeup_irq(port->dp_hs_phy_irq,
+					    IRQ_TYPE_EDGE_FALLING);
 	} else {
 		dwc3_qcom_enable_wakeup_irq(port->dp_hs_phy_irq,
 					    IRQ_TYPE_EDGE_RISING);
@@ -354,7 +331,7 @@ static void dwc3_qcom_disable_interrupts(struct dwc3_qcom *qcom)
 	int i;
 
 	for (i = 0; i < qcom->num_ports; i++)
-		dwc3_qcom_disable_port_interrupts(qcom, i);
+		dwc3_qcom_disable_port_interrupts(&qcom->ports[i]);
 }
 
 static void dwc3_qcom_enable_interrupts(struct dwc3_qcom *qcom)
@@ -362,7 +339,7 @@ static void dwc3_qcom_enable_interrupts(struct dwc3_qcom *qcom)
 	int i;
 
 	for (i = 0; i < qcom->num_ports; i++)
-		dwc3_qcom_enable_port_interrupts(qcom, i);
+		dwc3_qcom_enable_port_interrupts(&qcom->ports[i]);
 }
 
 static int dwc3_qcom_suspend(struct dwc3_qcom *qcom, bool wakeup)
@@ -660,7 +637,6 @@ struct dwc3_glue_ops dwc3_qcom_glue_ops = {
 
 static int dwc3_qcom_probe(struct platform_device *pdev)
 {
-	const struct dwc3_qcom_platform_data *pdata;
 	struct dwc3_probe_data	probe_data = {};
 	struct device		*dev = &pdev->dev;
 	struct dwc3_qcom	*qcom;
@@ -675,10 +651,6 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	qcom->dev = &pdev->dev;
-
-	pdata = device_get_match_data(dev);
-	if (pdata)
-		qcom->uses_eusb2_phy = pdata->uses_eusb2_phy;
 
 	ret = devm_mutex_init(dev, &qcom->role_lock);
 	if (ret)
@@ -915,52 +887,8 @@ static const struct dev_pm_ops dwc3_qcom_dev_pm_ops = {
 	.prepare = pm_sleep_ptr(dwc3_qcom_prepare),
 };
 
-static const struct dwc3_qcom_platform_data dwc3_qcom_glymur_pdata = {
-	.uses_eusb2_phy = true,
-};
-
 static const struct of_device_id dwc3_qcom_of_match[] = {
-	{ .compatible = "qcom,snps-dwc3", },
-	{
-		.compatible = "qcom,eliza-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,glymur-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,glymur-dwc3-mp",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,kaanapali-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,milos-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,sm8550-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,sm8650-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,sm8750-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,x1e80100-dwc3",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
-	{
-		.compatible = "qcom,x1e80100-dwc3-mp",
-		.data = &dwc3_qcom_glymur_pdata,
-	},
+	{ .compatible = "qcom,snps-dwc3" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, dwc3_qcom_of_match);
