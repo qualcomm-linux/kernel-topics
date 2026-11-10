@@ -1693,13 +1693,8 @@ static void dm_test_crtc_reset_state_replaces_existing(struct kunit *test)
 	kref_get(&stream->refcount);
 
 	/* reset_state kfree()s the old state, so use a plain (unmanaged) alloc. */
-<<<<<<< HEAD
 	old = kzalloc_obj(*old);
-	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, old);
-=======
-	old = kzalloc_obj(*old, GFP_KERNEL);
 	KUNIT_ASSERT_NOT_NULL(test, old);
->>>>>>> amdgpu/drm-next
 	old->stream = stream;
 	crtc->state = &old->base;
 

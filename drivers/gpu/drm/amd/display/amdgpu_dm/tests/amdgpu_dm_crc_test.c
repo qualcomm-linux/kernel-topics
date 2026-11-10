@@ -704,7 +704,6 @@ static void dm_test_crtc_set_crc_source_dprx_connector(struct kunit *test)
 	KUNIT_ASSERT_EQ(test, ret, 0);
 	ret = kunit_add_action_or_reset(test, dm_test_crc_connector_cleanup, &aconn->base);
 	KUNIT_ASSERT_EQ(test, ret, 0);
-	drm_atomic_helper_connector_reset(&aconn->base);
 	KUNIT_ASSERT_NOT_NULL(test, aconn->base.state);
 	aconn->base.state->crtc = &acrtc->base;
 	/* Balance the reference the state destroy drops for a set CRTC. */

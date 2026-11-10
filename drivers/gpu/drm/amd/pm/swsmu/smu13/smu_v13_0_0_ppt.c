@@ -1306,8 +1306,6 @@ static void smu_v13_0_0_od_refresh_uclk_table(struct smu_context *smu)
 		dev_err(smu->adev->dev, "Failed to refresh UCLK dpm table!\n");
 		return;
 	}
-
-	smu->smu_table.od_uclk_changed = true;
 }
 
 static int smu_v13_0_0_emit_clk_levels(struct smu_context *smu,

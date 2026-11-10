@@ -601,9 +601,6 @@ static void smu_restore_dpm_user_profile(struct smu_context *smu)
 			ret = smu->ppt_funcs->restore_user_od_settings(smu);
 			if (ret)
 				dev_err(smu->adev->dev, "Failed to upload customized OD settings\n");
-			else if (smu_od_uclk_changed(smu))
-				/* DC read the stock UCLK levels in its init_hw */
-				amdgpu_dm_update_memclk_states(smu->adev);
 		}
 	}
 
@@ -3704,11 +3701,7 @@ static int smu_baco_set_state(void *handle, int state)
  */
 bool smu_od_uclk_changed(struct smu_context *smu)
 {
-	bool changed = smu->smu_table.od_uclk_changed;
-
-	smu->smu_table.od_uclk_changed = false;
-
-	return changed;
+	return false;
 }
 
 bool smu_mode1_reset_is_support(struct smu_context *smu)
