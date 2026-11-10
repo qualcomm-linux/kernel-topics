@@ -1614,7 +1614,7 @@
 				/* GEN 1 x1 */
 				opp-2500000 {
 					opp-hz = /bits/ 64 <2500000>;
-					required-opps = <&rpmpd_opp_nom>;
+					required-opps = <&rpmpd_opp_low_svs>;
 					opp-peak-kBps = <250000 1>;
 					opp-level = <1>;
 				};
@@ -1622,7 +1622,7 @@
 				/* GEN 2 x1 */
 				opp-5000000 {
 					opp-hz = /bits/ 64 <5000000>;
-					required-opps = <&rpmpd_opp_nom>;
+					required-opps = <&rpmpd_opp_low_svs>;
 					opp-peak-kBps = <500000 1>;
 					opp-level = <2>;
 				};
