@@ -292,6 +292,8 @@ static void iris_remove(struct platform_device *pdev)
 
 	iris_core_deinit(core);
 
+	devm_free_irq(core->dev, core->irq, core);
+
 	iris_instances_vb2_queue_error(core);
 
 	pm_runtime_dont_use_autosuspend(core->dev);
