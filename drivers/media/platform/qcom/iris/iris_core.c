@@ -43,7 +43,10 @@ static int iris_wait_for_system_response(struct iris_core *core)
 	ret = wait_for_completion_timeout(&core->core_init_done,
 					  msecs_to_jiffies(HW_RESPONSE_TIMEOUT_VALUE));
 	if (!ret) {
-		core->state = IRIS_CORE_ERROR;
+		mutex_lock(&core->lock);
+		if (!core->removing)
+			core->state = IRIS_CORE_ERROR;
+		mutex_unlock(&core->lock);
 		return -ETIMEDOUT;
 	}
 
@@ -56,6 +59,11 @@ int iris_core_init(struct iris_core *core)
 	int ret;
 
 	mutex_lock(&core->lock);
+	if (core->removing) {
+		ret = -ENODEV;
+		goto exit;
+	}
+
 	if (core->state == IRIS_CORE_INIT) {
 		ret = 0;
 		goto exit;
