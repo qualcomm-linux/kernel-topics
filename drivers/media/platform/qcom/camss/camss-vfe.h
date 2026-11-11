@@ -249,7 +249,6 @@ extern const struct vfe_hw_ops vfe_ops_170;
 extern const struct vfe_hw_ops vfe_ops_340;
 extern const struct vfe_hw_ops vfe_ops_480;
 extern const struct vfe_hw_ops vfe_ops_680;
-extern const struct vfe_hw_ops vfe_ops_900;
 extern const struct vfe_hw_ops vfe_ops_gen3;
 extern const struct vfe_hw_ops vfe_ops_gen4;
 
