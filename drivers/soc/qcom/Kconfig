@@ -296,6 +296,7 @@ endif
 config QCOM_INLINE_CRYPTO_ENGINE
 	tristate
 	select QCOM_SCM
+	select QCOM_ICE_TEE
 
 config QCOM_KRYO_L2_ACCESSORS
 	bool
