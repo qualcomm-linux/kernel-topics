@@ -158,6 +158,29 @@ properties:
     maximum: 3
     default: 0
 
+  ports:
+    $ref: /schemas/graph.yaml#/properties/ports
+    description:
+      Those ports can be used with any connector/pmic node that is able to
+      provide role switch notifications for charger detection purposes.
+
+    properties:
+      port@0:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: Connector Data bus
+
+      port@1:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: Controller data bus.
+
+  usb-role-switch:
+    description:
+      In the context of usb-phy, it denotes the capability to perform charger
+      detection. Although phy is not the one responsible for switching mode, it
+      is the one responsible to take a call on whether controller must switch
+      mode or not. In case of SDP/CDT, the phy would inform the controller to
+      switch to device and in case of DCP, role switch doesn't need to happen.
+
 required:
   - compatible
   - reg
