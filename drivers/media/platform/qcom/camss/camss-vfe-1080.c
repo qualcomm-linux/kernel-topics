@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * camss-vfe-900.c
+ * camss-vfe-1080.c
  *
- * Qualcomm MSM Camera Subsystem - VFE (Video Front End) Module 900
+ * Qualcomm MSM Camera Subsystem - VFE (Video Front End) Module 1080
  *
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
@@ -13,56 +13,67 @@
 #include "camss.h"
 #include "camss-vfe.h"
 
-/* VFE-900 Bus Register Base Addresses */
-#define BUS_REG_BASE				(vfe_is_lite(vfe) ? 0x400 : 0x700)
+/* VFE-1080 Bus Register Base Addresses */
+#define BUS_REG_BASE				(vfe_is_lite(vfe) ? 0x800 : 0x1000)
 
 #define VFE_BUS_WM_CGC_OVERRIDE			(BUS_REG_BASE + 0x08)
-#define		WM_CGC_OVERRIDE_ALL			(0xFFFFFFFF)
-#define		WM_CGC_OVERRIDE_LITE_ALL		(0xFF)
+#define		WM_CGC_OVERRIDE_ALL			(0x7FFFFFF)
 
-#define VFE_BUS_WM_TEST_BUS_CTRL		(BUS_REG_BASE + 0x144)
+#define VFE_BUS_WM_TEST_BUS_CTRL		(BUS_REG_BASE + 0x128)
 
-/* Clients 32-39, VFE lite has no such register */
-#define VFE_BUS_WM_CGC_OVERRIDE_1		(BUS_REG_BASE + 0x148)
-#define		WM_CGC_OVERRIDE_1_ALL			(0xFF)
-
-#define VFE_BUS_WM_CFG(n)			(BUS_REG_BASE + 0x800 + (n) * 0x100)
+#define VFE_BUS_WM_CFG(n)			(BUS_REG_BASE + 0x500 + (n) * 0x100)
 #define		WM_CFG_EN				BIT(0)
 #define		WM_VIR_FRM_EN				BIT(1)
 #define		WM_CFG_MODE				BIT(16)
-#define VFE_BUS_WM_IMAGE_ADDR(n)		(BUS_REG_BASE + 0x804 + (n) * 0x100)
-#define VFE_BUS_WM_FRAME_INCR(n)		(BUS_REG_BASE + 0x808 + (n) * 0x100)
-#define VFE_BUS_WM_IMAGE_CFG_0(n)		(BUS_REG_BASE + 0x80C + (n) * 0x100)
+#define VFE_BUS_WM_IMAGE_ADDR(n)		(BUS_REG_BASE + 0x504 + (n) * 0x100)
+#define VFE_BUS_WM_FRAME_INCR(n)		(BUS_REG_BASE + 0x508 + (n) * 0x100)
+#define VFE_BUS_WM_IMAGE_CFG_0(n)		(BUS_REG_BASE + 0x50C + (n) * 0x100)
 #define		WM_IMAGE_CFG_0_DEFAULT_WIDTH		(0xFFFF)
-#define VFE_BUS_WM_IMAGE_CFG_2(n)		(BUS_REG_BASE + 0x814 + (n) * 0x100)
+#define VFE_BUS_WM_IMAGE_CFG_2(n)		(BUS_REG_BASE + 0x514 + (n) * 0x100)
 #define		WM_IMAGE_CFG_2_DEFAULT_STRIDE		(0xFFFF)
-#define VFE_BUS_WM_PACKER_CFG(n)		(BUS_REG_BASE + 0x818 + (n) * 0x100)
+#define VFE_BUS_WM_PACKER_CFG(n)		(BUS_REG_BASE + 0x518 + (n) * 0x100)
 
-#define VFE_BUS_WM_IRQ_SUBSAMPLE_PERIOD(n)	(BUS_REG_BASE + 0x830 + (n) * 0x100)
-#define VFE_BUS_WM_IRQ_SUBSAMPLE_PATTERN(n)	(BUS_REG_BASE + 0x834 + (n) * 0x100)
+#define VFE_BUS_WM_IRQ_SUBSAMPLE_PERIOD(n)	(BUS_REG_BASE + 0x530 + (n) * 0x100)
+#define VFE_BUS_WM_IRQ_SUBSAMPLE_PATTERN(n)	(BUS_REG_BASE + 0x534 + (n) * 0x100)
 
 /* VFE lite has no such registers */
-#define VFE_BUS_WM_FRAMEDROP_PERIOD(n)		(BUS_REG_BASE + 0x838 + (n) * 0x100)
-#define VFE_BUS_WM_FRAMEDROP_PATTERN(n)		(BUS_REG_BASE + 0x83C + (n) * 0x100)
+#define VFE_BUS_WM_FRAMEDROP_PERIOD(n)		(BUS_REG_BASE + 0x538 + (n) * 0x100)
+#define VFE_BUS_WM_FRAMEDROP_PATTERN(n)		(BUS_REG_BASE + 0x53C + (n) * 0x100)
 
-#define VFE_BUS_WM_MMU_PREFETCH_CFG(n)		(BUS_REG_BASE + 0x860 + (n) * 0x100)
-#define VFE_BUS_WM_MMU_PREFETCH_MAX_OFFSET(n)	(BUS_REG_BASE + 0x864 + (n) * 0x100)
+#define VFE_BUS_WM_MMU_PREFETCH_CFG(n)		(BUS_REG_BASE + 0x560 + (n) * 0x100)
+#define VFE_BUS_WM_MMU_PREFETCH_MAX_OFFSET(n)	(BUS_REG_BASE + 0x564 + (n) * 0x100)
 
 /*
  * IFE write master client IDs
  *
- * MAIN C0/C1/C2/UV		0-3
- * PIXEL_RAW			4
- * W_IR				5
- * AI_1 C0/C1/C2/UV		6-9
- * AI_2 C0/C1/C2/UV		10-13
- * HV_DS16 / HV_DS4		14-15
- * STATS BG_IR..BLTM		16-27
- * RDI0				28
- * RDI1				29
- * RDI2				30
- * ...
- * RDI11			39
+ * VIDEO_FULL			0
+ * VIDEO_DC4_Y			1
+ * VIDEO_DC4_C			2
+ * VIDEO_DC16_Y			3
+ * VIDEO_DC16_C			4
+ * DISPLAY_DS2_Y		5
+ * DISPLAY_DS2_C		6
+ * FD_Y				7
+ * FD_C				8
+ * PIXEL_RAW			9
+ * STATS_AEC_BG			10
+ * STATS_AEC_BHIST		11
+ * STATS_TINTLESS_BG		12
+ * STATS_AWB_BG			13
+ * STATS_AWB_BFW		14
+ * STATS_AF_BHIST		15
+ * STATS_ALSC_BG		16
+ * STATS_FLICKER_BAYERRS	17
+ * STATS_TMC_BHIST		18
+ * PDAF_0			19
+ * PDAF_1			20
+ * PDAF_2			21
+ * PDAF_3			22
+ * RDI0				23
+ * RDI1				24
+ * RDI2				25
+ * RDI3				26
+ * RDI4				27
  *
  * IFE Lite write master client IDs
  *
@@ -73,7 +84,7 @@
  * GAMMA		4
  * STATES_BE		5
  */
-#define RDI_WM(n) ((vfe_is_lite(vfe) ? 0x0 : 0x1C) + (n))
+#define RDI_WM(n) ((vfe_is_lite(vfe) ? 0x0 : 0x17) + (n))
 
 static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
 {
@@ -83,19 +94,11 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
 	wm = RDI_WM(wm);
 
 	/* no clock gating at bus input */
-	if (vfe_is_lite(vfe)) {
-		writel(WM_CGC_OVERRIDE_LITE_ALL,
-		       vfe->base + VFE_BUS_WM_CGC_OVERRIDE);
-	} else {
-		writel(WM_CGC_OVERRIDE_ALL, vfe->base + VFE_BUS_WM_CGC_OVERRIDE);
-		writel(WM_CGC_OVERRIDE_1_ALL,
-		       vfe->base + VFE_BUS_WM_CGC_OVERRIDE_1);
-	}
+	writel(WM_CGC_OVERRIDE_ALL, vfe->base + VFE_BUS_WM_CGC_OVERRIDE);
 
 	writel(0x0, vfe->base + VFE_BUS_WM_TEST_BUS_CTRL);
 
-	/* The address registers take a byte address on VFE 900 */
-	writel(ALIGN(pix->plane_fmt[0].bytesperline, 16) * pix->height,
+	writel(ALIGN(pix->plane_fmt[0].bytesperline, 16) * pix->height >> 8,
 	       vfe->base + VFE_BUS_WM_FRAME_INCR(wm));
 	writel((WM_IMAGE_CFG_0_DEFAULT_WIDTH & 0xFFFF),
 	       vfe->base + VFE_BUS_WM_IMAGE_CFG_0(wm));
@@ -128,7 +131,7 @@ static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
 			  struct vfe_line *line)
 {
 	wm = RDI_WM(wm);
-	writel(addr, vfe->base + VFE_BUS_WM_IMAGE_ADDR(wm));
+	writel(addr >> 8, vfe->base + VFE_BUS_WM_IMAGE_ADDR(wm));
 
 	dev_dbg(vfe->camss->dev, "wm:%d, image buf addr:0x%x\n", wm, addr);
 }
@@ -148,14 +151,28 @@ static void vfe_reg_update_clear(struct vfe_device *vfe,
 	camss_reg_update(vfe->camss, vfe->id, port_id, true);
 }
 
-static const struct camss_video_ops vfe_video_ops_900 = {
+static void vfe_addr_update(struct vfe_device *vfe, enum vfe_line_id line_id)
+{
+	int port_id = line_id;
+
+	camss_addr_update(vfe->camss, vfe->id, port_id, false);
+}
+
+static void vfe_addr_update_clear(struct vfe_device *vfe, enum vfe_line_id line_id)
+{
+	int port_id = line_id;
+
+	camss_addr_update(vfe->camss, vfe->id, port_id, true);
+}
+
+static const struct camss_video_ops vfe_video_ops_1080 = {
 	.queue_buffer = vfe_queue_buffer_v2,
 	.flush_buffers = vfe_flush_buffers,
 };
 
 static void vfe_subdev_init(struct device *dev, struct vfe_device *vfe)
 {
-	vfe->video_ops = vfe_video_ops_900;
+	vfe->video_ops = vfe_video_ops_1080;
 }
 
 static void vfe_global_reset(struct vfe_device *vfe)
@@ -175,7 +192,9 @@ static int vfe_halt(struct vfe_device *vfe)
 	return 0;
 }
 
-const struct vfe_hw_ops vfe_ops_900 = {
+const struct vfe_hw_ops vfe_ops_1080 = {
+	.addr_update = vfe_addr_update,
+	.addr_update_clear = vfe_addr_update_clear,
 	.global_reset = vfe_global_reset,
 	.hw_version = vfe_hw_version,
 	.isr = vfe_isr,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * camss-csid-gen4.c
+ * camss-csid-1080.c
  *
  * Qualcomm MSM Camera Subsystem - CSID (CSI Decoder) Module
  *
@@ -44,6 +44,7 @@
 #define		INFO_RST_DONE				BIT(0)
 #define		CSI2_RX_IRQ_STATUS			BIT(2)
 #define		BUF_DONE_IRQ_STATUS			BIT(3)
+#define		TOP_IRQ_STATUS_RDI_OFFSET		16
 
 /* Buffer done interrupt registers */
 #define CSID_BUF_DONE_IRQ_STATUS		0x1A0
@@ -63,15 +64,19 @@
 #define		CSI2_RX_CFG0_NUM_ACTIVE_LANES		0
 #define		CSI2_RX_CFG0_DL0_INPUT_SEL		4
 #define		CSI2_RX_CFG0_PHY_NUM_SEL		20
+#define		CSI2_RX_CFG0_TPG_MUX_EN			BIT(27)
+#define		CSI2_RX_CFG0_TPG_MUX_SEL		GENMASK(29, 28)
+#define		CSI2_RX_CFG0_PHY_SEL_BASE_IDX		1
 #define CSID_CSI2_RX_CFG1			0x884
 #define		CSI2_RX_CFG1_ECC_CORRECTION_EN		BIT(0)
 #define		CSI2_RX_CFG1_VC_MODE			BIT(2)
 
-#define MSM_CSID_MAX_SRC_STREAMS_GEN4		(csid_is_lite(csid) ? 4 : 5)
+#define MSM_CSID_MAX_SRC_STREAMS_1080		(csid_is_lite(csid) ? 4 : 5)
 
 /* RDI Configuration */
-#define CSID_RDI_CFG0(rdi) \
-	((csid_is_lite(csid) ? 0x3080 : 0x5480) + 0x200 * (rdi))
+#define CSID_RDI_CFG0(rdi)	(csid_is_lite(csid) ?\
+					(0x3080 + 0x200 * (rdi)) :\
+					(0x5480 + 0x200 * (rdi)))
 #define		RDI_CFG0_RETIME_BS			BIT(5)
 #define		RDI_CFG0_TIMESTAMP_EN			BIT(6)
 #define		RDI_CFG0_TIMESTAMP_STB_SEL		BIT(8)
@@ -81,12 +86,14 @@
 #define		RDI_CFG0_EN				BIT(31)
 
 /* RDI Control and Configuration */
-#define CSID_RDI_CTRL(rdi) \
-	((csid_is_lite(csid) ? 0x3088 : 0x5488) + 0x200 * (rdi))
+#define CSID_RDI_CTRL(rdi)	(csid_is_lite(csid) ?\
+					(0x3088 + 0x200 * (rdi)) :\
+					(0x5488 + 0x200 * (rdi)))
 #define		RDI_CTRL_START_CMD			BIT(0)
 
-#define CSID_RDI_CFG1(rdi) \
-	((csid_is_lite(csid) ? 0x3094 : 0x5494) + 0x200 * (rdi))
+#define CSID_RDI_CFG1(rdi)	(csid_is_lite(csid) ?\
+					(0x3094 + 0x200 * (rdi)) :\
+					(0x5494 + 0x200 * (rdi)))
 #define		RDI_CFG1_DROP_H_EN			BIT(5)
 #define		RDI_CFG1_DROP_V_EN			BIT(6)
 #define		RDI_CFG1_CROP_H_EN			BIT(7)
@@ -94,15 +101,19 @@
 #define		RDI_CFG1_PACKING_FORMAT_MIPI		BIT(15)
 
 /* RDI Pixel Store Configuration */
-#define CSID_RDI_PIX_STORE_CFG0(rdi)		(0x5498 + 0x200 * (rdi))
+#define CSID_RDI_PIX_STORE_CFG0(rdi)	(0x5498 + 0x200 * (rdi))
 #define		RDI_PIX_STORE_CFG0_EN			BIT(0)
 #define		RDI_PIX_STORE_CFG0_MIN_HBI		1
 
 /* RDI IRQ Status in wrapper */
-#define CSID_CSI2_RDIN_IRQ_STATUS(rdi)		(0x224 + (0x10 * (rdi)))
-#define CSID_CSI2_RDIN_IRQ_MASK(rdi)		(0x228 + (0x10 * (rdi)))
-#define CSID_CSI2_RDIN_IRQ_CLEAR(rdi)		(0x22C + (0x10 * (rdi)))
+#define CSID_CSI2_RDIN_IRQ_STATUS(rdi)	(0x224 + (0x10 * (rdi)))
+#define CSID_CSI2_RDIN_IRQ_MASK(rdi)	(0x228 + (0x10 * (rdi)))
+#define CSID_CSI2_RDIN_IRQ_CLEAR(rdi)	(0x22C + (0x10 * (rdi)))
 #define		INFO_RUP_DONE				BIT(23)
+#define		INFO_INPUT_SOF				BIT(12)
+#define		INFO_INPUT_EOF				BIT(9)
+#define		INFO_CAMIF_SOF				BIT(4)
+#define		INFO_CAMIF_EOF				BIT(3)
 
 static void __csid_aup_rup_trigger(struct csid_device *csid)
 {
@@ -110,38 +121,54 @@ static void __csid_aup_rup_trigger(struct csid_device *csid)
 	writel(RUP_SET, csid->base + CSID_RUP_AUP_CMD);
 }
 
-static void __csid_aup_rup_clear(struct csid_device *csid, int port_id)
+static void __csid_addr_update(struct csid_device *csid, int port_id)
 {
-	/* Hardware clears the registers upon consuming the settings */
-	csid->aup_update &= ~CSID_RUP_AUP_RDI(port_id);
-	csid->rup_update &= ~CSID_RUP_AUP_RDI(port_id);
-}
-
-static void __csid_aup_update(struct csid_device *csid, int port_id)
-{
-	csid->aup_update |= CSID_RUP_AUP_RDI(port_id);
-	writel(csid->aup_update, csid->base + CSID_AUP_CMD);
+	csid->addr_update |= CSID_RUP_AUP_RDI(port_id);
+	writel(csid->addr_update, csid->base + CSID_AUP_CMD);
 
 	__csid_aup_rup_trigger(csid);
+}
+
+static void __csid_addr_update_clear(struct csid_device *csid, int port_id)
+{
+	csid->addr_update &= ~CSID_RUP_AUP_RDI(port_id);
 }
 
 static void __csid_reg_update(struct csid_device *csid, int port_id)
 {
-	csid->rup_update |= CSID_RUP_AUP_RDI(port_id);
-	writel(csid->rup_update, csid->base + CSID_RUP_CMD);
+	csid->reg_update |= CSID_RUP_AUP_RDI(port_id);
+	writel(csid->reg_update, csid->base + CSID_RUP_CMD);
 
 	__csid_aup_rup_trigger(csid);
+}
+
+static void __csid_reg_update_clear(struct csid_device *csid, int port_id)
+{
+	csid->reg_update &= ~CSID_RUP_AUP_RDI(port_id);
 }
 
 static void __csid_configure_rx(struct csid_device *csid,
 				struct csid_phy_config *phy)
 {
+	struct camss *camss = csid->camss;
+	u8 lane_cnt = phy->lane_cnt;
 	int val;
 
-	val = (phy->lane_cnt - 1) << CSI2_RX_CFG0_NUM_ACTIVE_LANES;
+	if (!lane_cnt)
+		lane_cnt = 4;
+
+	val = (lane_cnt - 1) << CSI2_RX_CFG0_NUM_ACTIVE_LANES;
 	val |= phy->lane_assign << CSI2_RX_CFG0_DL0_INPUT_SEL;
-	val |= (phy->csiphy_id + CSI2_RX_CFG0_PHY_SEL_BASE_IDX)
-	       << CSI2_RX_CFG0_PHY_NUM_SEL;
+
+	if (camss->tpg && csid->tpg_linked &&
+	    camss->tpg[phy->csiphy_id].testgen.mode != TPG_PAYLOAD_MODE_DISABLED) {
+		val |= FIELD_PREP(CSI2_RX_CFG0_TPG_MUX_SEL, phy->csiphy_id + 1);
+		val |= CSI2_RX_CFG0_TPG_MUX_EN;
+	} else {
+		val |= (phy->csiphy_id + CSI2_RX_CFG0_PHY_SEL_BASE_IDX)
+			<< CSI2_RX_CFG0_PHY_NUM_SEL;
+	}
+
 	writel(val, csid->base + CSID_CSI2_RX_CFG0);
 
 	val = CSI2_RX_CFG1_ECC_CORRECTION_EN;
@@ -185,8 +212,8 @@ static void __csid_configure_rdi_pix_store(struct csid_device *csid, u8 rdi)
 
 static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 port, u8 vc)
 {
-	u32 val;
 	u8 lane_cnt = csid->phy.lane_cnt;
+	u32 val;
 
 	/* Source pads matching RDI channels on hardware.
 	 * E.g. Pad 1 -> RDI0, Pad 2 -> RDI1, etc.
@@ -212,7 +239,7 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	val = RDI_CFG1_PACKING_FORMAT_MIPI;
 	writel(val, csid->base + CSID_RDI_CFG1(port));
 
-	/* Configure pixel store using dedicated register in gen4 */
+	/* Configure pixel store using dedicated register in 1080 */
 	if (!csid_is_lite(csid))
 		__csid_configure_rdi_pix_store(csid, port);
 
@@ -233,13 +260,13 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
 
 	__csid_configure_rx(csid, &csid->phy);
 
-	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS_GEN4; i++) {
+	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS_1080; i++) {
 		if (csid->phy.en_vc & BIT(i)) {
 			__csid_configure_rdi_stream(csid, enable, i, 0);
 			__csid_configure_rx_vc(csid, 0);
 
 			for (k = 0; k < CAMSS_INIT_BUF_COUNT; k++)
-				__csid_aup_update(csid, i);
+				__csid_addr_update(csid, i);
 
 			__csid_reg_update(csid, i);
 
@@ -253,13 +280,20 @@ static int csid_configure_testgen_pattern(struct csid_device *csid, s32 val)
 	return 0;
 }
 
-static void csid_subdev_reg_update(struct csid_device *csid, int port_id,
-				   bool clear)
+static void csid_subdev_reg_update(struct csid_device *csid, int port_id, bool is_clear)
 {
-	if (clear)
-		__csid_aup_rup_clear(csid, port_id);
+	if (is_clear)
+		__csid_reg_update_clear(csid, port_id);
 	else
-		__csid_aup_update(csid, port_id);
+		__csid_reg_update(csid, port_id);
+}
+
+static void csid_subdev_addr_update(struct csid_device *csid, int port_id, bool is_clear)
+{
+	if (is_clear)
+		__csid_addr_update_clear(csid, port_id);
+	else
+		__csid_addr_update(csid, port_id);
 }
 
 /**
@@ -284,13 +318,15 @@ static irqreturn_t csid_isr(int irq, void *dev)
 	buf_done_val = readl(csid->base + CSID_BUF_DONE_IRQ_STATUS);
 	writel(buf_done_val, csid->base + CSID_BUF_DONE_IRQ_CLEAR);
 
-	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS_GEN4; i++) {
+	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS_1080; i++) {
 		if (csid->phy.en_vc & BIT(i)) {
 			val = readl(csid->base + CSID_CSI2_RDIN_IRQ_STATUS(i));
 			writel(val, csid->base + CSID_CSI2_RDIN_IRQ_CLEAR(i));
 
-			if (val & INFO_RUP_DONE)
-				csid_subdev_reg_update(csid, i, true);
+			if (val & INFO_RUP_DONE) {
+				__csid_addr_update_clear(csid, i);
+				__csid_reg_update_clear(csid, i);
+			}
 
 			if (buf_done_val & BIT(BUF_DONE_IRQ_STATUS_RDI_OFFSET + i))
 				camss_buf_done(csid->camss, csid->id, i);
@@ -325,7 +361,7 @@ static int csid_reset(struct csid_device *csid)
 	writel(val, csid->base + CSID_TOP_IRQ_MASK);
 
 	val = 0;
-	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS_GEN4; i++) {
+	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS_1080; i++) {
 		if (csid->phy.en_vc & BIT(i)) {
 			/*
 			 * Only need to clear buf done IRQ status here,
@@ -364,7 +400,7 @@ static void csid_subdev_init(struct csid_device *csid)
 	csid->testgen.nmodes = CSID_PAYLOAD_MODE_DISABLED;
 }
 
-const struct csid_hw_ops csid_ops_gen4 = {
+const struct csid_hw_ops csid_ops_1080 = {
 	.configure_stream = csid_configure_stream,
 	.configure_testgen_pattern = csid_configure_testgen_pattern,
 	.hw_version = csid_hw_version,
@@ -373,4 +409,5 @@ const struct csid_hw_ops csid_ops_gen4 = {
 	.src_pad_code = csid_src_pad_code,
 	.subdev_init = csid_subdev_init,
 	.reg_update = csid_subdev_reg_update,
+	.addr_update = csid_subdev_addr_update,
 };
