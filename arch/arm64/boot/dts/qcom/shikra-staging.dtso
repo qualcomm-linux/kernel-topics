@@ -17,3 +17,18 @@
 		clock-names = "apb_pclk";
 	};
 };
+
+/*
+ * Expand the RGMII register window of both ethernet controllers to a full
+ * page. vfio-platform only marks a region mmap-able when its address and size
+ * are page aligned, which the DPDK stmmac PMD needs to probe the devices.
+ */
+&ethernet0 {
+	reg = <0x0 0x05d00000 0x0 0x10000>,
+	      <0x0 0x05d16000 0x0 0x1000>;
+};
+
+&ethernet1 {
+	reg = <0x0 0x05d20000 0x0 0x10000>,
+	      <0x0 0x05d36000 0x0 0x1000>;
+};
