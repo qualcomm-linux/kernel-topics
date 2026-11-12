@@ -594,6 +594,10 @@ dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-staging.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-staging.dtbo
 
+mahua-crd-camx-dtbs := mahua-crd.dtb glymur-crd-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += mahua-crd-camx.dtb
+
 monaco-evk-camx-dtbs   := monaco-evk.dtb monaco-evk-camx.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM) += monaco-evk-camx.dtb
