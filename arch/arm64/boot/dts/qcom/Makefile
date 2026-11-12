@@ -570,6 +570,11 @@ mahua-crd-camx-dtbs := mahua-crd.dtb mahua-crd-camx.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += mahua-crd-camx.dtb
 dtb-$(CONFIG_ARCH_QCOM) += mahua-crd-camx.dtbo
 
+kalambo-crd-camx-dtbs := kalambo-crd.dtb kalambo-crd-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += kalambo-crd-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM) += kalambo-crd-camx.dtbo
+
 hamoa-evk-camx-dtbs  := hamoa-iot-evk.dtb hamoa-evk-camx.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-evk-camx.dtb
