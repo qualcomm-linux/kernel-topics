@@ -79,6 +79,10 @@ dtb-$(CONFIG_ARCH_QCOM)	+= monaco-evk.dtb
 monaco-arduino-monza-el2-dtbs := monaco-arduino-monza.dtb monaco-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += monaco-arduino-monza-el2.dtb
 
+monaco-arduino-monza-waveshare-8-dsi-touch-a-dtbs	:= monaco-arduino-monza.dtb monaco-el2.dtbo monaco-arduino-monza-waveshare-8-dsi-touch-a.dtbo
+dtb-$(CONFIG_ARCH_QCOM)	+= monaco-arduino-monza-waveshare-8-dsi-touch-a.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= monaco-arduino-monza-waveshare-8-dsi-touch-a.dtbo
+
 monaco-arduino-monza-camx-dtbs := monaco-arduino-monza.dtb monaco-arduino-monza-camx.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += monaco-arduino-monza-camx.dtb
 dtb-$(CONFIG_ARCH_QCOM) += monaco-arduino-monza-camx.dtbo
