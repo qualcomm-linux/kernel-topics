@@ -73,6 +73,8 @@
 #define PARF_DEVICE_TYPE			0x1000
 #define PARF_BDF_TO_SID_TABLE_N			0x2000
 #define PARF_BDF_TO_SID_CFG			0x2c00
+#define PARF_INT_ALL_3_MASK			0x2d8c
+#define PARF_INT_ALL_3_CLEAR			0x2d90
 
 /*
  * Outbound blocker range registers. The blocked range has a write pair
@@ -294,6 +296,8 @@ struct qcom_pcie_ops {
   * @override_no_snoop: Override NO_SNOOP attribute in TLP to enable cache
   * snooping
   * @firmware_managed: Set if the Root Complex is firmware managed
+  * @mask_int_all_3: Mask PARF_INT_ALL_3 events, which are unmasked by default
+  * and would otherwise keep the 'global' IRQ asserted
   */
 struct qcom_pcie_cfg {
 	const struct qcom_pcie_ops *ops;
@@ -301,6 +305,7 @@ struct qcom_pcie_cfg {
 	bool firmware_managed;
 	bool no_l0s;
 	bool disable_cgc;
+	bool mask_int_all_3;
 };
 
 struct qcom_pcie_perst {
@@ -1738,6 +1743,7 @@ static const struct qcom_pcie_cfg cfg_nord = {
 	.override_no_snoop = true,
 	.no_l0s = true,
 	.disable_cgc = true,
+	.mask_int_all_3 = true,
 };
 
 static const struct qcom_pcie_cfg cfg_sc8280xp = {
@@ -1870,6 +1876,22 @@ static int qcom_pcie_set_max_opp(struct device *dev)
 	return ret;
 }
 
+static void qcom_pcie_enable_global_irq_events(struct qcom_pcie *pcie)
+{
+	/*
+	 * The PARF_INT_ALL_3 events (e.g. DRS_MSG_RECEIVED) are unmasked by
+	 * default, but not handled by the driver. Once latched, they keep the
+	 * level triggered 'global' IRQ asserted, so mask and clear them.
+	 */
+	if (pcie->cfg->mask_int_all_3) {
+		writel_relaxed(0, pcie->parf + PARF_INT_ALL_3_MASK);
+		writel_relaxed(~0U, pcie->parf + PARF_INT_ALL_3_CLEAR);
+	}
+
+	writel_relaxed(PARF_INT_ALL_LINK_DOWN | PARF_INT_MSI_DEV_0_7,
+		       pcie->parf + PARF_INT_ALL_MASK);
+}
+
 /*
  * Qcom PCIe controllers only support one Root Port per controller instance. So
  * this function ignores the 'pci_dev' associated with the Root Port and just
@@ -1927,8 +1949,7 @@ static int qcom_pcie_reset_root_port(struct pci_host_bridge *bridge,
 	 * non-sticky.
 	 */
 	if (pcie->global_irq)
-		writel_relaxed(PARF_INT_ALL_LINK_DOWN | PARF_INT_MSI_DEV_0_7,
-				pcie->parf + PARF_INT_ALL_MASK);
+		qcom_pcie_enable_global_irq_events(pcie);
 
 	qcom_pcie_start_link(pci);
 
@@ -2428,6 +2449,8 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 			goto err_host_deinit;
 		}
 
+		qcom_pcie_enable_global_irq_events(pcie);
+
 		ret = devm_request_threaded_irq(&pdev->dev, irq, NULL,
 						qcom_pcie_global_irq_thread,
 						IRQF_ONESHOT, name, pcie);
@@ -2436,9 +2459,6 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 				      "Failed to request Global IRQ\n");
 			goto err_host_deinit;
 		}
-
-		writel_relaxed(PARF_INT_ALL_LINK_DOWN | PARF_INT_MSI_DEV_0_7,
-				pcie->parf + PARF_INT_ALL_MASK);
 
 		pcie->global_irq = irq;
 	}
