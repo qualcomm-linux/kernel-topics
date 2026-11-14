@@ -368,6 +368,12 @@ static struct snd_soc_pcm_runtime *soc_new_pcm_runtime(
 		return NULL;
 	}
 
+	/*
+	 * devm_kzalloc_flex() may initialize num_components to the allocated
+	 * count, but components[] is filled incrementally by
+	 * snd_soc_rtd_add_component(), so start from zero.
+	 */
+	rtd->num_components = 0;
 	rtd->dev = dev;
 	INIT_LIST_HEAD(&rtd->list);
 	for_each_pcm_streams(stream) {
