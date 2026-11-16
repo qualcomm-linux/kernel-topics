@@ -305,6 +305,38 @@ static int qcom_pas_map_carveout(struct rproc *rproc, phys_addr_t mem_phys, size
 	return ret;
 }
 
+/*
+ * HACK: the resource table provided by TZ on Eliza does not list SMEM, so
+ * the remote processor faults on its first SMEM access when Linux owns the
+ * SMMU (EL2). Identity map it until the firmware is fixed.
+ */
+static void qcom_pas_map_smem(struct rproc *rproc)
+{
+	struct device_node *np;
+	struct resource res;
+	int ret;
+
+	if (!rproc->has_iommu)
+		return;
+
+	np = of_find_compatible_node(NULL, NULL, "qcom,smem");
+	if (!np)
+		return;
+
+	ret = of_address_to_resource(np, 0, &res);
+	of_node_put(np);
+	if (ret)
+		return;
+
+	if (iommu_iova_to_phys(rproc->domain, res.start) == res.start)
+		return;
+
+	ret = iommu_map(rproc->domain, res.start, res.start, resource_size(&res),
+			IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
+	if (ret)
+		dev_err(&rproc->dev, "failed to map SMEM %pR: %d\n", &res, ret);
+}
+
 static int qcom_pas_start(struct rproc *rproc)
 {
 	struct qcom_pas *pas = rproc->priv;
@@ -361,6 +393,8 @@ static int qcom_pas_start(struct rproc *rproc)
 	ret = qcom_pas_map_carveout(rproc, pas->mem_phys, pas->mem_size);
 	if (ret)
 		goto release_pas_metadata;
+
+	qcom_pas_map_smem(rproc);
 
 	ret = qcom_pas_prepare_and_auth_reset(pas->pas_ctx);
 	if (ret) {
