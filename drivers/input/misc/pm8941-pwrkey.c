@@ -246,7 +246,7 @@ static DEFINE_SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
 static int pm8941_pwrkey_probe(struct platform_device *pdev)
 {
 	struct pm8941_pwrkey *pwrkey;
-	bool pull_up, wakeup;
+	bool pull_up, bias_disable, wakeup;
 	struct device *parent;
 	struct device_node *regmap_node;
 	const __be32 *addr;
@@ -262,6 +262,8 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 	}
 
 	pull_up = of_property_read_bool(pdev->dev.of_node, "bias-pull-up");
+	bias_disable = of_property_read_bool(pdev->dev.of_node,
+					     "bias-disable");
 
 	pwrkey = devm_kzalloc(&pdev->dev, sizeof(*pwrkey), GFP_KERNEL);
 	if (!pwrkey)
@@ -365,7 +367,7 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 	if (error)
 		return error;
 
-	if (pwrkey->data->pull_up_bit) {
+	if (pwrkey->data->pull_up_bit && (pull_up || bias_disable)) {
 		error = regmap_update_bits(pwrkey->regmap,
 					   pwrkey->baseaddr + PON_PULL_CTL,
 					   pwrkey->data->pull_up_bit,

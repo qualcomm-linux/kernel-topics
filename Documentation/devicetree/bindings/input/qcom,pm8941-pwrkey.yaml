@@ -40,6 +40,12 @@ properties:
       configured for pull up.
     $ref: /schemas/types.yaml#/definitions/flag
 
+  bias-disable:
+    description:
+      Presence of this property indicates that the KPDPWR_N pin should be
+      configured with bias disabled.
+    $ref: /schemas/types.yaml#/definitions/flag
+
   wakeup-source:
     description:
       Button can wake-up the system.  Only applicable for 'resin', 'pwrkey'
@@ -52,6 +58,11 @@ properties:
       When property is omitted KEY_POWER is assumed.
 
 allOf:
+  - not:
+      required:
+        - bias-pull-up
+        - bias-disable
+
   - $ref: input.yaml#
   - if:
       properties:
