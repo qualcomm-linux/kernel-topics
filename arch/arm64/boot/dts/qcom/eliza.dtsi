@@ -290,6 +290,7 @@
 				entry-latency-us = <550>;
 				exit-latency-us = <750>;
 				min-residency-us = <6700>;
+				local-timer-stop;
 			};
 
 			cluster1_c4: cpu-sleep-1 {
@@ -299,6 +300,7 @@
 				entry-latency-us = <550>;
 				exit-latency-us = <1050>;
 				min-residency-us = <7951>;
+				local-timer-stop;
 			};
 
 			cluster2_c4: cpu-sleep-2 {
@@ -308,6 +310,7 @@
 				entry-latency-us = <500>;
 				exit-latency-us = <1350>;
 				min-residency-us = <7480>;
+				local-timer-stop;
 			};
 		};
 
