@@ -457,7 +457,7 @@ static int iris_probe(struct platform_device *pdev)
 
 	ret = iris_init_cb_devs(core);
 	if (ret)
-		goto err_put_core;
+		goto err_unresv_iova_region;
 
 	ret = v4l2_device_register(dev, &core->v4l2_dev);
 	if (ret)
