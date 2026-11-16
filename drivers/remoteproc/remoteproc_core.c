@@ -623,6 +623,7 @@ static int rproc_handle_devmem(struct rproc *rproc, void *ptr,
 	struct fw_rsc_devmem *rsc = ptr;
 	struct rproc_mem_entry *mapping;
 	struct device *dev = &rproc->dev;
+	u32 da, pa, len, skip = 0;
 	int ret;
 
 	/* no point in handling this resource without a valid iommu domain */
@@ -644,8 +645,31 @@ static int rproc_handle_devmem(struct rproc *rproc, void *ptr,
 	if (!mapping)
 		return -ENOMEM;
 
-	ret = iommu_map(rproc->domain, rsc->da, rsc->pa, rsc->len, rsc->flags,
-			GFP_KERNEL);
+	/*
+	 * HACK: the Eliza ADSP resource table provided by TZ describes the
+	 * QDSS_DDRSS_LPI region twice, with different lengths. Skip the leading
+	 * part that is already mapped to the same physical address and map only
+	 * the remainder, until the firmware is fixed.
+	 */
+	while (skip < rsc->len &&
+	       iommu_iova_to_phys(rproc->domain, rsc->da + skip) == rsc->pa + skip)
+		skip += SZ_4K;
+
+	if (skip >= rsc->len) {
+		dev_warn(dev, "devmem da 0x%x len 0x%x already mapped\n",
+			 rsc->da, rsc->len);
+		kfree(mapping);
+		return 0;
+	}
+
+	da = rsc->da + skip;
+	pa = rsc->pa + skip;
+	len = rsc->len - skip;
+	if (skip)
+		dev_warn(dev, "devmem da 0x%x: 0x%x already mapped, mapping 0x%x more\n",
+			 rsc->da, skip, len);
+
+	ret = iommu_map(rproc->domain, da, pa, len, rsc->flags, GFP_KERNEL);
 	if (ret) {
 		dev_err(dev, "failed to map devmem: %d\n", ret);
 		goto out;
@@ -658,8 +682,8 @@ static int rproc_handle_devmem(struct rproc *rproc, void *ptr,
 	 * We can't trust the remote processor not to change the resource
 	 * table, so we must maintain this info independently.
 	 */
-	mapping->da = rsc->da;
-	mapping->len = rsc->len;
+	mapping->da = da;
+	mapping->len = len;
 	list_add_tail(&mapping->node, &rproc->mappings);
 
 	dev_dbg(dev, "mapped devmem pa 0x%x, da 0x%x, len 0x%x\n",
