@@ -337,6 +337,34 @@ static void qcom_pas_map_smem(struct rproc *rproc)
 		dev_err(&rproc->dev, "failed to map SMEM %pR: %d\n", &res, ret);
 }
 
+/*
+ * Regions assigned to the remote processor through SCM (e.g. the global
+ * sync region) are not part of the resource table, so nothing maps them in
+ * the remote processor IOMMU domain when Linux owns the SMMU.
+ */
+static void qcom_pas_map_assigned_regions(struct rproc *rproc)
+{
+	struct qcom_pas *pas = rproc->priv;
+	int i, ret;
+
+	if (!rproc->has_iommu || !pas->region_assign_idx)
+		return;
+
+	for (i = 0; i < pas->region_assign_count; i++) {
+		phys_addr_t phys = pas->region_assign_phys[i];
+		size_t size = pas->region_assign_size[i];
+
+		if (!size || iommu_iova_to_phys(rproc->domain, phys) == phys)
+			continue;
+
+		ret = iommu_map(rproc->domain, phys, phys, size,
+				IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
+		if (ret)
+			dev_err(&rproc->dev, "failed to map region %pa+%zx: %d\n",
+				&phys, size, ret);
+	}
+}
+
 static int qcom_pas_start(struct rproc *rproc)
 {
 	struct qcom_pas *pas = rproc->priv;
@@ -395,6 +423,7 @@ static int qcom_pas_start(struct rproc *rproc)
 		goto release_pas_metadata;
 
 	qcom_pas_map_smem(rproc);
+	qcom_pas_map_assigned_regions(rproc);
 
 	ret = qcom_pas_prepare_and_auth_reset(pas->pas_ctx);
 	if (ret) {
