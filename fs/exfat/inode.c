@@ -114,8 +114,9 @@ int exfat_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
 	int ret;
 
-	if (unlikely(exfat_forced_shutdown(inode->i_sb)))
-		return -EIO;
+	ret = exfat_emergency_state(inode->i_sb);
+	if (unlikely(ret))
+		return ret;
 
 	mutex_lock(&EXFAT_SB(inode->i_sb)->s_lock);
 	ret = __exfat_write_inode(inode, wbc->sync_mode == WB_SYNC_ALL);
@@ -134,6 +135,9 @@ void exfat_sync_inode(struct inode *inode)
  * Input: inode, (logical) clu_offset, target allocation area
  * Output: errcode, cluster number
  * *clu = (~0), if it's unable to allocate a new cluster
+ *
+ * For !create, *count is limited to the part of the range backed by the
+ * cluster chain; the caller reports the remainder as a hole.
  */
 int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
 		unsigned int *clu, unsigned int *count, int create,
@@ -153,9 +157,15 @@ int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
 	    *count > num_clusters - clu_offset)
 		num_to_be_allocated = clu_offset + *count - num_clusters;
 
-	if (!create && (num_to_be_allocated > 0)) {
-		*clu = EXFAT_EOF_CLUSTER;
-		return 0;
+	if (!create && num_to_be_allocated > 0) {
+		if (clu_offset >= num_clusters) {
+			*clu = EXFAT_EOF_CLUSTER;
+			return 0;
+		}
+
+		/* Range straddles the chain end: map the valid prefix only. */
+		*count = num_clusters - clu_offset;
+		num_to_be_allocated = 0;
 	}
 
 	*clu = last_clu = ei->start_clu;
@@ -282,9 +292,6 @@ static int exfat_writepages(struct address_space *mapping,
 		.wbc		= wbc,
 		.ops		= &exfat_writeback_ops,
 	};
-
-	if (unlikely(exfat_forced_shutdown(mapping->host->i_sb)))
-		return -EIO;
 
 	return iomap_writepages(&wpc);
 }

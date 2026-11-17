@@ -142,7 +142,7 @@ void profile_tick(int type)
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <linux/uaccess.h>
+#include <linux/uio.h>
 
 /*
  * This function accesses profiling information. The returned data is
@@ -150,16 +150,16 @@ void profile_tick(int type)
  * buffer. Use of the program readprofile is recommended in order to
  * get meaningful info out of these data.
  */
-static ssize_t
-read_profile(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+static ssize_t read_profile(struct kiocb *iocb, struct iov_iter *to)
 {
 	const size_t header_size = sizeof(unsigned int);
 	const size_t file_size = (prof_len + 1) * sizeof(unsigned int);
 	unsigned int sample_step;
-	loff_t offset = *ppos;
+	loff_t offset = iocb->ki_pos;
+	size_t count = iov_iter_count(to);
 	size_t pos;
 	size_t done = 0;
-	size_t n, not_copied;
+	size_t n, copied;
 
 	/* Keep the shift word-sized before narrowing to the 32-bit ABI. */
 	sample_step = (unsigned int)(1UL << prof_shift);
@@ -174,28 +174,26 @@ read_profile(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 	/* Copy the four-byte sampling resolution. */
 	if (pos < header_size) {
 		n = min(count, header_size - pos);
-		not_copied = copy_to_user(buf, (u8 *)&sample_step + pos, n);
-		done += n - not_copied;
-		if (not_copied)
+		copied = copy_to_iter((u8 *)&sample_step + pos, n, to);
+		done += copied;
+		if (copied != n)
 			goto fault;
-		buf += n;
 		pos += n;
 		count -= n;
 	}
 
 	/* Copy raw counters using offsets relative to the counter array. */
 	if (count) {
-		not_copied = copy_to_user(buf,
-					(u8 *)prof_buffer + pos - header_size,
-					count);
-		done += count - not_copied;
-		if (not_copied)
+		copied = copy_to_iter((u8 *)prof_buffer + pos - header_size,
+				      count, to);
+		done += copied;
+		if (copied != count)
 			goto fault;
 	}
-	*ppos += done;
+	iocb->ki_pos += done;
 	return done;
 fault:
-	*ppos += done;
+	iocb->ki_pos += done;
 	if (!done)
 		return -EFAULT;
 	return done;
@@ -213,16 +211,15 @@ int __weak setup_profiling_timer(unsigned mult)
  * Writing a 'profiling multiplier' value into it also re-sets the profiling
  * interrupt frequency, on architectures that support this.
  */
-static ssize_t write_profile(struct file *file, const char __user *buf,
-			     size_t count, loff_t *ppos)
+static ssize_t write_profile(struct kiocb *iocb, struct iov_iter *from)
 {
+	size_t count = iov_iter_count(from);
 #ifdef CONFIG_SMP
 	if (count == sizeof(int)) {
 		unsigned int multiplier;
 
-		if (copy_from_user(&multiplier, buf, sizeof(int)))
+		if (copy_from_iter(&multiplier, sizeof(int), from) != sizeof(int))
 			return -EFAULT;
-
 		if (setup_profiling_timer(multiplier))
 			return -EINVAL;
 	}
@@ -231,10 +228,12 @@ static ssize_t write_profile(struct file *file, const char __user *buf,
 	return count;
 }
 
-static const struct proc_ops profile_proc_ops = {
-	.proc_read	= read_profile,
-	.proc_write	= write_profile,
-	.proc_lseek	= default_llseek,
+static const struct file_operations profile_fops = {
+	.read_iter	= read_profile,
+	.write_iter	= write_profile,
+	.splice_read	= copy_splice_read,
+	.splice_write	= iter_file_splice_write,
+	.llseek		= default_llseek,
 };
 
 int __ref create_proc_profile(void)
@@ -243,8 +242,8 @@ int __ref create_proc_profile(void)
 
 	if (!prof_on)
 		return 0;
-	entry = proc_create("profile", S_IWUSR | S_IRUGO,
-			    NULL, &profile_proc_ops);
+	entry = proc_create_fops("profile", S_IWUSR | S_IRUGO, NULL,
+				 &profile_fops);
 	if (!entry)
 		return -ENOMEM;
 	proc_set_size(entry, (1 + prof_len) * sizeof(atomic_t));
