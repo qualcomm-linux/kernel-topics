@@ -2962,6 +2962,13 @@ static void fastrpc_notify_users(struct fastrpc_user *user)
 		ctx->retval = -EPIPE;
 		ctx->is_work_done = true;
 		complete(&ctx->work);
+		/*
+		 * fastrpc_invoke_send() took a second reference for the
+		 * DSP response that will now never arrive since the
+		 * channel is gone; schedule the matching put the same
+		 * way a real response would via fastrpc_rpmsg_callback().
+		 */
+		schedule_work(&ctx->put_work);
 	}
 	spin_unlock(&user->lock);
 }
