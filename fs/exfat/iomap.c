@@ -263,9 +263,11 @@ static ssize_t exfat_writeback_range(struct iomap_writepage_ctx *wpc,
 		struct folio *folio, u64 offset, unsigned int len, u64 end_pos)
 {
 	struct inode *inode = wpc->inode;
+	int err;
 
-	if (exfat_forced_shutdown(inode->i_sb))
-		return -EIO;
+	err = exfat_emergency_state(inode->i_sb);
+	if (unlikely(err))
+		return err;
 
 	if (offset < wpc->iomap.offset ||
 	    offset >= wpc->iomap.offset + wpc->iomap.length) {
