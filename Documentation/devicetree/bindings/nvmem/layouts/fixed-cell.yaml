@@ -34,6 +34,20 @@ properties:
         description:
           Size in bit within the address range specified by reg.
 
+  byte-mask:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    minimum: 1
+    description: >
+      Bitmask selecting which physical bytes within the NVMEM device region
+      contribute to this cell's output. Bit N set means physical byte N
+      relative to the cell's base offset is included; selected bytes are
+      packed into the output buffer in ascending byte order. Byte positions
+      are relative to the cell's base offset and limited to a 32-byte window.
+      The highest set bit must not reference a byte beyond the device size.
+      The number of set bits must not exceed the cell's logical size given by
+      reg. Cannot be used together with bits. Cells using byte-mask are
+      read-only; write operations are not supported.
+
 allOf:
   - if:
       properties:
@@ -48,6 +62,13 @@ allOf:
           const: 1
       required:
         - "#nvmem-cell-cells"
+  - if:
+      required: [ byte-mask ]
+    then:
+      properties:
+        bits: false
+      description:
+        byte-mask and bits are mutually exclusive.
 
 required:
   - reg
