@@ -3666,8 +3666,17 @@ static int spi_controller_id_alloc(struct spi_controller *ctlr, int start, int e
 	mutex_lock(&board_lock);
 	id = idr_alloc(&spi_controller_idr, ctlr, start, end, GFP_KERNEL);
 	mutex_unlock(&board_lock);
-	if (WARN(id < 0, "couldn't get idr"))
+
+	/*
+	 * Modify the error handling path to only trigger a WARN when the failure
+	 * is not due to an out-of-memory condition
+	 */
+
+	if (id < 0) {
+		WARN(id != -ENOMEM, "couldn't get idr");
 		return id == -ENOSPC ? -EBUSY : id;
+	}
+
 	ctlr->bus_num = id;
 	return 0;
 }
@@ -4941,6 +4950,10 @@ int spi_async(struct spi_device *spi, struct spi_message *message)
 
 	spin_unlock_irqrestore(&ctlr->bus_lock_spinlock, flags);
 
+	/* The message was not queued, so it will not be finalized. */
+	if (ret)
+		spi_maybe_unoptimize_message(message);
+
 	return ret;
 }
 EXPORT_SYMBOL_GPL(spi_async);
@@ -5044,6 +5057,9 @@ static int __spi_sync(struct spi_device *spi, struct spi_message *message)
 	if (status == 0) {
 		wait_for_completion(&done);
 		status = message->status;
+	} else {
+		/* The message was not queued, so it will not be finalized. */
+		spi_maybe_unoptimize_message(message);
 	}
 	message->complete = NULL;
 	message->context = NULL;
