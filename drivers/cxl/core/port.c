@@ -815,6 +815,9 @@ static int cxl_einj_inject(void *data, u64 type)
 {
 	struct cxl_dport *dport = data;
 
+	if (!einj_cxl_is_initialized())
+		return -ENODEV;
+
 	if (dport->rch)
 		return einj_cxl_inject_rch_error(dport->rcrb.base, type);
 
@@ -833,7 +836,7 @@ static void cxl_debugfs_create_dport_dir(struct cxl_dport *dport)
 	struct cxl_port *parent = parent_port_of(dport->port);
 	struct dentry *dir;
 
-	if (!einj_cxl_is_initialized())
+	if (!IS_ENABLED(CONFIG_ACPI_APEI_EINJ_CXL))
 		return;
 
 	/*
@@ -2603,7 +2606,7 @@ static __init int cxl_core_init(void)
 
 	cxl_debugfs = debugfs_create_dir("cxl", NULL);
 
-	if (einj_cxl_is_initialized())
+	if (IS_ENABLED(CONFIG_ACPI_APEI_EINJ_CXL))
 		debugfs_create_file("einj_types", 0400, cxl_debugfs, NULL,
 				    &einj_cxl_available_error_type_fops);
 
