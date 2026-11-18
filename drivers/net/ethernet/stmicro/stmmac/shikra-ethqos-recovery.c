@@ -28,6 +28,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/regulator/consumer.h>
 #include <linux/reset.h>
 
 #define SHIKRA_PHY_RESET_ASSERT_US	10000U
@@ -55,18 +56,34 @@ static const char * const shikra_ethqos_clk_names[] = {
  * @rst:            optional GCC reset control (DT: resets property)
  * @clks:           Ethernet MAC clocks, named by shikra_ethqos_clk_names
  * @phy_reset_gpio: PHY reset GPIO (DT: reset-gpios in the phy-handle node)
+ * @phy_supply:     PHY 2.5 V supply (DT: vdda-2p5-supply in the phy-handle node)
  */
 struct shikra_ethqos_recovery {
 	struct device		*dev;
 	struct reset_control	*rst;
 	struct clk_bulk_data	clks[SHIKRA_ETHQOS_NUM_CLKS];
 	struct gpio_desc	*phy_reset_gpio;
+	struct regulator	*phy_supply;
 };
 
 static bool cleanup_on_remove;
 module_param(cleanup_on_remove, bool, 0644);
 MODULE_PARM_DESC(cleanup_on_remove,
 		 "Tear down hardware on remove (default: false = keep running for DPDK handoff)");
+
+/*
+ * Drop our PHY supply reference and turn the supply off. Only called when
+ * cleanup_on_remove is set, or on a failed probe.
+ */
+static void shikra_ethqos_release_phy_supply(struct shikra_ethqos_recovery *priv)
+{
+	if (!priv->phy_supply)
+		return;
+
+	regulator_disable(priv->phy_supply);
+	regulator_put(priv->phy_supply);
+	priv->phy_supply = NULL;
+}
 
 static int shikra_ethqos_phy_reset(struct shikra_ethqos_recovery *priv)
 {
@@ -75,6 +92,7 @@ static int shikra_ethqos_phy_reset(struct shikra_ethqos_recovery *priv)
 	u32 deassert_us = SHIKRA_PHY_RESET_DEASSERT_US;
 	struct device_node *phy_np;
 	struct gpio_desc *gpio;
+	int ret;
 
 	/* reset-gpios and the reset timings are in the PHY node, not the MAC node */
 	phy_np = of_parse_phandle(dev->of_node, "phy-handle", 0);
@@ -84,12 +102,38 @@ static int shikra_ethqos_phy_reset(struct shikra_ethqos_recovery *priv)
 	of_property_read_u32(phy_np, "reset-assert-us", &assert_us);
 	of_property_read_u32(phy_np, "reset-deassert-us", &deassert_us);
 
+	/*
+	 * The PHY's 2.5 V supply is a fixed regulator. qcom-ethqos's consumer
+	 * reference keeps it on while it is bound, and unbinding drops the last
+	 * reference, so the regulator turns off and the PHY stops answering MDIO.
+	 * Take a reference of our own and enable the supply before the reset
+	 * pulse. The reference is kept on remove unless cleanup_on_remove is set.
+	 */
+	priv->phy_supply = of_regulator_get_optional(dev, phy_np, "vdda-2p5");
+	if (IS_ERR(priv->phy_supply)) {
+		of_node_put(phy_np);
+		return dev_err_probe(dev, PTR_ERR(priv->phy_supply),
+				     "failed to get PHY supply\n");
+	}
+
+	if (priv->phy_supply) {
+		ret = regulator_enable(priv->phy_supply);
+		if (ret) {
+			regulator_put(priv->phy_supply);
+			priv->phy_supply = NULL;
+			of_node_put(phy_np);
+			return dev_err_probe(dev, ret, "failed to enable PHY supply\n");
+		}
+	}
+
 	gpio = devm_fwnode_gpiod_get(dev, of_fwnode_handle(phy_np), "reset",
 				     GPIOD_OUT_HIGH, "phy-reset");
 	of_node_put(phy_np);
-	if (IS_ERR(gpio))
+	if (IS_ERR(gpio)) {
+		shikra_ethqos_release_phy_supply(priv);
 		return dev_err_probe(dev, PTR_ERR(gpio),
 				     "failed to get PHY reset GPIO\n");
+	}
 
 	priv->phy_reset_gpio = gpio;
 
@@ -150,6 +194,7 @@ static int shikra_ethqos_recovery_probe(struct platform_device *pdev)
 	return 0;
 
 err_disable_clks:
+	shikra_ethqos_release_phy_supply(priv);
 	clk_bulk_disable_unprepare(SHIKRA_ETHQOS_NUM_CLKS, priv->clks);
 err_assert_reset:
 	reset_control_assert(priv->rst);
@@ -167,6 +212,7 @@ static void shikra_ethqos_recovery_remove(struct platform_device *pdev)
 	gpiod_set_value_cansleep(priv->phy_reset_gpio, 1);
 	clk_bulk_disable_unprepare(SHIKRA_ETHQOS_NUM_CLKS, priv->clks);
 	reset_control_assert(priv->rst);
+	shikra_ethqos_release_phy_supply(priv);
 }
 
 static const struct of_device_id shikra_ethqos_recovery_of_match[] = {
