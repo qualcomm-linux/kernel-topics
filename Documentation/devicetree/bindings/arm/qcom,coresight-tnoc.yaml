@@ -78,7 +78,10 @@ required:
   - in-ports
   - out-ports
 
-additionalProperties: false
+allOf:
+  - $ref: /schemas/arm/primecell.yaml#
+
+unevaluatedProperties: false
 
 examples:
   - |
