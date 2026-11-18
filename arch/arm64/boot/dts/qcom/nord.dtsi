@@ -3409,11 +3409,13 @@
 		};
 
 		tn@115bc000 {
-			compatible = "qcom,coresight-tnoc";
+			compatible = "qcom,coresight-tnoc", "arm,primecell";
 			reg = <0x0 0x115bc000 0x0 0x3c00>;
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
+
+			arm,primecell-periphid = <0x000f0c00>;
 
 			in-ports {
 				#address-cells = <1>;
