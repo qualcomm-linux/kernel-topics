@@ -58,7 +58,8 @@ patternProperties:
     additionalProperties: true
     properties:
       compatible:
-        const: qcom,nord-dp
+        contains:
+          const: qcom,nord-dp
 
   "^phy@[0-9a-f]+$":
     type: object
@@ -181,7 +182,7 @@ examples:
         };
 
         displayport-controller@af54000 {
-            compatible = "qcom,nord-dp";
+            compatible = "qcom,nord-dp", "qcom,sa8775p-dp";
 
             reg = <0xaf54000 0x200>,
                   <0xaf54200 0x200>,
@@ -271,7 +272,7 @@ examples:
         };
 
         displayport-controller@af5c000 {
-            compatible = "qcom,nord-dp";
+            compatible = "qcom,nord-dp", "qcom,sa8775p-dp";
 
             reg = <0xaf5c000 0x200>,
                   <0xaf5c200 0x200>,
