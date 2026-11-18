@@ -2423,10 +2423,6 @@
 				interrupt-parent = <&mdss1>;
 				interrupts = <0>;
 
-				#address-cells = <2>;
-				#size-cells = <2>;
-				ranges;
-
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -2450,7 +2446,8 @@
 			};
 
 			mdss1_dp0: displayport-controller@8d54000 {
-				compatible = "qcom,nord-dp";
+				compatible = "qcom,nord-dp",
+					     "qcom,sa8775p-dp";
 				reg = <0x0 0x08d54000 0x0 0x200>,
 				      <0x0 0x08d54200 0x0 0x200>,
 				      <0x0 0x08d55000 0x0 0xc00>,
@@ -2489,7 +2486,8 @@
 			};
 
 			mdss1_dp1: displayport-controller@8d5c000 {
-				compatible = "qcom,nord-dp";
+				compatible = "qcom,nord-dp",
+					     "qcom,sa8775p-dp";
 				reg = <0x0 0x08d5c000 0x0 0x200>,
 				      <0x0 0x08d5c200 0x0 0x200>,
 				      <0x0 0x08d5d000 0x0 0xc00>,
@@ -2752,10 +2750,6 @@
 				interrupt-parent = <&mdss0>;
 				interrupts = <0>;
 
-				#address-cells = <2>;
-				#size-cells = <2>;
-				ranges;
-
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -2779,7 +2773,8 @@
 			};
 
 			mdss0_dp0: displayport-controller@af54000 {
-				compatible = "qcom,nord-dp";
+				compatible = "qcom,nord-dp",
+					     "qcom,sa8775p-dp";
 				reg = <0x0 0x0af54000 0x0 0x200>,
 				      <0x0 0x0af54200 0x0 0x200>,
 				      <0x0 0x0af55000 0x0 0xc00>,
@@ -2818,7 +2813,8 @@
 			};
 
 			mdss0_dp1: displayport-controller@af5c000 {
-				compatible = "qcom,nord-dp";
+				compatible = "qcom,nord-dp",
+					     "qcom,sa8775p-dp";
 				reg = <0x0 0x0af5c000 0x0 0x200>,
 				      <0x0 0x0af5c200 0x0 0x200>,
 				      <0x0 0x0af5d000 0x0 0xc00>,
