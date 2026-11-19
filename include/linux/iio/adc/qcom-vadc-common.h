@@ -108,6 +108,8 @@ struct vadc_linear_graph {
  *	SMB1390 temperature.
  * @SCALE_HW_CALIB_THERM_100K_PU_GEN4: Returns temperature in millidegC using
  *	lookup table for PMIC5 Gen4 ADC. The hardware applies offset/slope to adc code.
+ * @SCALE_HW_CALIB_BATT_THERM_100K: Returns battery thermistor temperature in
+ *	decidegrees C using the 100K battery thermistor lookup table.
  */
 enum vadc_scale_fn_type {
 	SCALE_DEFAULT = 0,
@@ -124,6 +126,7 @@ enum vadc_scale_fn_type {
 	SCALE_HW_CALIB_PM5_CHG_TEMP,
 	SCALE_HW_CALIB_PM5_SMB_TEMP,
 	SCALE_HW_CALIB_THERM_100K_PU_GEN4,
+	SCALE_HW_CALIB_BATT_THERM_100K,
 	/* private: */
 	SCALE_HW_CALIB_INVALID,
 };
