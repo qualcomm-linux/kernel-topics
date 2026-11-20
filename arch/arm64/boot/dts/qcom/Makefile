@@ -658,6 +658,12 @@ qcs6490-rb3gen2-vision-mezzanine-camx-dtbs := qcs6490-rb3gen2-vision-mezzanine.d
 dtb-$(CONFIG_ARCH_QCOM) += qcs6490-rb3gen2-vision-mezzanine-camx.dtb
 dtb-$(CONFIG_ARCH_QCOM) += qcs6490-rb3gen2-vision-mezzanine-camx.dtbo
 
+qcs6490-thundercomm-rubikpi3-camx-dtbs := qcs6490-thundercomm-rubikpi3.dtb \
+					  qcs6490-thundercomm-rubikpi3-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += qcs6490-thundercomm-rubikpi3-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM) += qcs6490-thundercomm-rubikpi3-camx.dtbo
+
 dtb-$(CONFIG_ARCH_QCOM)	+= qcs6490-rb3gen2-staging.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM) += qcs6490-rb3gen2-industrial-mezzanine-staging.dtbo

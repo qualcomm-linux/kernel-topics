@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2026, Thundercomm. All rights reserved.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/clock/qcom,camcc-sc7280.h>
+#include <dt-bindings/clock/qcom,gcc-sc7280.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interconnect/qcom,sc7280.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/power/qcom-rpmpd.h>
+
+#include "qcs6490-camera.dtsi"
+
+&{/} {
+	/* Each supported Raspberry Pi camera module has its own oscillator. */
+	cam1_clk: clock-camera1-24m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+
+	cam2_clk: clock-camera2-24m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+};
+
+&cam_cci0 {
+	/* CAM2 uses CCI0 master 0. */
+	gpios = <&tlmm 69 GPIO_ACTIVE_HIGH>, <&tlmm 70 GPIO_ACTIVE_HIGH>;
+	pinctrl-0 = <&cci0_active>;
+	pinctrl-1 = <&cci0_suspend>;
+
+	gpio-req-tbl-flags = <1 1>;
+	gpio-req-tbl-label = "CCI_I2C_DATA0", "CCI_I2C_CLK0";
+	gpio-req-tbl-num = <0 1>;
+
+	cam-sensor7 {
+		compatible = "qcom,cam-sensor";
+		cam_vio-supply = <&vreg_vcc3v3_output>;
+		clocks = <&cam2_clk>;
+		clock-names = "cam_clk";
+		gpios = <&tlmm 58 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&cam2_pwr_en>;
+		pinctrl-1 = <&cam2_pwr_en>;
+		pinctrl-names = "cam_default", "cam_suspend";
+		power-domains = <&camcc CAM_CC_TITAN_TOP_GDSC>;
+
+		cci-master = <0>;
+		cell-index = <7>;
+		clock-cntl-level = "nominal";
+		clock-rates = <24000000>;
+		csiphy-sd-index = <4>;
+		gpio-req-tbl-flags = <0>; /* Output, initially low */
+		gpio-req-tbl-label = "CAM2_PWR_EN";
+		gpio-req-tbl-num = <0>;
+		gpio-vio = <0>;
+		regulator-names = "cam_vio";
+		rgltr-cntrl-support;
+		rgltr-load-current = <0>;
+		rgltr-max-voltage = <3300000>;
+		rgltr-min-voltage = <3300000>;
+	};
+};
+
+&cam_cci1 {
+	/* CAM1 uses CCI1 master 0. */
+	gpios = <&tlmm 73 GPIO_ACTIVE_HIGH>, <&tlmm 74 GPIO_ACTIVE_HIGH>;
+	pinctrl-0 = <&cci2_active>;
+	pinctrl-1 = <&cci2_suspend>;
+
+	gpio-req-tbl-flags = <1 1>;
+	gpio-req-tbl-label = "CCI_I2C_DATA2", "CCI_I2C_CLK2";
+	gpio-req-tbl-num = <0 1>;
+
+	cam-sensor0 {
+		compatible = "qcom,cam-sensor";
+		cam_vio-supply = <&vreg_vcc3v3_output>;
+		clocks = <&cam1_clk>;
+		clock-names = "cam_clk";
+		gpios = <&tlmm 57 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&cam1_pwr_en>;
+		pinctrl-1 = <&cam1_pwr_en>;
+		pinctrl-names = "cam_default", "cam_suspend";
+		power-domains = <&camcc CAM_CC_TITAN_TOP_GDSC>;
+
+		cci-master = <0>;
+		cell-index = <0>;
+		clock-cntl-level = "nominal";
+		clock-rates = <24000000>;
+		csiphy-sd-index = <1>;
+		gpio-req-tbl-flags = <0>; /* Output, initially low */
+		gpio-req-tbl-label = "CAM1_PWR_EN";
+		gpio-req-tbl-num = <0>;
+		gpio-vio = <0>;
+		regulator-names = "cam_vio";
+		rgltr-cntrl-support;
+		rgltr-load-current = <0>;
+		rgltr-max-voltage = <3300000>;
+		rgltr-min-voltage = <3300000>;
+	};
+};
+
+/* Native CAMSS/CCI and CamX share hardware resources. */
+&camss {
+	status = "disabled";
+};
+
+&cci0 {
+	status = "disabled";
+};
+
+&cci1 {
+	status = "disabled";
+};
+
+&soc {
+	cam-res-mgr {
+		compatible = "qcom,cam-res-mgr";
+	};
+};
+
+&tlmm {
+	/* Keep PWR_EN in GPIO mode in both sensor pinctrl states. */
+	cam1_pwr_en: cam1-pwr-en-state {
+		bias-disable;
+		drive-strength = <8>;
+		function = "gpio";
+		pins = "gpio57";
+	};
+
+	cam2_pwr_en: cam2-pwr-en-state {
+		bias-disable;
+		drive-strength = <8>;
+		function = "gpio";
+		pins = "gpio58";
+	};
+};
