@@ -770,7 +770,8 @@ static void fbcon_release(struct fb_info *info)
 		kfree(par->cursor_data);
 		kfree(par->cursor_src);
 #ifdef CONFIG_FRAMEBUFFER_CONSOLE_ROTATION
-		kfree(par->rotated.buf);
+		if (par->rotated.buf)
+			font_data_put(par->rotated.buf);
 #endif
 		kfree(info->fbcon_par);
 		info->fbcon_par = NULL;
