@@ -589,9 +589,10 @@ static int iris_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(core->ubwc_cfg),
 				     "failed to get UBWC configuration\n");
 
-	ret = devm_request_threaded_irq(core->dev, core->irq, iris_hfi_isr,
+	ret = devm_request_threaded_irq(core->dev, core->irq, NULL,
 					iris_hfi_isr_handler,
-					IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN,
+					IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN |
+					IRQF_ONESHOT,
 					"iris", core);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to request IRQ %d\n",
