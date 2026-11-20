@@ -461,6 +461,7 @@ talos-evk-el2-dtbs	:= talos-evk.dtb talos-el2.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= talos-evk-el2.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= talos-lyra-evk.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= talos-lyra-evk-staging.dtbo
 talos-evk-usb1-peripheral-dtbs := talos-evk.dtb talos-evk-usb1-peripheral.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += talos-evk-usb1-peripheral.dtb
 
