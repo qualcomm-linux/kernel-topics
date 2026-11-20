@@ -293,6 +293,63 @@
 	};
 };
 
+&i2c0 {
+	status = "okay";
+
+	typec@40 {
+		compatible = "cypress,cypd6229", "cypress,cypd6129";
+		reg = <0x40>;
+		interrupts-extended = <&pmm8650au_1_gpios 6 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-0 = <&typec_intr_state>;
+		pinctrl-names = "default";
+		wakeup-source;
+
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		connector@0 {
+			compatible = "usb-c-connector";
+			reg = <0>;
+			label = "USB1-Type-C";
+			data-role = "dual";
+			power-role = "dual";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					ucsi_ccg_port0_hs: endpoint {
+						remote-endpoint = <&usb_1_dwc3_hs>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+					ucsi_ccg_port0_ss: endpoint {
+						remote-endpoint = <&usb_1_dwc3_ss>;
+					};
+				};
+			};
+		};
+
+		connector@1 {
+			compatible = "usb-c-connector";
+			reg = <1>;
+			label = "USB2-Type-C";
+			data-role = "dual";
+			power-role = "dual";
+
+			port {
+				ucsi_ccg_port1_hs: endpoint {
+					remote-endpoint = <&usb_2_dwc3_hs>;
+				};
+			};
+		};
+	};
+};
+
 &i2c14 {
 	status = "okay";
 
@@ -752,4 +809,26 @@
 			remote-endpoint = <&m2_e_uart_ep>;
 		};
 	};
+};
+
+&pmm8650au_1_gpios {
+	typec_intr_state: typec-intr-state {
+		pins = "gpio6";
+		function = "normal";
+		input-enable;
+		bias-pull-up;
+		power-source = <0>;
+	};
+};
+
+&usb_1_dwc3_hs {
+	remote-endpoint = <&ucsi_ccg_port0_hs>;
+};
+
+&usb_1_dwc3_ss {
+	remote-endpoint = <&ucsi_ccg_port0_ss>;
+};
+
+&usb_2_dwc3_hs {
+	remote-endpoint = <&ucsi_ccg_port1_hs>;
 };
