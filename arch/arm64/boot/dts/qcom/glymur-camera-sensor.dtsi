@@ -23,6 +23,9 @@
 		rgltr-min-voltage = <1800000 2800000>;
 		rgltr-max-voltage = <1800000 2800000>;
 		rgltr-load-current = <204000 55000>;
+		pinctrl-0 = <&cam_sensor_active_rst4>;
+		pinctrl-1 = <&cam_sensor_suspend_rst4>;
+		pinctrl-names = "cam_default", "cam_suspend";
 		gpio-no-mux = <0>;
 		gpios = <&tlmm 100 0>,
 			<&tlmm 239 0>;
