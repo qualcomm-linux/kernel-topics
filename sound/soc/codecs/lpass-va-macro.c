@@ -722,6 +722,7 @@ static const struct regmap_config va_4_1_regmap_config = {
 static const struct va_macro_data shikra_va_data = {
 	.has_swr_master = true,
 	.has_npl_clk = true,
+	.version = LPASS_CODEC_VERSION_4_1,
 	.regmap_config = &va_4_1_regmap_config,
 };
 
