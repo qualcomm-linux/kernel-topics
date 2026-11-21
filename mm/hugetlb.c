@@ -1804,8 +1804,8 @@ void free_huge_folio(struct folio *folio)
 		h->resv_huge_pages++;
 
 	if (folio_test_hugetlb_temporary(folio)) {
-		folio_clear_hugetlb_temporary(folio);
 		remove_hugetlb_folio(h, folio, false);
+		folio_clear_hugetlb_temporary(folio);
 		spin_unlock_irqrestore(&hugetlb_lock, flags);
 		update_and_free_hugetlb_folio(h, folio, true);
 	} else if (h->surplus_huge_pages_node[nid] &&
@@ -5541,7 +5541,7 @@ static void hugetlb_unmap_range(struct mmu_gather *tlb,
 		 * entries are gone, unless the mm has no users left.
 		 */
 		if (folio_test_anon(folio) && !tlb->fullmm) {
-			delay_rmap = tlb_delay_rmap(tlb);
+			delay_rmap = tlb_can_delay_rmap();
 			/*
 			 * Without delay-rmap support, just flush before
 			 * dropping the PTL. Except with MMU_GATHER_NO_GATHER
