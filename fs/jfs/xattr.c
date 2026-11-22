@@ -687,9 +687,24 @@ int __jfs_setxattr(tid_t tid, struct inode *inode, const char *name,
 	ealist = (struct jfs_ea_list *) ea_buf.xattr;
 	new_size = sizeof (struct jfs_ea_list);
 
+	if (xattr_size && xattr_size < sizeof(*ealist)) {
+		rc = -EUCLEAN;
+		goto release;
+	}
+
 	if (xattr_size) {
-		for (ea = FIRST_EA(ealist); ea < END_EALIST(ealist);
+		char *end = (char *)ealist + xattr_size;
+
+		for (ea = FIRST_EA(ealist); (char *)ea < end;
 		     ea = NEXT_EA(ea)) {
+			size_t remaining = end - (char *)ea;
+
+			if (remaining < sizeof(*ea) ||
+			    EA_SIZE(ea) > remaining) {
+				rc = -EUCLEAN;
+				goto release;
+			}
+
 			if ((namelen == ea->namelen) &&
 			    (memcmp(name, ea->name, namelen) == 0)) {
 				found = 1;
