@@ -1,0 +1,332 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/connector/pcie-m2-b-connector.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: PCIe M.2 Mechanical Key B Connector
+
+maintainers:
+  - Krishna Chaitanya Chundru <krishna.chundru@oss.qualcomm.com>
+
+description:
+  A PCIe M.2 B connector node represents a physical PCIe M.2 Mechanical Key B
+  connector. Mechanical Key B connectors are used to connect WWAN devices to
+  the host machine over interfaces like PCIe, USB3.1 Gen1, SSIC, or USB 2.0,
+  selected by the Adapter's configuration pins. The slot also accepts SATA and
+  PCIe SSD Adapters, which use the same pins as the WWAN interfaces.
+
+properties:
+  compatible:
+    const: pcie-m2-b-connector
+
+  vpcie3v3-supply:
+    description: A phandle to the regulator for the 3.3v/VBAT supply.
+
+  full-card-power-off-gpios:
+    description: GPIO output to FULL_CARD_POWER_OFF# signal. This signal is
+      used by the host system to turn off the entire Adapter. Refer, PCI
+      Express M.2 Specification r4.0, sec 3.2.13.1 for more details.
+    maxItems: 1
+
+  reset-gpios:
+    description: GPIO output to RESET# signal. This signal is used by the
+      host system to place the WWAN Adapter into a power-on reset condition.
+      Refer, PCI Express M.2 Specification r4.0, sec 3.2.13.2 for more
+      details.
+    maxItems: 1
+
+  w-disable1-gpios:
+    description: GPIO output to W_DISABLE1# signal. This signal is used by
+      the host system to disable the WWAN radio on the Adapter. Refer, PCI
+      Express M.2 Specification r4.0, sec 3.1.12.3 for more details.
+    maxItems: 1
+
+  dpr-gpios:
+    description: GPIO output to the Dynamic Power Reduction (DPR) signal.
+      This signal is provided by a host system proximity sensor to the
+      Adapter to trigger a reduction in the radio transmit output power to
+      meet regulatory SAR requirements. Refer, PCI Express M.2 Specification
+      r4.0, sec 3.2.13.4 for more details.
+    maxItems: 1
+
+  alert-gpios:
+    description: GPIO input to the SMBus ALERT# signal (pin 44, shared with
+      GPIO_2). SSD Adapters assert this signal to indicate to the host that
+      the SMBus device requires attention. It is not present on WWAN
+      Adapters. Refer, PCI Express M.2 Specification r4.2, sec 3.2.14.2.1
+      for more details.
+    maxItems: 1
+
+  i2c-parent:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Phandle to the host I2C controller connected to the SMBus
+      pins SMB_CLK and SMB_DATA (pins 40 and 42, shared with GPIO_0 and
+      GPIO_1). The SMBus is only present on SSD Adapters. Refer, PCI Express
+      M.2 Specification r4.2, sec 3.2.14.2 for more details.
+
+  devslp-gpios:
+    description: GPIO output to the DEVSLP signal (pin 38). The host asserts
+      this signal to tell a SATA SSD to enter the Device Sleep power state.
+      It is only present on SATA SSD Adapters. Refer, PCI Express M.2
+      Specification r4.2, sec 3.2.10.1 for more details.
+    maxItems: 1
+
+  pln-gpios:
+    description: GPIO output to the Power Loss Notification (PLN#) signal
+      (pin 8, shared with W_DISABLE1#). The host asserts this signal to
+      notify a PCIe SSD that a power loss event is about to occur. WWAN
+      boards use w-disable1-gpios for this pin instead. Refer, PCI Express
+      M.2 Specification r4.2, sec 3.2.18.1 for more details.
+    maxItems: 1
+
+  config-gpios:
+    description: |
+      GPIO inputs sensing the four CONFIG_0..3 pins (pins 21, 69, 75 and 1
+      respectively, listed in that order in this property). The Adapter
+      grounds or leaves unconnected (NC) each of these pins to tell the host
+      the Adapter type, the host interface in use and, for WWAN Adapters, the
+      active GPIO_0..11 Port Configuration. Boards that only ever use one
+      Adapter type should use config-state instead. If both properties are
+      present, config-gpios takes precedence. Refer, PCI Express M.2
+      Specification r4.2, sec 3.2.15 and Table 3-18 for more details.
+
+      Table 3-18. Socket 2 Add-in Card Configuration:
+
+        CONFIG_0 CONFIG_1 CONFIG_2 CONFIG_3  Adapter Type / Host Interface   Port Config
+        GND      GND      GND      GND       SSD - SATA                       N/A
+        GND      NC       GND      GND       SSD - PCIe                       N/A
+        GND      GND      NC       GND       WWAN - PCIe                      0
+        GND      NC       NC       GND       WWAN - PCIe                      1
+        GND      GND      GND      NC        WWAN - PCIe, USB3.1 Gen1         0
+        GND      NC       GND      NC        WWAN - PCIe, USB3.1 Gen1         1
+        GND      GND      NC       NC        WWAN - PCIe, USB3.1 Gen1         2
+        GND      NC       NC       NC        WWAN - PCIe, USB3.1 Gen1         3
+        NC       GND      GND      GND       WWAN - SSIC                      0
+        NC       NC       GND      GND       WWAN - SSIC                      1
+        NC       GND      NC       GND       WWAN - SSIC                      2
+        NC       NC       NC       GND       WWAN - SSIC                      3
+        NC       GND      GND      NC        WWAN - PCIe                      2
+        NC       NC       GND      NC        WWAN - PCIe                      3
+        NC       GND      NC       NC        WWAN - PCIe, USB3.1 Gen1         vendor-defined
+        NC       NC       NC       NC        No Add-in Card present           N/A
+    minItems: 4
+    maxItems: 4
+
+  config-state:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Fixed Adapter configuration for boards that do not sense the CONFIG_0..3
+      pins, given as the state number (0-14) of Table 3-18 of the PCI Express
+      M.2 Specification r4.2. It selects the Adapter type, the host interface
+      and, for WWAN Adapters, the Port Configuration used to interpret the
+      gpioN-gpios properties. Ignored if config-gpios is present. If neither
+      property is present, state 2 (WWAN - PCIe, Port Config_0) is assumed.
+    minimum: 0
+    maximum: 14
+    default: 2
+
+  clocks:
+    description: 32.768 KHz Suspend Clock (SUSCLK) input from the host system to
+      the M.2 card. Refer, PCI Express M.2 Specification r4.0, sec 3.1.12.1 for
+      more details.
+    maxItems: 1
+
+  ports:
+    $ref: /schemas/graph.yaml#/properties/ports
+    description: OF graph bindings modeling the interfaces exposed on the
+      connector. Several interfaces share the same connector pins and are
+      selected by the CONFIG_0..3 pins, so each port describes one group of
+      pins and its endpoints describe the mutually exclusive interfaces that
+      can be present on that group.
+
+    properties:
+      port@0:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: |
+          Pins 41, 43, 47 and 49. The endpoint number selects the interface:
+            0 - PCIe lane 0
+            1 - SATA
+        patternProperties:
+          '^endpoint(@[0-9a-f]+)?$':
+            type: object
+            properties:
+              reg:
+                enum: [0, 1]
+
+      port@1:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: |
+          Pins 29, 31, 35 and 37. The endpoint number selects the interface:
+            0 - USB3.1 Gen1
+            1 - SSIC
+            2 - PCIe lane 1
+        patternProperties:
+          '^endpoint(@[0-9a-f]+)?$':
+            type: object
+            properties:
+              reg:
+                enum: [0, 1, 2]
+
+      port@2:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: USB 2.0 interface (pins 7 and 9)
+
+    anyOf:
+      - required:
+          - port@0
+      - required:
+          - port@1
+
+patternProperties:
+  '^gpio([0-9]|1[01])-gpios$':
+    description: |
+      GPIO connected to the GPIO_<N> pin of the connector, where N is the
+      number in the property name. The function of these pins depends on the
+      Port Configuration selected by config-gpios or config-state (Table 3-15
+      of the PCI Express M.2 Specification r4.2, sec 3.2.13.3):
+
+        GPIO  Pin  Config_0     Config_1     Config_2     Config_3
+        0     40   GNSS_SCL     GNSS_SCL     SIM_DETECT2  IPC_0
+        1     42   GNSS_SDA     GNSS_SDA     UIM_DATA2    IPC_1
+        2     44   GNSS_IRQ     GNSS_IRQ     UIM_CLK2     IPC_2
+        3     46   SYSCLK       GNSS_0       UIM_RESET2   IPC_3
+        4     48   TX_BLANKING  GNSS_1       UIM_PWR2     IPC_4
+        5     20   AUDIO_0      AUDIO_0      RFU          AUDIO_0
+        6     22   AUDIO_1      AUDIO_1      RFU          AUDIO_1
+        7     24   AUDIO_2      AUDIO_2      RFU          IPC_5/AUDIO_2
+        8     28   AUDIO_3      AUDIO_3      PLA_S2#      IPC_6/AUDIO_3
+        9     10   LED_1#       LED_1#       LED_1#       DAS/DSS/IPC_7
+        10    26   W_DISABLE2#  W_DISABLE2#  W_DISABLE2#  HSIC_STROBE
+        11    23   WoWWAN#      WoWWAN#      WoWWAN#      HSIC_DATA
+
+      The IPC_0..7 functions of Port Config_3 are vendor defined, as are all
+      functions in CONFIG state 14.
+
+      On SSD Adapters (CONFIG states 0 and 1) the same pins are SMB_CLK
+      (GPIO_0), SMB_DATA (GPIO_1), ALERT# (GPIO_2), PLA_S2# (GPIO_8), and
+      LED_1# or, on SATA, DAS/DSS (GPIO_9).
+
+      Only list the pins that are wired to a host GPIO. Pins used as a bus
+      signal in the selected Port Configuration (I2C, I2S/SLIMbus, HSIC) are
+      not GPIOs and are not described by these properties.
+    maxItems: 1
+
+required:
+  - compatible
+  - vpcie3v3-supply
+
+additionalProperties: false
+
+examples:
+  # PCI M.2 Key B connector for WWAN with PCIe interface
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    connector {
+        compatible = "pcie-m2-b-connector";
+        vpcie3v3-supply = <&vreg_wwan>;
+        full-card-power-off-gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;
+        w-disable1-gpios = <&tlmm 122 GPIO_ACTIVE_LOW>;
+        gpio10-gpios = <&tlmm 123 GPIO_ACTIVE_LOW>;
+        gpio11-gpios = <&tlmm 128 GPIO_ACTIVE_LOW>;
+        /* A zero phandle marks a CONFIG pin that is not wired to a host GPIO */
+        config-gpios = <&tlmm 124 GPIO_ACTIVE_HIGH>,
+                       <&tlmm 125 GPIO_ACTIVE_HIGH>,
+                       <0>,
+                       <&tlmm 127 GPIO_ACTIVE_HIGH>;
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            port@0 {
+                reg = <0>;
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                endpoint@0 {
+                    reg = <0>;
+                    remote-endpoint = <&pcie6_port0_ep>;
+                };
+            };
+
+            port@2 {
+                reg = <2>;
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                endpoint@0 {
+                    reg = <0>;
+                    remote-endpoint = <&usb_hs_ep>;
+                };
+            };
+        };
+    };
+
+  # PCI M.2 Key B connector used for a SATA SSD
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    connector {
+        compatible = "pcie-m2-b-connector";
+        vpcie3v3-supply = <&vreg_ssd>;
+        config-state = <0>;
+        i2c-parent = <&i2c0>;
+        alert-gpios = <&tlmm 130 GPIO_ACTIVE_LOW>;
+        devslp-gpios = <&tlmm 131 GPIO_ACTIVE_HIGH>;
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            port@0 {
+                reg = <0>;
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                endpoint@1 {
+                    reg = <1>;
+                    remote-endpoint = <&sata_port0_ep>;
+                };
+            };
+        };
+    };
+
+  # PCI M.2 Key B connector used for a 2-lane PCIe SSD
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    connector {
+        compatible = "pcie-m2-b-connector";
+        vpcie3v3-supply = <&vreg_ssd>;
+        config-state = <1>;
+        pln-gpios = <&tlmm 132 GPIO_ACTIVE_LOW>;
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            port@0 {
+                reg = <0>;
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                endpoint@0 {
+                    reg = <0>;
+                    remote-endpoint = <&pcie_port0_ep>;
+                };
+            };
+
+            port@1 {
+                reg = <1>;
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                endpoint@2 {
+                    reg = <2>;
+                    remote-endpoint = <&pcie_port1_ep>;
+                };
+            };
+        };
+    };
