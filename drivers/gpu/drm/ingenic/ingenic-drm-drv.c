@@ -1365,7 +1365,19 @@ static int ingenic_drm_bind(struct device *dev, bool has_components)
 		goto err_drvdata;
 	}
 
-	drm_mode_config_reset(drm);
+	ret = drm_atomic_private_obj_init(drm, &priv->private_obj,
+					  &ingenic_drm_private_state_funcs);
+	if (ret)
+		goto err_drvdata;
+
+	ret = drmm_add_action_or_reset(drm, ingenic_drm_atomic_private_obj_fini,
+				       &priv->private_obj);
+	if (ret)
+		goto err_drvdata;
+
+	ret = drm_mode_config_create_initial_state(drm);
+	if (ret)
+		goto err_drvdata;
 
 	ret = clk_prepare_enable(priv->pix_clk);
 	if (ret) {
@@ -1411,14 +1423,6 @@ static int ingenic_drm_bind(struct device *dev, bool has_components)
 		dev_err(dev, "Unable to register clock notifier\n");
 		goto err_devclk_disable;
 	}
-
-	drm_atomic_private_obj_init(drm, &priv->private_obj,
-				    &ingenic_drm_private_state_funcs);
-
-	ret = drmm_add_action_or_reset(drm, ingenic_drm_atomic_private_obj_fini,
-				       &priv->private_obj);
-	if (ret)
-		goto err_clk_notifier_unregister;
 
 	ret = drm_dev_register(drm, 0);
 	if (ret) {
