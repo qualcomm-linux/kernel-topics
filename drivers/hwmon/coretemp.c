@@ -67,7 +67,7 @@ enum coretemp_attr_index {
  * @last_updated: The time when the current temperature value was updated
  *		earlier (in jiffies).
  * @cpu_core_id: The CPU Core from which temperature values should be read
- *		This value is passed as "id" field to rdmsr/wrmsr functions.
+ *		This value is passed as "id" field to rdmsrq/wrmsrq functions.
  * @status_reg: One of IA32_THERM_STATUS or IA32_PACKAGE_THERM_STATUS,
  *		from where the temperature values should be read.
  * @attr_size:  Number of sysfs attributes in this temperature data group.
