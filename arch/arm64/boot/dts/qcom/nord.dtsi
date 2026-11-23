@@ -1973,6 +1973,8 @@
 			snps,axi-config = <&emac0_axi_setup>;
 			snps,mtl-rx-config = <&emac0_mtl_rx>;
 			snps,mtl-tx-config = <&emac0_mtl_tx>;
+			nvmem-cells = <&mac_addr0>;
+			nvmem-cell-names = "mac-address";
 
 			status = "disabled";
 
@@ -2114,6 +2116,8 @@
 			snps,axi-config = <&emac1_axi_setup>;
 			snps,mtl-rx-config = <&emac1_mtl_rx>;
 			snps,mtl-tx-config = <&emac1_mtl_tx>;
+			nvmem-cells = <&mac_addr1>;
+			nvmem-cell-names = "mac-address";
 
 			status = "disabled";
 
@@ -7533,6 +7537,37 @@
 				    "llcc15_base",
 				    "llcc_broadcast_base",
 				    "llcc_broadcast_and_base";
+		};
+
+		qfprom: efuse@360d4000 {
+			compatible = "qcom,nord-qfprom", "qcom,qfprom";
+			reg = <0x0 0x360d4000 0x0 0x4000>;
+
+			nvmem-layout {
+				compatible = "fixed-layout";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				/*
+				 * OEM_CONFIG8 (0x320) and OEM_CONFIG9 (0x324) hold the
+				 * Ethernet MAC addresses:
+				 *   0x320[31:0]  bytes 0-3, shared by both EMACs
+				 *   0x324[7:0]   byte 4, shared by both EMACs
+				 *   0x324[15:8]  byte 5, last EMAC0 octet
+				 *   0x324[23:16] byte 6, last EMAC1 octet
+				 *   0x324[24]    EMAC0_DATA_VALID
+				 *   0x324[25]    EMAC1_DATA_VALID
+				 */
+				mac_addr0: mac-addr0@320 {
+					reg = <0x320 0x6>;
+					byte-mask = <0x3f>;
+				};
+
+				mac_addr1: mac-addr1@320,1 {
+					reg = <0x320 0x6>;
+					byte-mask = <0x5f>;
+				};
+			};
 		};
 	};
 
