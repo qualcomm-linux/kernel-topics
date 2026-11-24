@@ -49,6 +49,7 @@ properties:
           - qcom,sdx55-pdc
           - qcom,sdx65-pdc
           - qcom,sdx75-pdc
+          - qcom,seca-pdc
           - qcom,sm4450-pdc
           - qcom,sm6350-pdc
           - qcom,sm7250-pdc
