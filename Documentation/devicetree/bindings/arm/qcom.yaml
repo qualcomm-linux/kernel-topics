@@ -1093,6 +1093,11 @@ properties:
 
       - items:
           - enum:
+              - qcom,secaau-ride
+          - const: qcom,seca
+
+      - items:
+          - enum:
               - oneplus,billie2
           - const: qcom,sm4250
 
