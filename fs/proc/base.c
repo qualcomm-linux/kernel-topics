@@ -2029,9 +2029,11 @@ int pid_getattr(const struct mnt_idmap *idmap, const struct path *path,
  */
 void pid_update_inode(struct task_struct *task, struct inode *inode)
 {
+	spin_lock(&inode->i_lock);
 	task_dump_owner(task, inode->i_mode, &inode->i_uid, &inode->i_gid);
 
 	inode->i_mode &= ~(S_ISUID | S_ISGID);
+	spin_unlock(&inode->i_lock);
 	security_task_to_inode(task, inode);
 }
 
@@ -2210,7 +2212,9 @@ static int map_files_d_revalidate(struct inode *dir, const struct qstr *name,
 	mmput(mm);
 
 	if (exact_vma_exists) {
+		spin_lock(&inode->i_lock);
 		task_dump_owner(task, 0, &inode->i_uid, &inode->i_gid);
+		spin_unlock(&inode->i_lock);
 
 		security_task_to_inode(task, inode);
 		status = 1;
