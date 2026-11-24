@@ -24,6 +24,12 @@ properties:
       - items:
           - const: qcom,sa8797p-geni-debug-uart
           - const: qcom,sa8255p-geni-debug-uart
+      - items:
+          - const: qcom,secaau-geni-uart
+          - const: qcom,sa8255p-geni-uart
+      - items:
+          - const: qcom,secaau-geni-debug-uart
+          - const: qcom,sa8255p-geni-debug-uart
 
   reg:
     maxItems: 1
