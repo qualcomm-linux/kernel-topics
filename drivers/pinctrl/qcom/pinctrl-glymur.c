@@ -1762,6 +1762,7 @@ static const struct msm_pinctrl_soc_data glymur_tlmm = {
 	.ngpios = 251,
 	.wakeirq_map = glymur_pdc_map,
 	.nwakeirq_map = ARRAY_SIZE(glymur_pdc_map),
+	.wakeirq_dual_edge_errata = true,
 	.egpio_func = 11,
 };
 
@@ -1775,6 +1776,7 @@ static const struct msm_pinctrl_soc_data mahua_tlmm = {
 	.ngpios = 251,
 	.wakeirq_map = mahua_pdc_map,
 	.nwakeirq_map = ARRAY_SIZE(mahua_pdc_map),
+	.wakeirq_dual_edge_errata = true,
 	.egpio_func = 11,
 };
 
