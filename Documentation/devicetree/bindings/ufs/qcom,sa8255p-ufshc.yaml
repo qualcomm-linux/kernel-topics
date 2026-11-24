@@ -16,6 +16,9 @@ properties:
       - items:
           - const: qcom,sa8797p-ufshc
           - const: qcom,sa8255p-ufshc
+      - items:
+          - const: qcom,secaau-ufshc
+          - const: qcom,sa8255p-ufshc
 
   reg:
     minItems: 1
