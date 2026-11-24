@@ -17,6 +17,9 @@ properties:
   compatible:
     oneOf:
       - items:
+          - const: qcom,seca-cpucp-mbox
+          - const: qcom,nord-cpucp-mbox
+      - items:
           - enum:
               - qcom,glymur-cpucp-mbox
               - qcom,hawi-cpucp-mbox
