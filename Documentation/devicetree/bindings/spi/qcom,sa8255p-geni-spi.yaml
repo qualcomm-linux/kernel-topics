@@ -16,6 +16,9 @@ properties:
       - items:
           - const: qcom,sa8797p-geni-spi
           - const: qcom,sa8255p-geni-spi
+      - items:
+          - const: qcom,secaau-geni-spi
+          - const: qcom,sa8255p-geni-spi
 
   reg:
     maxItems: 1
