@@ -3029,7 +3029,7 @@ static unsigned long gup_fast_pte_range(pmd_t pmd, pmd_t *pmdp,
 		if (nr_batch > 1 && try_grab_folio(folio, nr_batch - 1, flags))
 			nr_batch = 1;
 
-		folio_set_referenced(folio);
+		folio_inc_lru_refs_fast(folio);
 		for (i = 0; i < nr_batch; i++)
 			pages[nr_pages + i] = page + i;
 		nr_pages += nr_batch;
@@ -3104,7 +3104,7 @@ static unsigned long gup_fast_pmd_leaf(pmd_t orig, pmd_t *pmdp,
 
 	for (i = 0; i < nr_pages; i++)
 		*(pages++) = page++;
-	folio_set_referenced(folio);
+	folio_inc_lru_refs_fast(folio);
 	return nr_pages;
 }
 
@@ -3148,7 +3148,7 @@ static unsigned long gup_fast_pud_leaf(pud_t orig, pud_t *pudp,
 
 	for (i = 0; i < nr_pages; i++)
 		*(pages++) = page++;
-	folio_set_referenced(folio);
+	folio_inc_lru_refs_fast(folio);
 	return nr_pages;
 }
 
