@@ -1493,16 +1493,10 @@ static int qcom_pcie_host_init(struct dw_pcie_rp *pp)
 	if (ret)
 		goto err_deinit;
 
-	if (!pci->suspended) {
-		ret = pci_pwrctrl_create_devices(pci->dev);
-		if (ret)
-			goto err_disable_phy;
-	}
-
 	if (!pp->skip_pwrctrl_off) {
 		ret = pci_pwrctrl_power_on_devices(pci->dev);
 		if (ret)
-			goto err_pwrctrl_destroy;
+			goto err_disable_phy;
 	}
 
 	if (pcie->cfg->ops->post_init) {
@@ -1534,9 +1528,6 @@ err_assert_reset:
 err_pwrctrl_power_off:
 	if (!pp->skip_pwrctrl_off)
 		pci_pwrctrl_power_off_devices(pci->dev);
-err_pwrctrl_destroy:
-	if (ret != -EPROBE_DEFER && !pci->suspended)
-		pci_pwrctrl_destroy_devices(pci->dev);
 err_disable_phy:
 	qcom_pcie_phy_power_off(pcie);
 err_deinit:
@@ -2069,6 +2060,7 @@ static int qcom_pcie_parse_perst(struct qcom_pcie *pcie,
 	struct qcom_pcie_perst *perst;
 	struct device_node *gpio_np;
 	struct gpio_desc *reset;
+	enum gpiod_flags flags;
 	int ret;
 
 	if (pcie->reset) {
@@ -2082,11 +2074,10 @@ static int qcom_pcie_parse_perst(struct qcom_pcie *pcie,
 		goto parse_child_node;
 
 	/*
-	 * Skip GPIOs provided by a PCIe device which is a child of the Root
-	 * Complex (e.g., a PCIe switch with GPIO controller capability). Such
-	 * controllers won't be available at RC probe time and their PERST#
-	 * should be controlled by the respective PCI client driver
-	 * implementation.
+	 * GPIOs provided by a PCIe device which is a child of the Root Complex
+	 * (e.g., a PCIe switch with GPIO controller capability) can't be
+	 * accessed at RC probe time, as the device is not powered on yet. Don't
+	 * change their state here.
 	 */
 	gpio_np = of_parse_phandle(np, "reset-gpios", 0);
 	if (!gpio_np) {
@@ -2094,14 +2085,11 @@ static int qcom_pcie_parse_perst(struct qcom_pcie *pcie,
 		return -EINVAL;
 	}
 
-	if (qcom_pcie_is_child_node(dev, gpio_np)) {
-		of_node_put(gpio_np);
-		goto parse_child_node;
-	}
+	flags = qcom_pcie_is_child_node(dev, gpio_np) ? GPIOD_ASIS : GPIOD_OUT_HIGH;
 	of_node_put(gpio_np);
 
 	reset = devm_fwnode_gpiod_get(dev, of_fwnode_handle(np), "reset",
-				      GPIOD_OUT_HIGH, "PERST#");
+				      flags, "PERST#");
 	if (IS_ERR(reset)) {
 		/*
 		 * FIXME: GPIOLIB currently supports exclusive GPIO access only.
@@ -2159,8 +2147,10 @@ static int qcom_pcie_parse_port(struct qcom_pcie *pcie, struct device_node *node
 	INIT_LIST_HEAD(&port->perst);
 
 	ret = qcom_pcie_parse_perst(pcie, port, node);
-	if (ret)
+	if (ret) {
+		phy_exit(phy);
 		return ret;
+	}
 
 	/* TODO: Move to DWC core after multi Root Port support is added */
 	of_property_read_u32(node, "t-power-on-us", &port->l1ss_t_power_on);
@@ -2376,12 +2366,20 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 
 	pp->ops = &qcom_pcie_dw_ops;
 
+	/*
+	 * Create the pwrctrl devices before parsing the ports, as the PERST#
+	 * GPIOs of downstream devices can be provided by them.
+	 */
+	ret = pci_pwrctrl_create_devices(dev);
+	if (ret)
+		goto err_pm_runtime_put;
+
 	ret = qcom_pcie_parse_ports(pcie);
 	if (ret) {
 		if (ret != -ENODEV) {
 			dev_err_probe(pci->dev, ret,
 				      "Failed to parse Root Port: %d\n", ret);
-			goto err_pm_runtime_put;
+			goto err_pwrctrl_destroy;
 		}
 
 		/*
@@ -2391,7 +2389,7 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		 */
 		ret = qcom_pcie_parse_legacy_binding(pcie);
 		if (ret)
-			goto err_pm_runtime_put;
+			goto err_pwrctrl_destroy;
 	}
 
 	platform_set_drvdata(pdev, pcie);
@@ -2444,6 +2442,9 @@ err_phy_exit:
 		phy_exit(port->phy);
 		list_del(&port->list);
 	}
+err_pwrctrl_destroy:
+	if (ret != -EPROBE_DEFER)
+		pci_pwrctrl_destroy_devices(dev);
 err_pm_runtime_put:
 	pm_runtime_put(dev);
 	pm_runtime_disable(dev);
