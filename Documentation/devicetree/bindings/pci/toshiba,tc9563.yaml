@@ -89,6 +89,14 @@ $defs:
     type: object
 
     properties:
+      reset-gpios:
+        maxItems: 1
+        description:
+          TC9563 GPIO, provided by the embedded GPIO controller, that
+          resets the endpoint connected to the downstream port. The PCIe
+          host controller drives it together with its own PERST# when it
+          keeps the switch powered across system suspend.
+
       toshiba,tx-amplitude-microvolt:
         description:
           Change Tx Margin setting for low power consumption.
@@ -140,6 +148,8 @@ examples:
                 device_type = "pci";
                 #address-cells = <3>;
                 #size-cells = <2>;
+                gpio-controller;
+                #gpio-cells = <2>;
                 ranges;
                 bus-range = <0x02 0xff>;
 
@@ -153,9 +163,6 @@ examples:
                 vddio18-supply = <&vdd>;
 
                 resx-gpios = <&gpio 1 GPIO_ACTIVE_LOW>;
-
-                gpio-controller;
-                #gpio-cells = <2>;
 
                 pcie@1,0 {
                     compatible = "pciclass,0604";
