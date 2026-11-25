@@ -2213,6 +2213,287 @@
 		status = "disabled";
 	};
 
+	pcie0_ep: pcie-ep@1b80000 {
+		compatible = "qcom,nord-pcie-ep";
+
+		reg = <0x00 0x01b80000 0x00 0x00004000>,
+		      <0x00 0x40000000 0x00 0x00000f20>,
+		      <0x00 0x40000f20 0x00 0x000000a8>,
+		      <0x00 0x40010000 0x00 0x00020000>,
+		      <0x00 0x40100000 0x00 0x0ff00000>,
+		      <0x00 0x01b84000 0x00 0x00001000>,
+		      <0x00 0x40030000 0x00 0x00010000>,
+		      <0x00 0x40020000 0x00 0x00001400>;
+		reg-names = "parf",
+			    "dbi",
+			    "elbi",
+			    "atu",
+			    "addr_space",
+			    "mmio",
+			    "dma",
+			    "msix";
+
+		clocks = <&gcc GCC_PCIE_A_AUX_CLK>,
+			 <&gcc GCC_PCIE_A_CFG_AHB_CLK>,
+			 <&gcc GCC_PCIE_A_MSTR_AXI_CLK>,
+			 <&gcc GCC_PCIE_A_SLV_AXI_CLK>,
+			 <&gcc GCC_PCIE_A_SLV_Q2A_AXI_CLK>;
+		clock-names = "aux",
+			      "cfg",
+			      "bus_master",
+			      "bus_slave",
+			      "slave_q2a";
+
+		assigned-clocks = <&gcc GCC_PCIE_A_AUX_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		dma-coherent;
+
+		interrupts = <GIC_SPI 140 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 153 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 444 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "global",
+				  "doorbell",
+				  "dma";
+
+		interconnects = <&pcie_data_inbound MASTER_PCIE_0 QCOM_ICC_TAG_ALWAYS
+				 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>,
+				<&hscnoc MASTER_APPSS_PROC QCOM_ICC_TAG_ALWAYS
+				 &config_noc SLAVE_PCIE_0 QCOM_ICC_TAG_ALWAYS>;
+		interconnect-names = "pcie-mem",
+				     "cpu-pcie";
+
+		iommus = <&pcie_smmu 0x0>;
+
+		resets = <&gcc GCC_PCIE_A_BCR>;
+		reset-names = "core";
+
+		power-domains = <&gcc GCC_PCIE_A_GDSC>;
+
+		phys = <&pcie_phy 0>;
+		phy-names = "pciephy";
+
+		reset-gpios = <&tlmm 2 GPIO_ACTIVE_LOW>;
+		wake-gpios = <&tlmm 0 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&pcie0_ep_default>;
+		pinctrl-names = "default";
+
+		linux,pci-domain = <0>;
+
+		status = "disabled";
+	};
+
+	pcie1_ep: pcie-ep@1b88000 {
+		compatible = "qcom,nord-pcie-ep";
+
+		reg = <0x00 0x01b88000 0x00 0x00004000>,
+		      <0x00 0x50000000 0x00 0x00000f20>,
+		      <0x00 0x50000f20 0x00 0x000000a8>,
+		      <0x00 0x50010000 0x00 0x00010000>,
+		      <0x00 0x50100000 0x00 0x00100000>,
+		      <0x00 0x01b8c000 0x00 0x00001000>,
+		      <0x00 0x50030000 0x00 0x00010000>;
+		reg-names = "parf",
+			    "dbi",
+			    "elbi",
+			    "atu",
+			    "addr_space",
+			    "mmio",
+			    "dma";
+
+		clocks = <&gcc GCC_PCIE_B_AUX_CLK>,
+			 <&gcc GCC_PCIE_B_CFG_AHB_CLK>,
+			 <&gcc GCC_PCIE_B_MSTR_AXI_CLK>,
+			 <&gcc GCC_PCIE_B_SLV_AXI_CLK>,
+			 <&gcc GCC_PCIE_B_SLV_Q2A_AXI_CLK>;
+		clock-names = "aux",
+			      "cfg",
+			      "bus_master",
+			      "bus_slave",
+			      "slave_q2a";
+
+		assigned-clocks = <&gcc GCC_PCIE_B_AUX_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		dma-coherent;
+
+		interrupts = <GIC_SPI 102 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 658 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 845 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "global",
+				  "doorbell",
+				  "dma";
+
+		interconnects = <&pcie_data_inbound MASTER_PCIE_1 QCOM_ICC_TAG_ALWAYS
+				 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>,
+				<&hscnoc MASTER_APPSS_PROC QCOM_ICC_TAG_ALWAYS
+				 &config_noc SLAVE_PCIE_1 QCOM_ICC_TAG_ALWAYS>;
+		interconnect-names = "pcie-mem",
+				     "cpu-pcie";
+
+		iommus = <&pcie_smmu 0x10000>;
+
+		resets = <&gcc GCC_PCIE_B_BCR>;
+		reset-names = "core";
+
+		power-domains = <&gcc GCC_PCIE_B_GDSC>;
+
+		phys = <&pcie_phy 1>;
+		phy-names = "pciephy";
+
+		reset-gpios = <&tlmm 5 GPIO_ACTIVE_LOW>;
+		wake-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&pcie1_ep_default>;
+		pinctrl-names = "default";
+
+		num-lanes = <4>;
+		linux,pci-domain = <1>;
+
+		status = "disabled";
+	};
+
+	pcie2_ep: pcie-ep@1b90000 {
+		compatible = "qcom,nord-pcie-ep";
+
+		reg = <0x00 0x01b90000 0x00 0x00004000>,
+		      <0x00 0x60000000 0x00 0x00000f20>,
+		      <0x00 0x60000f20 0x00 0x000000a8>,
+		      <0x00 0x60010000 0x00 0x00010000>,
+		      <0x00 0x60100000 0x00 0x00100000>,
+		      <0x00 0x01b94000 0x00 0x00001000>,
+		      <0x00 0x60030000 0x00 0x00010000>;
+		reg-names = "parf",
+			    "dbi",
+			    "elbi",
+			    "atu",
+			    "addr_space",
+			    "mmio",
+			    "dma";
+
+		clocks = <&gcc GCC_PCIE_C_AUX_CLK>,
+			 <&gcc GCC_PCIE_C_CFG_AHB_CLK>,
+			 <&gcc GCC_PCIE_C_MSTR_AXI_CLK>,
+			 <&gcc GCC_PCIE_C_SLV_AXI_CLK>,
+			 <&gcc GCC_PCIE_C_SLV_Q2A_AXI_CLK>;
+		clock-names = "aux",
+			      "cfg",
+			      "bus_master",
+			      "bus_slave",
+			      "slave_q2a";
+
+		assigned-clocks = <&gcc GCC_PCIE_C_AUX_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		dma-coherent;
+
+		interrupts = <GIC_SPI 464 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 108 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 238 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "global",
+				  "doorbell",
+				  "dma";
+
+		interconnects = <&pcie_data_inbound MASTER_PCIE_2 QCOM_ICC_TAG_ALWAYS
+				 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>,
+				<&hscnoc MASTER_APPSS_PROC QCOM_ICC_TAG_ALWAYS
+				 &config_noc SLAVE_PCIE_2 QCOM_ICC_TAG_ALWAYS>;
+		interconnect-names = "pcie-mem",
+				     "cpu-pcie";
+
+		iommus = <&pcie_smmu 0x20000>;
+
+		resets = <&gcc GCC_PCIE_C_BCR>;
+		reset-names = "core";
+
+		power-domains = <&gcc GCC_PCIE_C_GDSC>;
+
+		phys = <&pcie_phy 2>;
+		phy-names = "pciephy";
+
+		reset-gpios = <&tlmm 8 GPIO_ACTIVE_LOW>;
+		wake-gpios = <&tlmm 6 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&pcie2_ep_default>;
+		pinctrl-names = "default";
+
+		num-lanes = <2>;
+		linux,pci-domain = <2>;
+
+		status = "disabled";
+	};
+
+	pcie3_ep: pcie-ep@1b98000 {
+		compatible = "qcom,nord-pcie-ep";
+
+		reg = <0x00 0x01b98000 0x00 0x00004000>,
+		      <0x00 0x70000000 0x00 0x00000f20>,
+		      <0x00 0x70000f20 0x00 0x000000a8>,
+		      <0x00 0x70010000 0x00 0x00010000>,
+		      <0x00 0x70100000 0x00 0x00100000>,
+		      <0x00 0x01b9c000 0x00 0x00001000>,
+		      <0x00 0x70030000 0x00 0x00010000>;
+		reg-names = "parf",
+			    "dbi",
+			    "elbi",
+			    "atu",
+			    "addr_space",
+			    "mmio",
+			    "dma";
+
+		clocks = <&gcc GCC_PCIE_D_AUX_CLK>,
+			 <&gcc GCC_PCIE_D_CFG_AHB_CLK>,
+			 <&gcc GCC_PCIE_D_MSTR_AXI_CLK>,
+			 <&gcc GCC_PCIE_D_SLV_AXI_CLK>,
+			 <&gcc GCC_PCIE_D_SLV_Q2A_AXI_CLK>;
+		clock-names = "aux",
+			      "cfg",
+			      "bus_master",
+			      "bus_slave",
+			      "slave_q2a";
+
+		assigned-clocks = <&gcc GCC_PCIE_D_AUX_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		dma-coherent;
+
+		interrupts = <GIC_SPI 465 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 109 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 107 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "global",
+				  "doorbell",
+				  "dma";
+
+		interconnects = <&pcie_data_inbound MASTER_PCIE_3 QCOM_ICC_TAG_ALWAYS
+				 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>,
+				<&hscnoc MASTER_APPSS_PROC QCOM_ICC_TAG_ALWAYS
+				 &config_noc SLAVE_PCIE_3 QCOM_ICC_TAG_ALWAYS>;
+		interconnect-names = "pcie-mem",
+				     "cpu-pcie";
+
+		iommus = <&pcie_smmu 0x30000>;
+
+		resets = <&gcc GCC_PCIE_D_BCR>;
+		reset-names = "core";
+
+		power-domains = <&gcc GCC_PCIE_D_GDSC>;
+
+		phys = <&pcie_phy 3>;
+		phy-names = "pciephy";
+
+		reset-gpios = <&tlmm 11 GPIO_ACTIVE_LOW>;
+		wake-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&pcie3_ep_default>;
+		pinctrl-names = "default";
+
+		num-lanes = <2>;
+		linux,pci-domain = <3>;
+
+		status = "disabled";
+	};
+
 	pcie_cfg: interconnect@1ba0000 {
 		compatible = "qcom,nord-pcie-cfg";
 		reg = <0x0 0x01ba0000 0x0 0x7200>;
@@ -3007,6 +3288,94 @@
 
 		perst-pins {
 			pins = "gpio11";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	pcie0_ep_default: pcie0-ep-default-state {
+		perst-pins {
+			pins = "gpio2";
+			function = "gpio";
+			bias-pull-down;
+		};
+
+		clkreq-pins {
+			pins = "gpio1";
+			function = "pcie0_clk_req_n";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+
+		wake-pins {
+			pins = "gpio0";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	pcie1_ep_default: pcie1-ep-default-state {
+		perst-pins {
+			pins = "gpio5";
+			function = "gpio";
+			bias-pull-down;
+		};
+
+		clkreq-pins {
+			pins = "gpio4";
+			function = "pcie1_clk_req_n";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+
+		wake-pins {
+			pins = "gpio3";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	pcie2_ep_default: pcie2-ep-default-state {
+		perst-pins {
+			pins = "gpio8";
+			function = "gpio";
+			bias-pull-down;
+		};
+
+		clkreq-pins {
+			pins = "gpio7";
+			function = "pcie2_clk_req_n";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+
+		wake-pins {
+			pins = "gpio6";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	pcie3_ep_default: pcie3-ep-default-state {
+		perst-pins {
+			pins = "gpio11";
+			function = "gpio";
+			bias-pull-down;
+		};
+
+		clkreq-pins {
+			pins = "gpio10";
+			function = "pcie3_clk_req_n";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+
+		wake-pins {
+			pins = "gpio9";
 			function = "gpio";
 			drive-strength = <2>;
 			bias-disable;
