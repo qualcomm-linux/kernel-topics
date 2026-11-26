@@ -1123,6 +1123,9 @@ config ARCH_SELECTS_KEXEC_FILE
 	select HAVE_IMA_KEXEC_OF if IMA
 	select KEXEC_ELF
 
+config ARCH_SUPPORTS_KEXEC_HANDOVER
+	def_bool 64BIT && MMU
+
 config COMPAT
 	bool "Kernel support for 32-bit U-mode"
 	default 64BIT
