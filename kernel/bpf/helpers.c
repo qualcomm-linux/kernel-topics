@@ -13,6 +13,7 @@
 #include <linux/sched.h>
 #include <linux/uidgid.h>
 #include <linux/filter.h>
+#include <net/xdp.h>
 #include <linux/ctype.h>
 #include <linux/jiffies.h>
 #include <linux/pid_namespace.h>
@@ -22,7 +23,7 @@
 #include <linux/security.h>
 #include <linux/btf_ids.h>
 #include <linux/bpf_mem_alloc.h>
-#include <linux/kasan.h>
+#include <linux/kprobes.h>
 #include <linux/bpf_verifier.h>
 #include <linux/uaccess.h>
 #include <linux/verification.h>
@@ -726,7 +727,7 @@ BPF_CALL_5(bpf_copy_from_user_task, void *, dst, u32, size,
 	if (unlikely(!size))
 		return 0;
 
-	mm = get_task_mm(tsk);
+	mm = tsk ? get_task_mm(tsk) : NULL;
 	if (!mm) {
 		memset(dst, 0, size);
 		return -EFAULT;
@@ -2185,10 +2186,6 @@ bpf_base_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_spin_unlock_proto;
 	case BPF_FUNC_jiffies64:
 		return &bpf_jiffies64_proto;
-	case BPF_FUNC_per_cpu_ptr:
-		return &bpf_per_cpu_ptr_proto;
-	case BPF_FUNC_this_cpu_ptr:
-		return &bpf_this_cpu_ptr_proto;
 	case BPF_FUNC_timer_init:
 		return &bpf_timer_init_proto;
 	case BPF_FUNC_timer_set_callback:
@@ -2292,6 +2289,10 @@ bpf_base_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_get_branch_snapshot_proto;
 	case BPF_FUNC_find_vma:
 		return &bpf_find_vma_proto;
+	case BPF_FUNC_per_cpu_ptr:
+		return &bpf_per_cpu_ptr_proto;
+	case BPF_FUNC_this_cpu_ptr:
+		return &bpf_this_cpu_ptr_proto;
 	default:
 		return NULL;
 	}
@@ -2302,6 +2303,7 @@ void bpf_list_head_free(const struct btf_field *field, void *list_head,
 			struct bpf_spin_lock *spin_lock)
 {
 	struct list_head *head = list_head, drain, *pos, *n;
+	unsigned long flags;
 
 	BUILD_BUG_ON(sizeof(struct list_head) > sizeof(struct bpf_list_head));
 	BUILD_BUG_ON(__alignof__(struct list_head) > __alignof__(struct bpf_list_head));
@@ -2313,7 +2315,8 @@ void bpf_list_head_free(const struct btf_field *field, void *list_head,
 	 * section, and end up doing map ops that call bpf_list_head_free for
 	 * the same map value again.
 	 */
-	__bpf_spin_lock_irqsave(spin_lock);
+	local_irq_save(flags);
+	__bpf_spin_lock(spin_lock);
 	if (!head->next || list_empty(head))
 		goto unlock;
 	list_for_each_safe(pos, n, head) {
@@ -2325,7 +2328,8 @@ void bpf_list_head_free(const struct btf_field *field, void *list_head,
 	}
 unlock:
 	INIT_LIST_HEAD(head);
-	__bpf_spin_unlock_irqrestore(spin_lock);
+	__bpf_spin_unlock(spin_lock);
+	local_irq_restore(flags);
 
 	while (!list_empty(&drain)) {
 		struct bpf_list_node_kern *node;
@@ -2362,19 +2366,22 @@ void bpf_rb_root_free(const struct btf_field *field, void *rb_root,
 	struct rb_root_cached orig_root, *root = rb_root;
 	struct bpf_rb_node_kern *node;
 	struct rb_node *pos, *n;
+	unsigned long flags;
 	void *obj;
 
 	BUILD_BUG_ON(sizeof(struct rb_root_cached) > sizeof(struct bpf_rb_root));
 	BUILD_BUG_ON(__alignof__(struct rb_root_cached) > __alignof__(struct bpf_rb_root));
 
-	__bpf_spin_lock_irqsave(spin_lock);
+	local_irq_save(flags);
+	__bpf_spin_lock(spin_lock);
 	orig_root = *root;
 	bpf_rbtree_postorder_for_each_entry_safe(pos, n, &orig_root.rb_root) {
 		node = rb_entry(pos, struct bpf_rb_node_kern, rb_node);
 		WRITE_ONCE(node->owner, BPF_PTR_POISON);
 	}
 	*root = RB_ROOT_CACHED;
-	__bpf_spin_unlock_irqrestore(spin_lock);
+	__bpf_spin_unlock(spin_lock);
+	local_irq_restore(flags);
 
 	bpf_rbtree_postorder_for_each_entry_safe(pos, n, &orig_root.rb_root) {
 		obj = pos;
@@ -3138,7 +3145,8 @@ __bpf_kfunc void *bpf_dynptr_slice(const struct bpf_dynptr *p, u64 offset,
 		if (!IS_ERR_OR_NULL(xdp_ptr))
 			return xdp_ptr;
 
-		if (!buffer__nullable)
+		/* the packet may be shorter than it was for bpf_dynptr_from_xdp() */
+		if (!buffer__nullable || ptr->offset + offset + len > xdp_get_buff_len(ptr->data))
 			return NULL;
 		bpf_xdp_copy_buf(ptr->data, ptr->offset + offset, buffer__nullable, len, false);
 		return buffer__nullable;
@@ -3457,7 +3465,8 @@ static bool bpf_stack_walker(void *cookie, u64 ip, u64 sp, u64 bp)
 	return false;
 }
 
-__bpf_kfunc void bpf_throw(u64 cookie)
+/* It does not return. What a tracer keeps for the return would stay behind, redzones too. */
+__bpf_kfunc notrace __no_sanitize_address void bpf_throw(u64 cookie)
 {
 	struct bpf_throw_ctx ctx = {};
 
@@ -3467,16 +3476,11 @@ __bpf_kfunc void bpf_throw(u64 cookie)
 		WARN_ON_ONCE(!ctx.aux->exception_boundary);
 	WARN_ON_ONCE(!ctx.bp);
 	WARN_ON_ONCE(!ctx.cnt);
-	/*
-	 * Prevent KASAN false positives for CONFIG_KASAN_STACK by unpoisoning
-	 * deeper stack depths than ctx.sp as we do not return from bpf_throw,
-	 * which skips compiler generated instrumentation to do the same. Some
-	 * architectures cannot recover sp while unwinding, so fall back to bp.
-	 */
-	kasan_unpoison_task_stack_below((void *)(long)(ctx.sp ?: ctx.bp));
+	/* arm64 drops one entry of the shadow call stack, don't move the call to a callee */
 	ctx.aux->bpf_exception_cb(cookie, ctx.sp + ctx.aux->stack_arg_sp_adjust, ctx.bp, 0, 0);
 	WARN(1, "A call to BPF exception callback should never return\n");
 }
+NOKPROBE_SYMBOL(bpf_throw);
 
 __bpf_kfunc int bpf_wq_init(struct bpf_wq *wq, void *p__const_map, unsigned int flags)
 {
@@ -5155,7 +5159,7 @@ BTF_ID_FLAGS(func, bpf_task_from_pid, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_task_from_vpid, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_throw)
 #ifdef CONFIG_BPF_EVENTS
-BTF_ID_FLAGS(func, bpf_send_signal_task)
+BTF_ID_FLAGS(func, bpf_send_signal_task, KF_PERFMON)
 #endif
 #ifdef CONFIG_KEYS
 BTF_ID_FLAGS(func, bpf_lookup_user_key, KF_ACQUIRE | KF_RET_NULL | KF_SLEEPABLE)
@@ -5271,8 +5275,8 @@ BTF_ID_FLAGS(func, bpf_cgroup_read_xattr, KF_RCU)
 #endif
 BTF_ID_FLAGS(func, bpf_stream_vprintk, KF_IMPLICIT_ARGS | KF_SPINLOCK_SAFE | KF_PERFMON)
 BTF_ID_FLAGS(func, bpf_stream_print_stack, KF_IMPLICIT_ARGS | KF_SPINLOCK_SAFE | KF_PERFMON)
-BTF_ID_FLAGS(func, bpf_task_work_schedule_signal, KF_IMPLICIT_ARGS)
-BTF_ID_FLAGS(func, bpf_task_work_schedule_resume, KF_IMPLICIT_ARGS)
+BTF_ID_FLAGS(func, bpf_task_work_schedule_signal, KF_IMPLICIT_ARGS | KF_PERFMON)
+BTF_ID_FLAGS(func, bpf_task_work_schedule_resume, KF_IMPLICIT_ARGS | KF_PERFMON)
 BTF_ID_FLAGS(func, bpf_call_rcu, KF_IMPLICIT_ARGS)
 BTF_ID_FLAGS(func, bpf_call_rcu_tasks_trace, KF_IMPLICIT_ARGS)
 BTF_ID_FLAGS(func, bpf_dynptr_from_file)
