@@ -10,6 +10,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
+#include <linux/gpio/driver.h>
 #include <linux/i2c.h>
 #include <linux/idr.h>
 #include <linux/module.h>
@@ -520,6 +521,35 @@ static int tc9563_pwrctrl_add_gpio_adev(struct tc9563_pwrctrl *tc9563)
 				       tc9563->regmap);
 }
 
+/*
+ * The PCIe host controller driver may request the endpoint reset GPIOs before
+ * the switch is powered. gpiolib cannot read their direction then, and refuses
+ * to drive a line it does not know to be an output. Now that the switch is
+ * accessible and the lines are outputs, make gpiolib read the direction again.
+ *
+ * Only DSP1 and DSP2 connect to external devices and expose a reset line on
+ * the embedded GPIO controller, at the same fixed offsets (port index + 1)
+ * used by the legacy regmap-based reset in tc9563_pwrctrl_assert_deassert_reset().
+ */
+static void tc9563_pwrctrl_sync_gpio_direction(struct tc9563_pwrctrl *tc9563)
+{
+	struct gpio_device *gdev;
+	struct gpio_desc *desc;
+	int i;
+
+	gdev = gpio_device_find_by_fwnode(dev_fwnode(tc9563->pwrctrl.dev));
+	if (!gdev)
+		return;
+
+	for (i = TC9563_DSP1; i <= TC9563_DSP2; i++) {
+		desc = gpio_device_get_desc(gdev, i + 1);
+		if (!IS_ERR(desc))
+			gpiod_get_direction(desc);
+	}
+
+	gpio_device_put(gdev);
+}
+
 static int tc9563_pwrctrl_power_off(struct pci_pwrctrl *pwrctrl)
 {
 	struct tc9563_pwrctrl *tc9563 = container_of(pwrctrl,
@@ -612,8 +642,12 @@ static int tc9563_pwrctrl_power_on(struct pci_pwrctrl *pwrctrl)
 	}
 
 	ret = tc9563_pwrctrl_assert_deassert_reset(tc9563, true);
-	if (!ret)
-		return 0;
+	if (ret)
+		goto power_off;
+
+	tc9563_pwrctrl_sync_gpio_direction(tc9563);
+
+	return 0;
 
 power_off:
 	tc9563_pwrctrl_power_off(&tc9563->pwrctrl);
