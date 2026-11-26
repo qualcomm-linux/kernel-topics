@@ -2024,14 +2024,64 @@ int pid_getattr(const struct mnt_idmap *idmap, const struct path *path,
 
 /* dentry stuff */
 
+/**
+ * proc_task_owner_valid - does a task inode already have the right owner?
+ * @task: the task which @inode describes
+ * @inode: a proc inode which takes its owner from @task
+ * @dump_mode: the mode to pass to task_dump_owner()
+ * @mode: the mode which @inode should have
+ *
+ * Lookups recompute the owner of a task's proc inodes from the task every
+ * time, but it rarely changes.  Check for that without writing to the
+ * inode, so that concurrent lookups of one inode do not contend.
+ *
+ * An unlocked comparison alone is not enough.  The inode may hold the
+ * right owner now while another lookup, which looked at the task before
+ * its credentials last changed, is about to store the old one.  Updates
+ * are therefore made inside a write section of proc_inode.owner_seq and
+ * read the task inside that section.  If no write section overlapped this
+ * check then every later update reads the task after this one did and
+ * cannot store anything older than what was found here.
+ *
+ * @dump_mode and @mode may come from an unlocked read of @inode->i_mode.
+ * Its file type never changes and its permission bits are only changed
+ * by the updates which this function checks for.
+ *
+ * Return: true if @inode needs no update.  If false, the caller must
+ * update it between proc_task_owner_lock() and proc_task_owner_unlock().
+ */
+bool proc_task_owner_valid(struct task_struct *task, struct inode *inode,
+			   umode_t dump_mode, umode_t mode)
+{
+	struct proc_inode *ei = PROC_I(inode);
+	unsigned int seq;
+	bool same;
+	kuid_t uid;
+	kgid_t gid;
+
+	seq = read_seqcount_begin(&ei->owner_seq);
+	task_dump_owner(task, dump_mode, &uid, &gid);
+	same = uid_eq(inode->i_uid, uid) && gid_eq(inode->i_gid, gid) &&
+	       inode->i_mode == mode;
+
+	return !read_seqcount_retry(&ei->owner_seq, seq) && same;
+}
+
 /*
  * Set <pid>/... inode ownership (can change due to setuid(), etc.)
  */
 void pid_update_inode(struct task_struct *task, struct inode *inode)
 {
-	task_dump_owner(task, inode->i_mode, &inode->i_uid, &inode->i_gid);
+	umode_t mode = READ_ONCE(inode->i_mode);
 
-	inode->i_mode &= ~(S_ISUID | S_ISGID);
+	if (!proc_task_owner_valid(task, inode, mode,
+				   mode & ~(S_ISUID | S_ISGID))) {
+		proc_task_owner_lock(inode);
+		task_dump_owner(task, inode->i_mode, &inode->i_uid,
+				&inode->i_gid);
+		inode->i_mode &= ~(S_ISUID | S_ISGID);
+		proc_task_owner_unlock(inode);
+	}
 	security_task_to_inode(task, inode);
 }
 
@@ -2064,7 +2114,7 @@ out:
 
 static inline bool proc_inode_is_dead(struct inode *inode)
 {
-	return !proc_pid(inode)->tasks[PIDTYPE_PID].first;
+	return !pid_has_task(proc_pid(inode), PIDTYPE_PID);
 }
 
 int pid_delete_dentry(const struct dentry *dentry)
@@ -2210,7 +2260,12 @@ static int map_files_d_revalidate(struct inode *dir, const struct qstr *name,
 	mmput(mm);
 
 	if (exact_vma_exists) {
-		task_dump_owner(task, 0, &inode->i_uid, &inode->i_gid);
+		if (!proc_task_owner_valid(task, inode, 0,
+					   READ_ONCE(inode->i_mode))) {
+			proc_task_owner_lock(inode);
+			task_dump_owner(task, 0, &inode->i_uid, &inode->i_gid);
+			proc_task_owner_unlock(inode);
+		}
 
 		security_task_to_inode(task, inode);
 		status = 1;

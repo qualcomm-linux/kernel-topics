@@ -127,15 +127,21 @@ static bool tid_fd_mode(struct task_struct *task, unsigned fd, fmode_t *mode)
 static void tid_fd_update_inode(struct task_struct *task, struct inode *inode,
 				fmode_t f_mode)
 {
-	task_dump_owner(task, 0, &inode->i_uid, &inode->i_gid);
+	umode_t mode = READ_ONCE(inode->i_mode);
 
-	if (S_ISLNK(inode->i_mode)) {
-		unsigned i_mode = S_IFLNK;
+	if (S_ISLNK(mode)) {
+		mode = S_IFLNK;
 		if (f_mode & FMODE_READ)
-			i_mode |= S_IRUSR | S_IXUSR;
+			mode |= S_IRUSR | S_IXUSR;
 		if (f_mode & FMODE_WRITE)
-			i_mode |= S_IWUSR | S_IXUSR;
-		inode->i_mode = i_mode;
+			mode |= S_IWUSR | S_IXUSR;
+	}
+
+	if (!proc_task_owner_valid(task, inode, 0, mode)) {
+		proc_task_owner_lock(inode);
+		task_dump_owner(task, 0, &inode->i_uid, &inode->i_gid);
+		inode->i_mode = mode;
+		proc_task_owner_unlock(inode);
 	}
 	security_task_to_inode(task, inode);
 }

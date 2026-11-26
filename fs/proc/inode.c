@@ -59,6 +59,7 @@ static struct inode *proc_alloc_inode(struct super_block *sb)
 		return NULL;
 	ei->pid = NULL;
 	ei->fd = 0;
+	seqcount_spinlock_init(&ei->owner_seq, &ei->vfs_inode.i_lock);
 	ei->op.proc_get_link = NULL;
 	ei->pde = NULL;
 	ei->sysctl = NULL;
