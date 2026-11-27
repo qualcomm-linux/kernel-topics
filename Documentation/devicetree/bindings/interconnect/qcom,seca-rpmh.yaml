@@ -1,0 +1,141 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/interconnect/qcom,seca-rpmh.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm RPMh Network-On-Chip Interconnect on Seca SoCs
+
+maintainers:
+  - Bartosz Golaszewski <brgl@kernel.org>
+
+description: |
+  RPMh interconnect providers support system bandwidth requirements through
+  RPMh hardware accelerators known as Bus Clock Manager (BCM). The provider is
+  able to communicate with the BCM through the Resource State Coordinator (RSC)
+  associated with each execution environment. Provider nodes must point to at
+  least one RPMh device child node pertaining to their RSC and each provider
+  can map to multiple RPMh resources.
+
+  See also: include/dt-bindings/interconnect/qcom,seca-rpmh.h
+
+properties:
+  compatible:
+    enum:
+      - qcom,seca-aggre1-noc
+      - qcom,seca-aggre1-noc-tile
+      - qcom,seca-aggre2-noc
+      - qcom,seca-aggre2-noc-tile
+      - qcom,seca-clk-virt
+      - qcom,seca-cnoc-cfg
+      - qcom,seca-cnoc-main
+      - qcom,seca-hpass-ag-noc
+      - qcom,seca-hscnoc
+      - qcom,seca-mc-virt
+      - qcom,seca-mmss-noc-hf
+      - qcom,seca-mmss-noc-sf
+      - qcom,seca-nsp-data-noc-0
+      - qcom,seca-nsp-data-noc-1
+      - qcom,seca-pcie-cfg
+      - qcom,seca-pcie-data-inbound
+      - qcom,seca-pcie-data-outbound
+      - qcom,seca-system-noc
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    minItems: 1
+    maxItems: 3
+
+required:
+  - compatible
+
+allOf:
+  - $ref: qcom,rpmh-common.yaml#
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,seca-clk-virt
+              - qcom,seca-mc-virt
+    then:
+      properties:
+        reg: false
+    else:
+      required:
+        - reg
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,seca-aggre1-noc
+    then:
+      properties:
+        clocks:
+          items:
+            - description: aggre USB2 AXI clock
+            - description: aggre USB3 PRIM AXI clock
+            - description: aggre USB3 SEC AXI clock
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,seca-aggre1-noc-tile
+    then:
+      properties:
+        clocks:
+          items:
+            - description: aggre UFS 0 PHY AXI clock
+            - description: aggre UFS 1 PHY AXI clock
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,seca-aggre2-noc
+    then:
+      properties:
+        clocks:
+          items:
+            - description: RPMH CC IPA clock
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,seca-aggre1-noc
+              - qcom,seca-aggre1-noc-tile
+              - qcom,seca-aggre2-noc
+    then:
+      required:
+        - clocks
+    else:
+      properties:
+        clocks: false
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    clk_virt: interconnect-clk-virt {
+      compatible = "qcom,seca-clk-virt";
+      #interconnect-cells = <2>;
+      qcom,bcm-voters = <&apps_bcm_voter>;
+    };
+
+    aggre1_noc_tile: interconnect@1720000 {
+      compatible = "qcom,seca-aggre1-noc-tile";
+      reg = <0x01720000 0x23400>;
+      #interconnect-cells = <2>;
+      qcom,bcm-voters = <&apps_bcm_voter>;
+      clocks = <&nw_gcc_aggre_noc_ufs_0_phy_axi_clk>,
+               <&nw_gcc_aggre_noc_ufs_1_phy_axi_clk>;
+    };
