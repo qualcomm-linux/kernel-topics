@@ -21,6 +21,7 @@ select:
           - qcom,kaanapali-ufshc
           - qcom,maili-ufshc
           - qcom,nord-ufshc
+          - qcom,seca-ufshc
           - qcom,sm8650-ufshc
           - qcom,sm8750-ufshc
   required:
@@ -36,6 +37,7 @@ properties:
           - qcom,kaanapali-ufshc
           - qcom,maili-ufshc
           - qcom,nord-ufshc
+          - qcom,seca-ufshc
           - qcom,sm8650-ufshc
           - qcom,sm8750-ufshc
       - const: qcom,ufshc
@@ -85,6 +87,7 @@ allOf:
               - qcom,glymur-ufshc
               - qcom,maili-ufshc
               - qcom,nord-ufshc
+              - qcom,seca-ufshc
     then:
       properties:
         reg:
