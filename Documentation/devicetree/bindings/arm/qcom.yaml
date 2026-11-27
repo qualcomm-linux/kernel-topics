@@ -1094,6 +1094,7 @@ properties:
       - items:
           - enum:
               - qcom,secaau-ride
+              - qcom,seca-ride-embedded
           - const: qcom,seca
 
       - items:
