@@ -36,6 +36,7 @@ properties:
           - enum:
               - qcom,eliza-qmp-ufs-phy
               - qcom,nord-qmp-ufs-phy
+              - qcom,seca-qmp-ufs-phy
           - const: qcom,sm8650-qmp-ufs-phy
       - items:
           - enum:
