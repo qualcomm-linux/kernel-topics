@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/qcom,seca-tcsr.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Top Control and Status Register Clock Controller on Qualcomm Seca SoC
+
+maintainers:
+  - Bartosz Golaszewski <brgl@kernel.org>
+
+description: |
+  Qualcomm TCSR clock control module provides the clocks, resets and power
+  domains on the Seca SoC.
+
+  See also:
+  - include/dt-bindings/clock/qcom,seca-tcsrcc.h
+
+properties:
+  compatible:
+    const: qcom,seca-tcsr
+
+  clocks:
+    items:
+      - description: TCXO pad clock
+
+  reg:
+    maxItems: 1
+
+  '#clock-cells':
+    const: 1
+
+  vdda-qref-1p2-supply: true
+  vdda-qref0-0p9-supply: true
+  vdda-qref1-0p9-supply: true
+  vdda-qref2-0p9-supply: true
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - '#clock-cells'
+  - vdda-qref-1p2-supply
+  - vdda-qref0-0p9-supply
+  - vdda-qref1-0p9-supply
+  - vdda-qref2-0p9-supply
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/qcom,rpmh.h>
+
+    clock-controller@f1d7000 {
+      compatible = "qcom,seca-tcsr";
+      reg = <0xf1d7000 0xf00c>;
+      clocks = <&rpmhcc RPMH_CXO_CLK>;
+      #clock-cells = <1>;
+      vdda-qref-1p2-supply = <&vreg_px11>;
+      vdda-qref0-0p9-supply = <&vreg_l1h>;
+      vdda-qref1-0p9-supply = <&vreg_l1h>;
+      vdda-qref2-0p9-supply = <&vreg_l1h>;
+    };
+
+...
