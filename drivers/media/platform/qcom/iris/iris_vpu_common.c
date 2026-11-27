@@ -237,7 +237,8 @@ void iris_vpu_power_off(struct iris_core *core)
 	core->iris_platform_data->vpu_ops->power_off_controller(core);
 	iris_unset_icc_bw(core);
 
-	disable_irq_nosync(core->irq);
+	if (!iris_vpu_watchdog(core, core->intr_status))
+		disable_irq_nosync(core->irq);
 }
 
 int iris_vpu_power_on_controller(struct iris_core *core)
@@ -471,10 +472,6 @@ int iris_vpu_power_on(struct iris_core *core)
 
 	core->iris_platform_data->vpu_ops->interrupt_init(core);
 	core->intr_status = 0;
-	if (core->wdt_irq_disabled) {
-		core->wdt_irq_disabled = false;
-		enable_irq(core->irq);
-	}
 	enable_irq(core->irq);
 
 	return 0;
