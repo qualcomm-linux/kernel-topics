@@ -339,6 +339,16 @@ config CLK_SECA_GCC
 	  USB, SD/UFS, PCIe etc. The clock controller is a combination of
 	  NE_GCC and NW_GCC.
 
+config CLK_SECA_TCSRCC
+	tristate "Seca TCSR Clock Controller"
+	depends on ARM64 || COMPILE_TEST
+	default m if ARCH_QCOM
+	help
+	  Support for the TCSR clock controller on Seca devices. It gates
+	  the QREF reference clocks of the PCIe, UX SGMII, UFS, DP, USB3 and
+	  eUSB2 PHYs and votes the QREF supplies of each path.
+	  Say Y or M if you want to use any of these PHYs.
+
 config CLK_SHIKRA_GCC
 	tristate "Shikra Global Clock Controller"
 	depends on ARM64 || COMPILE_TEST
